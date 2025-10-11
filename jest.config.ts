@@ -5,6 +5,9 @@ export default {
   transform: {
     '^.+\\.ts$': ['ts-jest', { useESM: true, tsconfig: 'tsconfig.jest.json' }],
   },
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1', // remove .js extensions for Jest
+  },
   testMatch: ['<rootDir>/src/**/*.test.ts'],
   roots: ['<rootDir>/src'],
   moduleFileExtensions: ['ts', 'js', 'json', 'node'],
@@ -15,8 +18,11 @@ export default {
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/dist/',
-    'index.ts',
+    'initialization.ts',
     '\\.guard\\.ts$',
+    '/src/constants/',
+    '/src/index.ts',
+    '/src/types/',
   ],
   coverageThreshold: {
     global: {

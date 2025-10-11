@@ -139,3 +139,4 @@ vite.config.ts.timestamp-*
 
 # Custom
 .idea/
+.aider*
