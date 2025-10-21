@@ -7,7 +7,7 @@ export default tseslint.config(
       '**/dist/',
       'node_modules/',
       'src/types/*.guard.ts',
-      'src/index.ts',
+      'src/initialization.ts',
       '**/data/',
     ],
   },
