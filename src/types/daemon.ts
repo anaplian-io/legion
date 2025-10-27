@@ -1,4 +1,4 @@
-import { DeliverMessage } from './message.js';
+import { AgentOutputItem } from '@openai/agents';
 
 export interface DaemonIdentity {
   readonly id: string;
@@ -7,5 +7,6 @@ export interface DaemonIdentity {
 }
 
 export type Daemon = DaemonIdentity & {
-  readonly inbox: DeliverMessage;
+  readonly nextEpoch: () => Promise<string>;
+  readonly history: AgentOutputItem[];
 };
