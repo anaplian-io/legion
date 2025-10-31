@@ -1,15 +1,15 @@
+import { Agent, AgentOutputItem, run, SystemMessageItem } from '@openai/agents';
 import {
-  Agent,
-  AgentOutputItem,
-  run,
-  SystemMessageItem,
-  UserMessageItem,
-} from '@openai/agents';
-import { Daemon, DaemonIdentity } from '../types/daemon.js';
+  Daemon,
+  DaemonIdentity,
+  DaemonResponseMessage,
+  EpochMessage,
+} from '../types/daemon.js';
 import {
-  AgentMessagePostProcessor,
+  AgentMessageTransformer,
   ContextFormatter,
   ContextProvider,
+  EpochMessageTransformer,
 } from '../types/context.js';
 
 export interface OpenaiAgentDaemonProps {
@@ -18,7 +18,8 @@ export interface OpenaiAgentDaemonProps {
   readonly instructions: string;
   readonly contextFormatter: ContextFormatter;
   readonly contextProviders: ContextProvider[];
-  readonly agentMessagePostProcessor: AgentMessagePostProcessor;
+  readonly agentMessageTransformer: AgentMessageTransformer;
+  readonly epochMessageTransformer: EpochMessageTransformer;
   readonly runFn: typeof run;
 }
 
@@ -40,38 +41,44 @@ export class OpenAiAgentDaemon implements Daemon {
     return this._history;
   }
 
-  public readonly nextEpoch = async () => {
+  public readonly nextEpoch = async (
+    globalMessageHistory: EpochMessage[],
+  ): Promise<DaemonResponseMessage> => {
     const {
       agent,
       contextFormatter,
       contextProviders,
       instructions,
       runFn,
-      agentMessagePostProcessor,
+      agentMessageTransformer,
+      epochMessageTransformer,
     } = this.props;
     const currentCompiledContext = await contextFormatter.format(
       this._history,
       contextProviders,
     );
     const contextMessage: SystemMessageItem = {
-      content: `You are ${this.name} (agent ID ${this.id}). Current Context: ${currentCompiledContext}`,
+      content: `You are '${this.name}' (agent ID ${this.id}).\nAgent Instructions: ${instructions}\nCurrent Context: ${currentCompiledContext}`,
       role: 'system',
-      type: 'message',
-    };
-    const instructionsMessage: UserMessageItem = {
-      content: instructions,
-      role: 'user',
       type: 'message',
     };
     const agentEpochOutput = await runFn(agent, [
       contextMessage,
       ...this._history,
-      instructionsMessage,
+      ...epochMessageTransformer.transform(globalMessageHistory),
     ]);
-    const transformedAgentEpochOutput = agentMessagePostProcessor.transform(
+    const transformedAgentEpochOutput = agentMessageTransformer.transform(
       agentEpochOutput.output,
     );
     this._history = [...this._history, ...transformedAgentEpochOutput];
-    return agentEpochOutput.finalOutput ?? '<Agent generated no output>';
+    return {
+      type: 'daemon',
+      identity: {
+        id: this.id,
+        name: this.name,
+        description: this.description,
+      },
+      output: agentEpochOutput.finalOutput ?? '<Agent generated no output>',
+    };
   };
 }
