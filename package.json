@@ -46,7 +46,7 @@
     "@openai/agents": "^0.1.9",
     "langchain": "^0.3.35",
     "openai": "^6.7.0",
-    "zod": "^3.25.76",
+    "zod": "^4.1.12",
     "zod-to-json-schema": "^3.24.6"
   }
 }
