@@ -15,6 +15,11 @@ const mockRunFn = jest.fn().mockResolvedValue({
   finalOutput: 'final-result',
 });
 
+const mockEpochMessageTransformer = {
+  // The daemon expects this to return an array of AgentInputItem; empty is fine for tests
+  transform: jest.fn().mockReturnValue([]),
+};
+
 const dummyIdentity: DaemonIdentity = {
   id: 'daemon-1',
   name: 'TestDaemon',
@@ -37,11 +42,12 @@ describe('OpenAiAgentDaemon', () => {
       instructions: dummyInstructions,
       contextFormatter: mockContextFormatter,
       contextProviders: dummyContextProviders,
-      agentMessagePostProcessor: mockAgentMessagePostProcessor,
+      agentMessageTransformer: mockAgentMessagePostProcessor,
+      epochMessageTransformer: mockEpochMessageTransformer,
       runFn: mockRunFn,
     });
 
-    const result = await daemon.nextEpoch();
+    const result = await daemon.nextEpoch([]);
 
     expect(mockContextFormatter.format).toHaveBeenCalledWith(
       [],
@@ -51,16 +57,9 @@ describe('OpenAiAgentDaemon', () => {
     const expectedSystemMessage: SystemMessageItem = {
       role: 'system',
       type: 'message',
-      content: `You are ${dummyIdentity.name} (agent ID ${dummyIdentity.id}). Current Context: compiled-context`,
+      content: `You are '${dummyIdentity.name}' (agent ID ${dummyIdentity.id}).\nAgent Instructions: ${dummyInstructions}\nCurrent Context: compiled-context`,
     };
-    expect(mockRunFn).toHaveBeenCalledWith(dummyAgent, [
-      expectedSystemMessage,
-      {
-        role: 'user',
-        type: 'message',
-        content: dummyInstructions,
-      },
-    ]);
+    expect(mockRunFn).toHaveBeenCalledWith(dummyAgent, [expectedSystemMessage]);
 
     expect(mockAgentMessagePostProcessor.transform).toHaveBeenCalledWith([
       { role: 'assistant', content: 'processed-output' },
@@ -69,7 +68,15 @@ describe('OpenAiAgentDaemon', () => {
       { role: 'assistant', content: 'processed-output' },
     ]);
 
-    expect(result).toBe('final-result');
+    expect(result).toStrictEqual({
+      identity: {
+        description: 'A test daemon',
+        id: 'daemon-1',
+        name: 'TestDaemon',
+      },
+      output: 'final-result',
+      type: 'daemon',
+    });
   });
 
   it('includes previous epoch output in subsequent context formatting', async () => {
@@ -79,12 +86,13 @@ describe('OpenAiAgentDaemon', () => {
       instructions: dummyInstructions,
       contextFormatter: mockContextFormatter,
       contextProviders: dummyContextProviders,
-      agentMessagePostProcessor: mockAgentMessagePostProcessor,
+      agentMessageTransformer: mockAgentMessagePostProcessor,
+      epochMessageTransformer: mockEpochMessageTransformer,
       runFn: mockRunFn,
     });
 
-    await daemon.nextEpoch();
-    await daemon.nextEpoch();
+    await daemon.nextEpoch([]);
+    await daemon.nextEpoch([]);
 
     expect(mockContextFormatter.format).toHaveBeenCalledTimes(2);
     const firstCallArgs = (mockContextFormatter.format as jest.Mock).mock
@@ -108,13 +116,22 @@ describe('OpenAiAgentDaemon', () => {
       instructions: dummyInstructions,
       contextFormatter: mockContextFormatter,
       contextProviders: dummyContextProviders,
-      agentMessagePostProcessor: mockAgentMessagePostProcessor,
+      agentMessageTransformer: mockAgentMessagePostProcessor,
+      epochMessageTransformer: mockEpochMessageTransformer,
       runFn: mockRunFnNoFinal,
     });
 
-    const result = await daemon.nextEpoch();
+    const result = await daemon.nextEpoch([]);
 
-    expect(result).toBe('<Agent generated no output>');
+    expect(result).toStrictEqual({
+      identity: {
+        description: 'A test daemon',
+        id: 'daemon-1',
+        name: 'TestDaemon',
+      },
+      output: '<Agent generated no output>',
+      type: 'daemon',
+    });
 
     expect(daemon.history).toEqual([
       { role: 'assistant', content: 'processed-output' },

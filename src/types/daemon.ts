@@ -6,7 +6,24 @@ export interface DaemonIdentity {
   description: string;
 }
 
+type OutputMessage = {
+  readonly output: string;
+};
+
+export type DaemonResponseMessage = {
+  readonly type: 'daemon';
+  readonly identity: DaemonIdentity;
+} & OutputMessage;
+
+export type UserResponseMessage = {
+  readonly type: 'human';
+} & OutputMessage;
+
+export type EpochMessage = DaemonResponseMessage | UserResponseMessage;
+
 export type Daemon = DaemonIdentity & {
-  readonly nextEpoch: () => Promise<string>;
+  readonly nextEpoch: (
+    globalMessageHistory: EpochMessage[],
+  ) => Promise<DaemonResponseMessage>;
   readonly history: AgentOutputItem[];
 };

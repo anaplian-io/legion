@@ -1,4 +1,5 @@
-import { AgentOutputItem } from '@openai/agents';
+import { AgentInputItem, AgentOutputItem } from '@openai/agents';
+import { EpochMessage } from './daemon.js';
 
 export interface ContextProvider {
   readonly name: string;
@@ -13,8 +14,12 @@ export interface ContextFormatter {
   ) => Promise<string>;
 }
 
-export interface AgentMessagePostProcessor {
+export interface AgentMessageTransformer {
   readonly transform: (
     agentOutputItems: AgentOutputItem[],
   ) => AgentOutputItem[];
+}
+
+export interface EpochMessageTransformer {
+  readonly transform: (epochMessages: EpochMessage[]) => AgentInputItem[];
 }
