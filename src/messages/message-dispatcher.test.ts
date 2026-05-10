@@ -2,9 +2,9 @@ import { MessageDispatcher } from './message-dispatcher.js';
 
 describe('MessageDispatcher', () => {
   it('delivers messages to a known recipient', () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(1000));
-    const deliverMessageFn = jest.fn();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1000));
+    const deliverMessageFn = vi.fn();
     const dispatcher = new MessageDispatcher({
       recipients: {
         alice: {
@@ -26,7 +26,7 @@ describe('MessageDispatcher', () => {
   });
 
   it('does not deliver to an unknown recipient', () => {
-    const deliverMessageFn = jest.fn();
+    const deliverMessageFn = vi.fn();
     const dispatcher = new MessageDispatcher({
       recipients: {
         alice: {
