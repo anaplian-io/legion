@@ -1,5 +1,3 @@
-import { AgentOutputItem } from '@openai/agents';
-
 export interface DaemonIdentity {
   readonly id: string;
   name: string;
@@ -25,5 +23,4 @@ export type Daemon = DaemonIdentity & {
   readonly nextEpoch: (
     globalMessageHistory: EpochMessage[],
   ) => Promise<DaemonResponseMessage>;
-  readonly history: AgentOutputItem[];
 };

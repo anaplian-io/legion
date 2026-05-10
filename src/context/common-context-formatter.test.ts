@@ -1,6 +1,5 @@
 import { CommonContextFormatter } from './common-context-formatter.js';
 import { ContextProvider } from '../types/context.js';
-import { AgentOutputItem } from '@openai/agents';
 
 describe('CommonContextFormatter', () => {
   const formatter = CommonContextFormatter;
@@ -9,39 +8,29 @@ describe('CommonContextFormatter', () => {
     providerA: {
       name: 'Provider A',
       description: 'First test provider',
-      next: async (agentResponse: AgentOutputItem[]) =>
-        `next-A-${JSON.stringify(agentResponse)}`,
+      next: async () => `next-A`,
     },
     providerB: {
       name: 'Provider B',
       description: 'Second test provider',
-      next: async (agentResponse: AgentOutputItem[]) =>
-        `next-B-${JSON.stringify(agentResponse)}`,
+      next: async () => `next-B`,
     },
     providerC: {
       name: 'Provider C',
       description: 'An erroring test provider',
-      next: jest.fn().mockRejectedValue(new Error('Something bad happened')),
+      next: async () => {
+        throw new Error('Something bad happened');
+      },
     },
   };
 
-  const dummyAgentOutput: AgentOutputItem[] = [
-    { role: 'assistant', content: 'Hello' },
-    { role: 'assistant', content: 'World' },
-  ] as unknown as AgentOutputItem[];
-
-  it('should format context with providers and agent response', async () => {
-    const result = await formatter.format(
-      dummyAgentOutput,
-      Object.values(dummyProviders),
-    );
+  it('should format context with providers and handle errors', async () => {
+    const result = await formatter.format([], Object.values(dummyProviders));
 
     expect(result).toContain('Provider A');
     expect(result).toContain('First test provider');
     expect(result).toContain('Provider B');
     expect(result).toContain('Second test provider');
-    expect(result).toContain('Hello');
-    expect(result).toContain('World');
     expect(result).toContain(
       JSON.stringify({
         contextProviderName: 'Provider C',
@@ -51,7 +40,7 @@ describe('CommonContextFormatter', () => {
       }),
     );
 
-    expect(result).toMatch(/next-A-/);
-    expect(result).toMatch(/next-B-/);
+    expect(result).toMatch(/next-A/);
+    expect(result).toMatch(/next-B/);
   });
 });

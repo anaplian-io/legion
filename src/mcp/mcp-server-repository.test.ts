@@ -1,19 +1,18 @@
-import { MCPServer } from '@openai/agents';
 import { McpServerRepository } from './mcp-server-repository.js';
 
 describe('McpServerRepository', () => {
   const firstMockServer = {
-    connect: jest.fn(),
-    close: jest.fn(),
-  } as unknown as MCPServer;
+    connect: vi.fn(),
+    close: vi.fn(),
+  };
 
   const secondMockServer = {
-    connect: jest.fn(),
-    close: jest.fn(),
-  } as unknown as MCPServer;
+    connect: vi.fn(),
+    close: vi.fn(),
+  };
 
   beforeEach(() => {
-    jest.resetAllMocks();
+    vi.resetAllMocks();
   });
 
   it('connects all servers with connectAll', async () => {
