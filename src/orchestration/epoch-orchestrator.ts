@@ -20,6 +20,7 @@ export interface EpochOrchestratorProps {
   readonly initialBroadcast: Message;
   readonly memoryNodeFactory: MemoryNodeFactory;
   readonly eventStream: EventStream;
+  readonly initialNodes?: Node<string>[];
 }
 
 export class EpochOrchestrator {
@@ -30,6 +31,7 @@ export class EpochOrchestrator {
   constructor(private readonly props: EpochOrchestratorProps) {
     this._workingMemory = props.initialWorkingMemory ?? { messages: [] };
     this._currentBroadcast = props.initialBroadcast;
+    props.initialNodes?.forEach((node) => this.addNode(node));
   }
 
   public get nodes(): Node<string>[] {
@@ -42,6 +44,12 @@ export class EpochOrchestrator {
       topicName: 'orchestrator/nodes-changed',
       data: { allNodes: this.nodes },
     });
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/node-added',
+      data: {
+        addedNodes: [node],
+      },
+    });
   }
 
   public removeNode(nodeId: string): void {
@@ -49,6 +57,13 @@ export class EpochOrchestrator {
     this.props.eventStream.publish({
       topicName: 'orchestrator/nodes-changed',
       data: { allNodes: this.nodes },
+    });
+
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/node-removed',
+      data: {
+        removedNodeIds: [nodeId],
+      },
     });
   }
 
@@ -139,5 +154,12 @@ export class EpochOrchestrator {
     ) {
       this._workingMemory.messages.shift();
     }
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/working-memory-updated',
+      data: {
+        workingMemory: this.workingMemory,
+        broadcast: this.currentBroadcast,
+      },
+    });
   };
 }

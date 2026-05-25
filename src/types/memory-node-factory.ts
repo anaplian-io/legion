@@ -4,6 +4,7 @@ import { EventStream } from './event-stream.js';
 export interface CreateProps {
   readonly initialContext: string;
   readonly eventStream: EventStream;
+  readonly nodeId?: string;
 }
 
 export interface MemoryNodeFactory {

@@ -1,0 +1,60 @@
+import * as fs from 'node:fs';
+import path from 'node:path';
+import { Message } from '../types/message.js';
+import { WorkingMemory } from '../types/working-memory.js';
+import { Node } from '../types/node.js';
+import { MemoryNodeFactory } from '../types/memory-node-factory.js';
+import { EventStream } from '../types/event-stream.js';
+
+export interface LoadedSession {
+  readonly nodes: Node<'memory'>[];
+  readonly workingMemory: WorkingMemory;
+  readonly broadcast: Message;
+}
+
+export const SessionLoader = {
+  load: (props: {
+    readonly directory: string;
+    readonly eventStream: EventStream;
+    readonly memoryNodeFactory: MemoryNodeFactory;
+  }): LoadedSession => {
+    const { directory, memoryNodeFactory, eventStream } = props;
+    const normalizedDirectory = path.normalize(directory);
+    const nodesDir = path.join(normalizedDirectory, 'nodes');
+    const nodes: LoadedSession['nodes'] = [];
+
+    if (fs.existsSync(nodesDir)) {
+      const nodeFiles = fs
+        .readdirSync(nodesDir)
+        .filter((file) => file.endsWith('.json'));
+      nodeFiles.forEach((file) => {
+        const filePath = path.join(nodesDir, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const nodeData = JSON.parse(content);
+        nodes.push(
+          memoryNodeFactory.create({
+            initialContext: nodeData.context,
+            nodeId: nodeData.id,
+            eventStream,
+          }),
+        );
+      });
+    }
+
+    let workingMemory: LoadedSession['workingMemory'] = { messages: [] };
+    let broadcast: LoadedSession['broadcast'] = { content: '' };
+    const wmFilePath = path.join(normalizedDirectory, 'working-memory.json');
+    if (fs.existsSync(wmFilePath)) {
+      const content = fs.readFileSync(wmFilePath, 'utf-8');
+      const event = JSON.parse(content);
+      workingMemory = event.workingMemory;
+      broadcast = event.broadcast;
+    }
+
+    return {
+      nodes,
+      workingMemory,
+      broadcast,
+    };
+  },
+};

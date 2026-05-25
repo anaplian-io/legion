@@ -63,6 +63,26 @@ describe('EpochOrchestrator', () => {
     expect(orchestrator.nodes).toEqual([]);
   });
 
+  it('should create an orchestrator with initial nodes', () => {
+    const nodeA = createMockNode('node-a');
+    const nodeB = createMockNode('node-b');
+
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
+      initialNodes: [nodeA, nodeB],
+    });
+
+    expect(orchestrator.nodes).toEqual([nodeA, nodeB]);
+  });
+
   it('should create an orchestrator with empty working memory by default', () => {
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
@@ -508,6 +528,39 @@ describe('EpochOrchestrator', () => {
       eventStream,
     });
     // Now should have 2 nodes: node-a and the new one from factory
+    expect(orchestrator.nodes).toHaveLength(2);
+  });
+
+  it('should spawn a new node with initial broadcast when working memory is empty', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast content' },
+      initialWorkingMemory: { messages: [] }, // Empty working memory
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
+    });
+
+    const nodeA = createMockNode('node-a', async () => undefined);
+    const mockNewNode = createMockNode('new-node');
+    vi.mocked(mockMemoryNodeFactory.create).mockReturnValue(mockNewNode);
+
+    orchestrator.addNode(nodeA);
+
+    // Filter returns empty when all candidates are filtered out
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([]);
+
+    await orchestrator.runEpoch();
+
+    // Should have spawned a new memory node using factory with initial broadcast content
+    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
+      initialContext: 'Initial broadcast content',
+      eventStream,
+    });
     expect(orchestrator.nodes).toHaveLength(2);
   });
 
