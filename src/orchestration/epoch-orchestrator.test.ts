@@ -28,6 +28,7 @@ describe('EpochOrchestrator', () => {
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
       splitString: vi.fn(),
+      generateWithTools: vi.fn(),
     };
     mockRelevanceFilter = {
       filter: vi.fn(),

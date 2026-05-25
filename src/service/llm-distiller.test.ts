@@ -12,6 +12,7 @@ describe('LlmDistiller', () => {
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
       splitString: vi.fn(),
+      generateWithTools: vi.fn(),
     };
   });
 

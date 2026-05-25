@@ -10,6 +10,9 @@ export const SessionSaver = {
   }) => {
     const { eventStream, directory } = props;
     const normalizedDirectory = path.normalize(directory);
+    const nodesDirectory = path.join(normalizedDirectory, 'nodes');
+    fs.mkdirSync(nodesDirectory, { recursive: true });
+
     eventStream.subscribe({
       topicName: 'orchestrator/node-added',
       receiver: (event) => {
@@ -18,7 +21,7 @@ export const SessionSaver = {
         );
         memoryNodes.forEach((node) =>
           fs.writeFileSync(
-            path.join(normalizedDirectory, 'nodes', `${node.id}.json`),
+            path.join(nodesDirectory, `${node.id}.json`),
             JSON.stringify(
               {
                 id: node.id,
@@ -38,7 +41,7 @@ export const SessionSaver = {
         const node = event.node;
         if (node.kind === 'memory') {
           fs.writeFileSync(
-            path.join(normalizedDirectory, 'nodes', `${node.id}.json`),
+            path.join(nodesDirectory, `${node.id}.json`),
             JSON.stringify(
               {
                 id: node.id,
@@ -57,9 +60,7 @@ export const SessionSaver = {
       receiver: (event) => {
         event.removedNodeIds.forEach((id) => {
           try {
-            fs.unlinkSync(
-              path.join(normalizedDirectory, 'nodes', `${id}.json`),
-            );
+            fs.unlinkSync(path.join(nodesDirectory, `${id}.json`));
           } catch {}
         });
       },

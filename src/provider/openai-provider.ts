@@ -1,4 +1,10 @@
-import { GenerateProps, Provider } from '../types/provider.js';
+import {
+  GenerateProps,
+  GenerateWithToolsProps,
+  Provider,
+  ToolCall,
+  ToolDefinition,
+} from '../types/provider.js';
 import { OpenAI } from 'openai';
 
 export interface OpenAiProviderProps {
@@ -23,7 +29,7 @@ export class OpenaiProvider implements Provider {
 
     const response = await this.props.client.responses.create({
       model: this.props.model,
-      input: inputItems,
+      input: inputItems satisfies OpenAI.Responses.ResponseInputItem[],
     });
 
     return response.output_text ?? '';
@@ -141,5 +147,79 @@ ${content}`,
     };
 
     return [left, right];
+  };
+
+  private mapToolToOpenAITool(tool: ToolDefinition): OpenAI.Responses.Tool {
+    return {
+      type: 'function' as const,
+      name: tool.name,
+      description: tool.description ?? null,
+      parameters: tool.parameters,
+      strict: null,
+    };
+  }
+
+  public readonly generateWithTools = async (
+    props: GenerateWithToolsProps,
+  ): Promise<{ content: string; toolCalls: ToolCall[] | undefined }> => {
+    const inputItems: OpenAI.Responses.ResponseInputItem[] = [
+      {
+        role: 'system' as const,
+        content: props.systemPrompt,
+      } satisfies OpenAI.Responses.EasyInputMessage,
+      ...props.messages.map(
+        (m) =>
+          ({
+            role: (m.originatingNodeId ? 'tool' : 'user') as
+              | 'user'
+              | 'assistant'
+              | 'system'
+              | 'developer',
+            content: m.content,
+          }) satisfies OpenAI.Responses.EasyInputMessage,
+      ),
+    ];
+
+    const mappedTools: OpenAI.Responses.Tool[] = [];
+    for (const tool of props.tools) {
+      mappedTools.push(this.mapToolToOpenAITool(tool));
+    }
+
+    const params: {
+      model: string;
+      input: OpenAI.Responses.ResponseInputItem[];
+      tools: OpenAI.Responses.Tool[];
+    } = {
+      model: this.props.model,
+      input: inputItems,
+      tools: mappedTools,
+    };
+    const response = await this.props.client.responses.create(params);
+    const content = response.output_text ?? '';
+    const toolCalls: ToolCall[] = [];
+    if (response.output && Array.isArray(response.output)) {
+      for (const item of response.output) {
+        if (
+          item &&
+          typeof item === 'object' &&
+          'type' in item &&
+          item.type === 'function_call'
+        ) {
+          const call = item as OpenAI.Responses.ResponseFunctionToolCall;
+          toolCalls.push({
+            id: call.call_id,
+            type: 'function' as const,
+            function: {
+              name: call.name,
+              arguments: JSON.stringify(call.arguments),
+            },
+          });
+        }
+      }
+    }
+    if (toolCalls.length > 0) {
+      return { content, toolCalls };
+    }
+    return { content, toolCalls: undefined };
   };
 }

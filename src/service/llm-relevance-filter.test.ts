@@ -15,6 +15,7 @@ describe('LlmRelevanceFilter', () => {
       generate: vi.fn(),
       askYesNoQuestion: vi.fn(),
       splitString: vi.fn(),
+      generateWithTools: vi.fn(),
     };
     mockAttentionGate = {
       getTopN: vi.fn(),

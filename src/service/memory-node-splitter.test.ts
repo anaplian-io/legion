@@ -16,12 +16,14 @@ describe('MemoryNodeSplitter', () => {
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
       splitString: vi.fn(),
+      generateWithTools: vi.fn(),
     };
     mockNewNodeProvider = {
       askYesNoQuestion: vi.fn(),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
       splitString: vi.fn(),
+      generateWithTools: vi.fn(),
     };
     mockMemoryNodeFactory = {
       create: vi.fn(),
