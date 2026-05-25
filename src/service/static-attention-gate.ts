@@ -1,7 +1,7 @@
 import { AttentionGate } from '../types/attention-gate.js';
 
 export interface StaticAttentionGateProps {
-  readonly n: number;
+  readonly n: number | 'all';
 }
 
 export class StaticAttentionGate implements AttentionGate {
