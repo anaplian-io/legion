@@ -108,7 +108,9 @@ Example: {"answer": true}`,
       },
     });
 
-    const { answer } = JSON.parse(response.output_text) as { answer: boolean };
+    const { answer } = JSON.parse(
+      response.output_text.replaceAll('```json', '').replaceAll('```', ''),
+    ) as { answer: boolean };
     return answer;
   };
 
@@ -141,7 +143,9 @@ ${content}`,
       },
     });
 
-    const { left, right } = JSON.parse(response.output_text) as {
+    const { left, right } = JSON.parse(
+      response.output_text.replaceAll('```json', '').replaceAll('```', ''),
+    ) as {
       left: string;
       right: string;
     };
@@ -155,7 +159,7 @@ ${content}`,
       name: tool.name,
       description: tool.description ?? null,
       parameters: tool.parameters,
-      strict: null,
+      strict: true,
     };
   }
 
@@ -194,7 +198,10 @@ ${content}`,
       input: inputItems,
       tools: mappedTools,
     };
-    const response = await this.props.client.responses.create(params);
+    const response = await this.props.client.responses.create({
+      ...params,
+      tool_choice: 'required',
+    });
     const content = response.output_text ?? '';
     const toolCalls: ToolCall[] = [];
     if (response.output && Array.isArray(response.output)) {

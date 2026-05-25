@@ -276,7 +276,7 @@ describe('OpenaiProvider', () => {
                 name: 'get_weather',
                 description: 'Get current weather',
                 parameters: expect.any(Object),
-                strict: null,
+                strict: true,
               },
             ],
           }),

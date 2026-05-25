@@ -8,6 +8,7 @@ import { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import { NodeSplitter } from '../types/node-splitter.js';
 import { EventStream } from '../types/event-stream.js';
 import { MemoryNode } from '../node/memory-node.js';
+import { isDefined } from '../utilities/is-defined.js';
 
 export interface EpochOrchestratorProps {
   readonly provider: Provider;
@@ -78,13 +79,23 @@ export class EpochOrchestrator {
   public readonly runEpoch = async (): Promise<void> => {
     const nodeBroadcasts = Array.from(this._nodes.values()).map(
       async (node) => {
-        return {
-          node,
-          response: await node.sendMessage({
-            workingMemory: this._workingMemory,
-            broadcast: this._currentBroadcast,
-          }),
-        };
+        try {
+          return {
+            node,
+            response: await node.sendMessage({
+              workingMemory: this._workingMemory,
+              broadcast: this._currentBroadcast,
+            }),
+          };
+        } catch (e) {
+          console.warn(
+            `[EpochOrchestrator] Node ${node.id} threw an error: ${e}`,
+          );
+          return {
+            node,
+            response: undefined,
+          };
+        }
       },
     );
     const nodeResponses = await Promise.all(nodeBroadcasts);
@@ -102,7 +113,13 @@ export class EpochOrchestrator {
       this._workingMemory,
       candidateMessages,
     );
-    if (filteredMessages.length === 0) {
+    const sourceMemoryNodes = filteredMessages
+      .map((message) => message.originatingNodeId)
+      .filter(isDefined)
+      .map((id) => this._nodes.get(id))
+      .filter(isDefined)
+      .filter((node): node is MemoryNode => node.kind === 'memory');
+    if (sourceMemoryNodes.length === 0) {
       this.spawnNewNode();
       return;
     }

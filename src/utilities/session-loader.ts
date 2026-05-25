@@ -17,7 +17,7 @@ export const SessionLoader = {
     readonly directory: string;
     readonly eventStream: EventStream;
     readonly memoryNodeFactory: MemoryNodeFactory;
-  }): LoadedSession => {
+  }): LoadedSession | undefined => {
     const { directory, memoryNodeFactory, eventStream } = props;
     const normalizedDirectory = path.normalize(directory);
     const nodesDir = path.join(normalizedDirectory, 'nodes');
@@ -39,16 +39,20 @@ export const SessionLoader = {
           }),
         );
       });
+    } else {
+      return undefined;
     }
 
-    let workingMemory: LoadedSession['workingMemory'] = { messages: [] };
-    let broadcast: LoadedSession['broadcast'] = { content: '' };
+    let workingMemory: LoadedSession['workingMemory'];
+    let broadcast: LoadedSession['broadcast'];
     const wmFilePath = path.join(normalizedDirectory, 'working-memory.json');
     if (fs.existsSync(wmFilePath)) {
       const content = fs.readFileSync(wmFilePath, 'utf-8');
       const event = JSON.parse(content);
       workingMemory = event.workingMemory;
       broadcast = event.broadcast;
+    } else {
+      return undefined;
     }
 
     return {
