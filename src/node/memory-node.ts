@@ -71,6 +71,10 @@ export class MemoryNode implements Node<'memory'> {
       `\n\n` +
       `[BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}` +
       `[NODE RESPONSE]:${response.content}`;
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/node-updated',
+      data: { node: this },
+    });
     return response;
   };
 

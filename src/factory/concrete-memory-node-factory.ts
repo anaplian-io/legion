@@ -18,7 +18,7 @@ export class ConcreteMemoryNodeFactory implements MemoryNodeFactory {
   }
 
   public readonly create = (props: CreateProps): Node<'memory'> => {
-    const id = crypto.randomUUID();
+    const id = props.nodeId ?? crypto.randomUUID();
     return new MemoryNode({
       id,
       initialContext: props.initialContext,
