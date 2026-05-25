@@ -6,6 +6,7 @@ import { Distiller } from '../types/distiller.js';
 import { Message } from '../types/message.js';
 import { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import { NodeSplitter } from '../types/node-splitter.js';
+import { EventStream } from '../types/event-stream.js';
 import { MemoryNode } from '../node/memory-node.js';
 
 export interface EpochOrchestratorProps {
@@ -18,6 +19,7 @@ export interface EpochOrchestratorProps {
   readonly initialWorkingMemory?: WorkingMemory;
   readonly initialBroadcast: Message;
   readonly memoryNodeFactory: MemoryNodeFactory;
+  readonly eventStream: EventStream;
 }
 
 export class EpochOrchestrator {
@@ -30,16 +32,24 @@ export class EpochOrchestrator {
     this._currentBroadcast = props.initialBroadcast;
   }
 
-  public getNodes(): readonly Node<string>[] {
+  public get nodes(): Node<string>[] {
     return Array.from(this._nodes.values());
   }
 
   public addNode(node: Node<string>): void {
     this._nodes.set(node.id, node);
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/nodes-changed',
+      data: { allNodes: this.nodes },
+    });
   }
 
   public removeNode(nodeId: string): void {
     this._nodes.delete(nodeId);
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/nodes-changed',
+      data: { allNodes: this.nodes },
+    });
   }
 
   public get workingMemory(): WorkingMemory {
@@ -116,8 +126,11 @@ export class EpochOrchestrator {
       this._workingMemory.messages.length > 0
         ? this._workingMemory.messages.map((m) => m.content).join('\n')
         : this._currentBroadcast.content;
-    const newNode = this.props.memoryNodeFactory.create(initialContext);
-    this._nodes.set(newNode.id, newNode);
+    const newNode = this.props.memoryNodeFactory.create({
+      initialContext,
+      eventStream: this.props.eventStream,
+    });
+    this.addNode(newNode);
   };
 
   private readonly pruneWorkingMemory = (): void => {

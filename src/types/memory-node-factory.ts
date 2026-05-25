@@ -1,10 +1,11 @@
 import { Node } from './node.js';
-import { Provider } from './provider.js';
+import { EventStream } from './event-stream.js';
 
-export interface MemoryNodeFactoryProps {
-  readonly provider: Provider;
+export interface CreateProps {
+  readonly initialContext: string;
+  readonly eventStream: EventStream;
 }
 
 export interface MemoryNodeFactory {
-  readonly create: (initialContext: string) => Node<'memory'>;
+  readonly create: (props: CreateProps) => Node<'memory'>;
 }

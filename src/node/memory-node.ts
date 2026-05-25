@@ -5,27 +5,24 @@ import {
   NodeStatus,
 } from '../types/node.js';
 import { Provider } from '../types/provider.js';
+import { EventStream } from '../types/event-stream.js';
+
+export interface MemoryNodeProps {
+  readonly id: string;
+  readonly initialContext: string;
+  readonly provider: Provider;
+  readonly eventStream: EventStream;
+}
 
 export class MemoryNode implements Node<'memory'> {
   public readonly id: string;
   private _context: string;
   private _nodeStatus: NodeStatus = 'idle';
 
-  constructor({
-    id,
-    initialContext,
-    provider,
-  }: {
-    readonly id: string;
-    readonly initialContext: string;
-    readonly provider: Provider;
-  }) {
-    this.id = id;
-    this._context = initialContext;
-    this._provider = provider;
+  constructor(private readonly props: MemoryNodeProps) {
+    this.id = this.props.id;
+    this._context = this.props.initialContext;
   }
-
-  private readonly _provider: Provider;
 
   public readonly kind = 'memory' as const;
 
@@ -40,19 +37,19 @@ export class MemoryNode implements Node<'memory'> {
   public readonly sendMessage = async (
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
-    const { _provider: provider } = this;
+    const { provider } = this.props;
     const concatenatedBroadcast =
       broadcastMessage.workingMemory.messages.map(
         (message, index) =>
           `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
       ) + `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
-    this._nodeStatus = 'evaluating-relevance';
+    await this.setStatus('evaluating-relevance');
     const relevant = await provider.askYesNoQuestion(`${this.preamble}
 
     New Information: ${concatenatedBroadcast}
 
     Question: Is your experience relevant to this new information?`);
-    this._nodeStatus = 'idle';
+    await this.setStatus('idle');
     if (!relevant) {
       return undefined;
     }
@@ -60,7 +57,7 @@ export class MemoryNode implements Node<'memory'> {
       ...broadcastMessage.workingMemory.messages,
       broadcastMessage.broadcast,
     ];
-    this._nodeStatus = 'generating';
+    await this.setStatus('generating');
     const response: NodeResponse = {
       originatingNodeId: this.id,
       content: await provider.generate({
@@ -68,7 +65,7 @@ export class MemoryNode implements Node<'memory'> {
         systemPrompt: this.preamble,
       }),
     };
-    this._nodeStatus = 'idle';
+    await this.setStatus('idle');
     this._context =
       this._context +
       `\n\n` +
@@ -88,4 +85,18 @@ ${this.context}
 --------------
 `;
   }
+
+  private readonly setStatus = async (newStatus: NodeStatus): Promise<void> => {
+    this._nodeStatus = newStatus;
+    try {
+      this.props.eventStream.publish({
+        topicName: 'node/status-change',
+        data: { nodeId: this.id, status: newStatus },
+      });
+    } catch (e) {
+      console.warn(
+        `[MemoryNode ${this.id}] event publish threw during execution: ${e}`,
+      );
+    }
+  };
 }

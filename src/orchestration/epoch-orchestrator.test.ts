@@ -7,6 +7,8 @@ import type { WorkingMemory } from '../types/working-memory.js';
 import { Distiller } from '../types/distiller.js';
 import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import type { NodeSplitter } from '../types/node-splitter.js';
+import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 
 // Type alias for test file
 type TestDistiller = Distiller;
@@ -18,6 +20,7 @@ describe('EpochOrchestrator', () => {
   let mockDistiller: TestDistiller;
   let mockMemoryNodeFactory: MemoryNodeFactory;
   let mockMemoryNodeSplitter: TestMemoryNodeSplitter;
+  let eventStream: ConcreteEventStream;
 
   beforeEach(() => {
     mockProvider = {
@@ -38,6 +41,7 @@ describe('EpochOrchestrator', () => {
     mockMemoryNodeSplitter = {
       split: vi.fn(),
     };
+    eventStream = new ConcreteEventStream();
   });
 
   it('should create an orchestrator with initial working memory', () => {
@@ -53,9 +57,10 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
-    expect(orchestrator.getNodes()).toEqual([]);
+    expect(orchestrator.nodes).toEqual([]);
   });
 
   it('should create an orchestrator with empty working memory by default', () => {
@@ -68,6 +73,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     expect(orchestrator.workingMemory.messages).toEqual([]);
@@ -85,6 +91,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     expect(orchestrator.workingMemory.messages).toEqual([]);
@@ -100,6 +107,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a');
@@ -108,7 +116,7 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(nodeA);
     orchestrator.addNode(nodeB);
 
-    expect(orchestrator.getNodes()).toEqual([nodeA, nodeB]);
+    expect(orchestrator.nodes).toEqual([nodeA, nodeB]);
   });
 
   it('should remove nodes by id', () => {
@@ -121,6 +129,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a');
@@ -131,7 +140,67 @@ describe('EpochOrchestrator', () => {
 
     orchestrator.removeNode('node-a');
 
-    expect(orchestrator.getNodes()).toEqual([nodeB]);
+    expect(orchestrator.nodes).toEqual([nodeB]);
+  });
+
+  it('should publish nodes-changed event when adding nodes', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
+    });
+
+    let addedNodeId: string | undefined;
+    eventStream.subscribe(<SubscribeOrchestratorNodesChanged>{
+      topicName: 'orchestrator/nodes-changed',
+      receiver: (data) => {
+        const nodes = data.allNodes;
+        if (nodes.length === 1) {
+          addedNodeId = nodes[0]!.id;
+        }
+      },
+    });
+
+    const nodeA = createMockNode('node-a');
+    orchestrator.addNode(nodeA);
+
+    expect(addedNodeId).toEqual('node-a');
+  });
+
+  it('should publish nodes-changed event when removing nodes', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
+    });
+
+    let removedNodeId: string | undefined;
+    eventStream.subscribe(<SubscribeOrchestratorNodesChanged>{
+      topicName: 'orchestrator/nodes-changed',
+      receiver: (data) => {
+        const nodes = data.allNodes;
+        if (nodes.length === 0) {
+          removedNodeId = 'node-a';
+        }
+      },
+    });
+
+    orchestrator.addNode(createMockNode('node-a'));
+    orchestrator.removeNode('node-a');
+
+    expect(removedNodeId).toEqual('node-a');
   });
 
   it('should update working memory when running epoch', async () => {
@@ -144,6 +213,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a', async () => ({
@@ -181,6 +251,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a');
@@ -189,8 +260,8 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(nodeA);
     orchestrator.addNode(nodeAUpdated);
 
-    expect(orchestrator.getNodes()).toEqual([nodeAUpdated]);
-    expect(orchestrator.getNodes().length).toBe(1);
+    expect(orchestrator.nodes).toEqual([nodeAUpdated]);
+    expect(orchestrator.nodes.length).toBe(1);
   });
 
   it('should run an epoch with one node that responds', async () => {
@@ -203,6 +274,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a', async () => ({
@@ -242,6 +314,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a', async () => undefined);
@@ -258,9 +331,10 @@ describe('EpochOrchestrator', () => {
     expect(orchestrator.workingMemory.messages).toHaveLength(0);
     expect(mockRelevanceFilter.filter).toHaveBeenCalled();
     // A new node should be spawned using the factory (when all filtered messages are empty)
-    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith(
-      'Initial broadcast',
-    );
+    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
+      initialContext: 'Initial broadcast',
+      eventStream,
+    });
   });
 
   it('should handle empty filtered messages', async () => {
@@ -273,6 +347,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a', async () => ({
@@ -290,9 +365,10 @@ describe('EpochOrchestrator', () => {
     await orchestrator.runEpoch();
 
     expect(orchestrator.workingMemory.messages).toHaveLength(0);
-    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith(
-      'Initial broadcast',
-    );
+    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
+      initialContext: 'Initial broadcast',
+      eventStream,
+    });
   });
 
   it('should apply rolling window to working memory', async () => {
@@ -305,6 +381,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a', async () => ({
@@ -359,6 +436,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const sendMessageSpy = vi.fn();
@@ -407,6 +485,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const nodeA = createMockNode('node-a', async () => undefined);
@@ -419,16 +498,17 @@ describe('EpochOrchestrator', () => {
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([]);
 
     // Verify no nodes spawned initially (only node-a)
-    expect(orchestrator.getNodes()).toHaveLength(1);
+    expect(orchestrator.nodes).toHaveLength(1);
 
     await orchestrator.runEpoch();
 
     // Should have spawned a new memory node using factory with existing WM content
-    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith(
-      'Existing message',
-    );
+    expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
+      initialContext: 'Existing message',
+      eventStream,
+    });
     // Now should have 2 nodes: node-a and the new one from factory
-    expect(orchestrator.getNodes()).toHaveLength(2);
+    expect(orchestrator.nodes).toHaveLength(2);
   });
 
   it('should split nodes when context exceeds threshold', async () => {
@@ -441,6 +521,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 10, // Small threshold to trigger split
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
     });
 
     const longContext = 'A'.repeat(50); // Exceeds threshold
@@ -453,7 +534,7 @@ describe('EpochOrchestrator', () => {
     };
 
     orchestrator.addNode(nodeA);
-    expect(orchestrator.getNodes()).toHaveLength(1);
+    expect(orchestrator.nodes).toHaveLength(1);
 
     // Mock split to return two new nodes
     const newNodeA = createMockNode('node-a-left');
@@ -472,8 +553,8 @@ describe('EpochOrchestrator', () => {
     await orchestrator.runEpoch();
 
     // Original node should be removed, replaced by two split nodes
-    expect(orchestrator.getNodes()).toHaveLength(2);
-    expect(orchestrator.getNodes().map((n) => n.id)).toEqual([
+    expect(orchestrator.nodes).toHaveLength(2);
+    expect(orchestrator.nodes.map((n) => n.id)).toEqual([
       'node-a-left',
       'node-a-right',
     ]);

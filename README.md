@@ -268,16 +268,3 @@ npm run build
 npm run lint
 npm run format
 ```
-
-## Configuration
-
-Create a `.env` file:
-
-```bash
-# LM Studio (OpenAI-compatible)
-OPENAI_API_KEY=NA
-OPENAI_BASE_URL=http://127.0.0.1:1234/v1
-
-# Optional: Anthropic API
-ANTHROPIC_API_KEY=your-key-here
-```

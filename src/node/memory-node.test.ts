@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryNode } from './memory-node.js';
 import type { Provider } from '../types/provider.js';
 import type { BroadcastMessage } from '../types/node.js';
+import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 
 describe('MemoryNode', () => {
   let mockProvider: Provider;
+  let eventStream: ConcreteEventStream;
 
   beforeEach(() => {
     mockProvider = {
@@ -13,6 +15,7 @@ describe('MemoryNode', () => {
       rankByRelevance: vi.fn(),
       splitString: vi.fn(),
     };
+    eventStream = new ConcreteEventStream();
   });
 
   it('should create a memory node with the given props', () => {
@@ -20,6 +23,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     expect(node.id).toBe('memory-1');
@@ -42,6 +46,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     expect(node.status).toBe('idle');
@@ -72,6 +77,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     expect(node.status).toBe('idle');
@@ -112,6 +118,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Specialized in test scenarios',
       provider: mockProvider,
+      eventStream,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -136,6 +143,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -151,6 +159,7 @@ describe('MemoryNode', () => {
       id: 'test-id',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     expect(node.id).toBe('test-id');
@@ -171,6 +180,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     expect(node.status).toBe('idle');
@@ -180,6 +190,139 @@ describe('MemoryNode', () => {
     expect(result).toBeUndefined();
     expect(mockProvider.generate).not.toHaveBeenCalled();
     expect(node.status).toBe('idle');
+  });
+
+  it('should publish status change events on status change', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: { messages: [] },
+      broadcast: { content: 'New broadcast' },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
+    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+
+    const statusEvents: Array<{ nodeId: string; status: string }> = [];
+    eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: (data) => {
+        statusEvents.push(data);
+      },
+    });
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+    });
+
+    await node.sendMessage(broadcastMessage);
+
+    expect(statusEvents).toHaveLength(4);
+    expect(statusEvents[0]).toEqual({
+      nodeId: 'memory-1',
+      status: 'evaluating-relevance',
+    });
+    expect(statusEvents[1]).toEqual({ nodeId: 'memory-1', status: 'idle' });
+    expect(statusEvents[2]).toEqual({
+      nodeId: 'memory-1',
+      status: 'generating',
+    });
+    expect(statusEvents[3]).toEqual({ nodeId: 'memory-1', status: 'idle' });
+  });
+
+  it('should handle async status event subscriber', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: { messages: [] },
+      broadcast: { content: 'New broadcast' },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+
+    const asyncSubscriber = vi.fn().mockResolvedValue(undefined);
+    eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: asyncSubscriber,
+    });
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+    });
+
+    await node.sendMessage(broadcastMessage);
+
+    expect(asyncSubscriber).toHaveBeenCalledWith({
+      nodeId: 'memory-1',
+      status: 'evaluating-relevance',
+    });
+    expect(asyncSubscriber).toHaveBeenCalledWith({
+      nodeId: 'memory-1',
+      status: 'idle',
+    });
+  });
+
+  it('should not throw if status event subscriber throws', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: { messages: [] },
+      broadcast: { content: 'New broadcast' },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+
+    const errorSubscriber = vi.fn().mockImplementation(() => {
+      throw new Error('Subscriber failed');
+    });
+    eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: errorSubscriber,
+    });
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+    });
+
+    await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
+    expect(errorSubscriber).toHaveBeenCalledWith({
+      nodeId: 'memory-1',
+      status: 'evaluating-relevance',
+    });
+    expect(errorSubscriber).toHaveBeenCalledWith({
+      nodeId: 'memory-1',
+      status: 'idle',
+    });
+  });
+
+  it('should handle publish throwing error gracefully', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: { messages: [] },
+      broadcast: { content: 'New broadcast' },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+
+    // Replace eventStream with one that throws on publish
+    const throwingEventStream = {
+      publish: () => {
+        throw new Error('Publish failed');
+      },
+      subscribe: () => {},
+    } as unknown as ConcreteEventStream;
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream: throwingEventStream,
+    });
+
+    await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
   });
 
   it('should update context with broadcast and response when relevant', async () => {
@@ -195,6 +338,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -225,6 +369,7 @@ describe('MemoryNode', () => {
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
+      eventStream,
     });
 
     await node.sendMessage(broadcastMessage1);
