@@ -232,6 +232,252 @@ describe('OpenaiProvider', () => {
       expect(result).toBe(false);
     });
 
+    describe('generateWithTools', () => {
+      it('should call responses.create with tools and return tool calls when present', async () => {
+        const props = {
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'What is the weather?' }],
+          tools: [
+            {
+              name: 'get_weather',
+              description: 'Get current weather',
+              parameters: {
+                type: 'object',
+                properties: { location: { type: 'string' } },
+              },
+            },
+          ],
+        };
+
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: null,
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_123',
+              name: 'get_weather',
+              arguments: { location: 'San Francisco' },
+            },
+          ],
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        const result = await provider.generateWithTools(props);
+
+        expect(mockClient.responses.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tools: [
+              {
+                type: 'function',
+                name: 'get_weather',
+                description: 'Get current weather',
+                parameters: expect.any(Object),
+                strict: null,
+              },
+            ],
+          }),
+        );
+
+        expect(result.content).toBe('');
+        expect(result.toolCalls).toEqual([
+          {
+            id: 'call_123',
+            type: 'function',
+            function: {
+              name: 'get_weather',
+              arguments: JSON.stringify({ location: 'San Francisco' }),
+            },
+          },
+        ]);
+      });
+
+      it('should handle empty tools array', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: 'Response without tools',
+          output: [],
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        const result = await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'Hello!' }],
+          tools: [],
+        });
+
+        // Empty array should be passed to API (tools is now required in interface)
+        expect(mockClient.responses.create).toHaveBeenCalledWith(
+          expect.objectContaining({ tools: [] }),
+        );
+        expect(result.content).toBe('Response without tools');
+      });
+
+      it('should handle tool without description or parameters', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: 'Response with minimal tool',
+          output: [],
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'Hello!' }],
+          tools: [
+            {
+              name: 'minimal_tool',
+              parameters: {
+                type: 'object',
+                properties: {},
+              },
+            },
+          ],
+        });
+
+        // Verify the tool was mapped with null description
+        expect(mockClient.responses.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tools: [
+              expect.objectContaining({
+                name: 'minimal_tool',
+                description: null,
+              }),
+            ],
+          }),
+        );
+      });
+
+      it('should handle multiple tool calls in response', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: null,
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'tool_a',
+              arguments: { param: 'value_a' },
+            },
+            {
+              type: 'function_call',
+              call_id: 'call_2',
+              name: 'tool_b',
+              arguments: { param: 'value_b' },
+            },
+          ],
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        const result = await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'Use multiple tools' }],
+          tools: [],
+        });
+
+        expect(result.toolCalls).toHaveLength(2);
+        expect(result.toolCalls?.[0]).toEqual(
+          expect.objectContaining({
+            id: 'call_1',
+            function: expect.objectContaining({ name: 'tool_a' }),
+          }),
+        );
+        expect(result.toolCalls?.[1]).toEqual(
+          expect.objectContaining({
+            id: 'call_2',
+            function: expect.objectContaining({ name: 'tool_b' }),
+          }),
+        );
+      });
+
+      it('should handle messages with originatingNodeId as tool role', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: 'Response after tool call',
+          output: [],
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [
+            { content: 'What is the weather?' },
+            {
+              originatingNodeId: 'node-123',
+              content: 'The weather is sunny',
+            },
+          ],
+          tools: [],
+        });
+
+        expect(mockClient.responses.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            input: expect.arrayContaining([
+              expect.objectContaining({ role: 'user' }),
+              expect.objectContaining({ role: 'tool' }),
+            ]),
+          }),
+        );
+      });
+
+      it('should handle non-array response output', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: 'Response with non-array output',
+          output: null,
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        const result = await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'Hello!' }],
+          tools: [],
+        });
+
+        expect(result.content).toBe('Response with non-array output');
+        expect(result.toolCalls).toBeUndefined();
+      });
+
+      it('should handle array response without tool calls', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: 'Response with empty tools',
+          output: [{}], // Array but no tool call items
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        const result = await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'Hello!' }],
+          tools: [],
+        });
+
+        expect(result.content).toBe('Response with empty tools');
+        expect(result.toolCalls).toBeUndefined();
+      });
+    });
+
     it('should use correct temperature (0) for deterministic yes/no answers', async () => {
       vi.mocked(mockClient.responses.create).mockResolvedValue({
         output_text: JSON.stringify({ answer: true }),

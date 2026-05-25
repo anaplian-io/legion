@@ -140,3 +140,6 @@ vite.config.ts.timestamp-*
 # Custom
 .idea/
 .aider*
+
+# User settings (created from settings.example.ts)
+settings.ts
