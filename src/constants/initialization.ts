@@ -4,13 +4,126 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { isDefined } from '../utilities/is-defined.js';
 import { LegionSettings } from '../types/legion-settings.js';
+import { OpenaiProvider } from '../provider/openai-provider.js';
+import { WikipediaSensor } from '../sensor/wikipedia-sensor.js';
+import { SensoryNode } from '../node/sensory-node.js';
+import { ConcreteToolNodeFactory } from '../factory/concrete-tool-node-factory.js';
+import { LlmRelevanceFilter } from '../service/llm-relevance-filter.js';
+import { StaticAttentionGate } from '../service/static-attention-gate.js';
+import { LlmDistiller } from '../service/llm-distiller.js';
+import { MemoryNodeSplitter } from '../service/memory-node-splitter.js';
+import { ConcreteMemoryNodeFactory } from '../factory/concrete-memory-node-factory.js';
+import { EventStream } from '../types/event-stream.js';
+import { Node } from '../types/node.js';
+import { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
+import { LoadedSession, SessionLoader } from '../utilities/session-loader.js';
+import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { SessionSaver } from '../utilities/session-saver.js';
+import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
+
+// Set up console logging subscribers for all event types
+const setupLoggingSubscribers = (eventStream: EventStream): void => {
+  eventStream.subscribe({
+    topicName: 'node/status-change',
+    receiver: (data) => {
+      console.info(`[Node ${data.nodeId}] status changed to ${data.status}`);
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/nodes-changed',
+    receiver: (data) => {
+      console.info(
+        `[Orchestrator] nodes changed - total: ${data.allNodes.length} nodes`,
+      );
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/node-added',
+    receiver: (data) => {
+      data.addedNodes.forEach((node) => {
+        console.info(`[Orchestrator] node added: ${node.id} (${node.kind})`);
+      });
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/node-removed',
+    receiver: (data) => {
+      data.removedNodeIds.forEach((id) => {
+        console.info(`[Orchestrator] node removed: ${id}`);
+      });
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/node-updated',
+    receiver: (data) => {
+      console.info(
+        `[Orchestrator] node updated: ${data.node.id} (${data.node.kind})`,
+      );
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/working-memory-updated',
+    receiver: (data) => {
+      console.info(
+        `[Orchestrator] working memory updated - ${data.workingMemory.messages.length} messages, current broadcast: "${data.broadcast.content.slice(0, 50)}..."`,
+      );
+    },
+  });
+};
 
 export const init = async () => {
   const settings: LegionSettings = rawSettings;
+
+  // Create OpenAI client and provider
   const openAi = new OpenAI({
     baseURL: settings.baseUrl,
     apiKey: settings.apiKey,
+    maxRetries: settings.openAiMaxRetries ?? 0,
+    timeout: settings.openAiTimeout ?? 30_000,
   });
+
+  const model = settings.model;
+  const provider = new OpenaiProvider({
+    model,
+    client: new QueuingOpenAi({
+      client: openAi,
+      maxParallelism: settings.maxParallelism ?? 4,
+    }),
+  });
+
+  // Create event stream for node communication
+  const eventStream = new ConcreteEventStream();
+
+  // Setup logging subscribers to see what's happening
+  setupLoggingSubscribers(eventStream);
+
+  // Try to load a session if saveLocation is configured
+  let loadedSession: LoadedSession | undefined;
+  try {
+    console.info(
+      `[Init] Attempting to load session from ${settings.saveLocation}`,
+    );
+    const memoryNodeFactory = new ConcreteMemoryNodeFactory({ provider });
+    loadedSession = SessionLoader.load({
+      directory: settings.saveLocation,
+      eventStream,
+      memoryNodeFactory,
+    });
+    if (loadedSession) {
+      console.info(
+        `[Init] Loaded session with ${loadedSession.nodes.length} nodes`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      `[Init] Failed to load session: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 
   const mcpClients: Client[] = settings.mcpServers
     ? (
@@ -37,8 +150,90 @@ export const init = async () => {
       ).filter(isDefined)
     : [];
 
+  // Create ToolNode factories for each MCP client
+  const toolNodeFactories = mcpClients.map(
+    (client) => new ConcreteToolNodeFactory({ provider, mcpClient: client }),
+  );
+
+  // Create sensory node with Wikipedia sensor
+  const wikipediaSensor = new WikipediaSensor(provider);
+  const sensoryNode = new SensoryNode({
+    id: `wiki-sensor-${crypto.randomUUID().slice(0, 8)}`,
+    provider,
+    eventStream,
+    sensor: wikipediaSensor,
+  });
+
+  // Create supporting services for EpochOrchestrator
+  const attentionGate = new StaticAttentionGate({
+    n: settings.attentionGateN ?? 'all',
+  });
+  const relevanceFilter = new LlmRelevanceFilter({
+    provider,
+    attentionGate,
+  });
+
+  const distiller = new LlmDistiller({ provider });
+
+  const memoryNodeFactory = new ConcreteMemoryNodeFactory({ provider });
+
+  const nodeSplitter = new MemoryNodeSplitter({
+    splittingProvider: provider,
+    newNodeProvider: provider,
+    memoryNodeFactory,
+    eventStream,
+  });
+
+  // Create initial nodes (tool nodes + sensory node, plus loaded nodes if any)
+  const initialNodes: Node<string>[] = [];
+
+  // Add loaded nodes from session
+  if (loadedSession?.nodes) {
+    initialNodes.push(...loadedSession.nodes);
+  }
+
+  // Add tool nodes for each MCP client
+  for (const factory of toolNodeFactories) {
+    const toolNode = factory.create({
+      nodeId: `tool-${crypto.randomUUID().slice(0, 8)}`,
+      eventStream,
+    });
+    initialNodes.push(toolNode);
+  }
+
+  // Add sensory node
+  initialNodes.push(sensoryNode);
+
+  // Use loaded working memory and broadcast if available, otherwise use defaults
+  const initialWorkingMemory = loadedSession?.workingMemory ?? { messages: [] };
+  const initialBroadcast =
+    loadedSession?.broadcast ??
+    ({
+      content: settings.initialBroadcastMessage,
+    } as const);
+
+  SessionSaver.watch({
+    eventStream,
+    directory: settings.saveLocation,
+  });
+
+  // Create orchestrator
+  const orchestrator = new EpochOrchestrator({
+    provider,
+    relevanceFilter,
+    distiller,
+    maxWorkingMemoryMessages: settings.maxWorkingMemoryMessages ?? 10,
+    contextLengthThreshold: settings.contextLengthThreshold ?? 5000,
+    memoryNodeSplitter: nodeSplitter,
+    initialWorkingMemory,
+    initialBroadcast,
+    memoryNodeFactory,
+    eventStream,
+    initialNodes,
+  });
+
   return {
-    openAi,
+    orchestrator,
     mcpClients,
   };
 };

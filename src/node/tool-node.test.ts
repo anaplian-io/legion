@@ -4,7 +4,7 @@ import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { ToolDefinition } from '../types/tool.js';
 
-// Mock MCPClient
+// Mock MCPClient interface matching the actual implementation
 interface MockMCPClient {
   getAvailableTools: () => Promise<ToolDefinition[]>;
   invokeTool: (
@@ -27,7 +27,7 @@ describe('ToolNode', () => {
 
   beforeEach(() => {
     mockProvider = {
-      askYesNoQuestion: vi.fn(),
+      askYesNoQuestion: vi.fn().mockResolvedValue(true),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
       splitString: vi.fn(),
@@ -38,7 +38,7 @@ describe('ToolNode', () => {
       subscribe: vi.fn(),
     };
     mockMCPClient = {
-      getAvailableTools: vi.fn(),
+      getAvailableTools: vi.fn().mockResolvedValue([]),
       invokeTool: vi.fn(),
     };
   });
@@ -54,7 +54,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -73,7 +73,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -90,7 +90,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -98,19 +98,18 @@ describe('ToolNode', () => {
     expect(node.status).toBe('idle');
   });
 
-  it('should handle sendMessage with no tool calls', async () => {
+  it('should get tools automatically on first sendMessage if not initialized', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+
     const broadcastMessage = {
-      workingMemory: {
-        messages: [],
-      },
-      broadcast: { content: 'Test broadcast' },
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
     };
 
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Tool response',
-      toolCalls: undefined,
+      content: '',
+      toolCalls: [],
     });
 
     const node = new ToolNode({
@@ -118,75 +117,143 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    // Don't call initialize - should auto-initialize on first sendMessage
+    await node.sendMessage(broadcastMessage);
+
+    expect(mockMCPClient.getAvailableTools).toHaveBeenCalled();
+  });
+
+  it('should return undefined when tools are not relevant to broadcast', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    const result = await node.sendMessage(broadcastMessage);
-
-    expect(result).toEqual({
-      originatingNodeId: 'test-node',
-      content: 'Tool response',
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
     });
+
+    expect(result).toBeUndefined();
   });
 
-  it('should get tool calls from LLM and invoke them via MCP', async () => {
+  it('should return undefined when LLM returns no tool calls', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    await node.initialize();
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: 'Some response',
+      toolCalls: undefined,
+    });
+
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined when LLM returns empty tool calls array', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    await node.initialize();
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should invoke tools and return JSON string of results', async () => {
     const tools: ToolDefinition[] = [
       { name: 'get_weather', description: 'Get weather', parameters: {} },
     ];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValueOnce({
+    vi.mocked(mockMCPClient.invokeTool).mockResolvedValue({
       callId: 'call_1',
       name: 'get_weather',
       success: true,
       result: { temperature: 72, condition: 'sunny' },
     });
-    const broadcastMessage = {
-      workingMemory: {
-        messages: [],
-      },
-      broadcast: { content: 'What is the weather?' },
-    };
-
-    // First call returns tool calls
-    vi.mocked(mockProvider.generateWithTools)
-      .mockResolvedValueOnce({
-        content: '',
-        toolCalls: [
-          {
-            id: 'call_1',
-            type: 'function' as const,
-            function: {
-              name: 'get_weather',
-              arguments: JSON.stringify({ location: 'NYC' }),
-            },
-          },
-        ],
-      })
-      // Second call returns the final response after tool results
-      .mockResolvedValueOnce({
-        content: 'The weather in NYC is sunny (72°F)',
-        toolCalls: undefined,
-      });
 
     const node = new ToolNode({
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    const result = await node.sendMessage(broadcastMessage);
-
-    expect(result).toEqual({
-      originatingNodeId: 'test-node',
-      content: 'The weather in NYC is sunny (72°F)',
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        {
+          id: 'call_1',
+          type: 'function' as const,
+          function: {
+            name: 'get_weather',
+            arguments: JSON.stringify({ location: 'NYC' }),
+          },
+        },
+      ],
     });
 
-    // First call should have the initial request with tools
-    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(2);
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'What is the weather?' },
+    });
+
+    // Should return JSON string of tool results array
+    expect(result).toEqual({
+      originatingNodeId: 'test-node',
+      content: JSON.stringify([
+        {
+          callId: 'call_1',
+          name: 'get_weather',
+          success: true,
+          result: { temperature: 72, condition: 'sunny' },
+        },
+      ]),
+    });
+
+    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(1);
     expect(
       vi.mocked(mockProvider.generateWithTools).mock.calls[0]?.[0],
     ).toEqual(
@@ -199,6 +266,7 @@ describe('ToolNode', () => {
   it('should include working memory in system prompt', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+
     const broadcastMessage = {
       workingMemory: {
         messages: [
@@ -210,8 +278,8 @@ describe('ToolNode', () => {
     };
 
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Response',
-      toolCalls: undefined,
+      content: '',
+      toolCalls: [],
     });
 
     const node = new ToolNode({
@@ -219,7 +287,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -232,29 +300,56 @@ describe('ToolNode', () => {
     expect(callArgs.systemPrompt).toContain('New broadcast');
   });
 
-  it('should set status to generating during sendMessage', async () => {
+  it('should set status to evaluating-relevance during sendMessage', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Response',
-      toolCalls: undefined,
-    });
 
     const node = new ToolNode({
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    await node.sendMessage(broadcastMessage);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
+    });
+
+    expect(mockEventStream.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'evaluating-relevance' }),
+      }),
+    );
+  });
+
+  it('should set status to generating after relevance check', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    await node.initialize();
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
+    });
 
     expect(mockEventStream.publish).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -263,29 +358,27 @@ describe('ToolNode', () => {
     );
   });
 
-  it('should set status back to idle after sendMessage', async () => {
+  it('should set status back to idle after sendMessage completes', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Response',
-      toolCalls: undefined,
-    });
 
     const node = new ToolNode({
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    await node.sendMessage(broadcastMessage);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
+    });
 
     const publishCalls = vi.mocked(mockEventStream.publish).mock.calls;
     // Last call should be setting status to idle
@@ -298,253 +391,110 @@ describe('ToolNode', () => {
     );
   });
 
-  it('should return undefined on error getting tool calls', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockRejectedValue(
-      new Error('API error'),
-    );
-
-    const node = new ToolNode({
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
-    });
-
-    await node.initialize();
-    const result = await node.sendMessage(broadcastMessage);
-
-    expect(result).toBeUndefined();
-  });
-
-  it('should publish status change events to event stream', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Response',
-      toolCalls: undefined,
-    });
-
-    const node = new ToolNode({
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
-    });
-
-    await node.initialize();
-    await node.sendMessage(broadcastMessage);
-
-    // Should publish 2 events: generating and idle
-    expect(mockEventStream.publish).toHaveBeenCalledTimes(2);
-  });
-
-  it('should handle empty toolCalls array', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Response',
-      toolCalls: [],
-    });
-
-    const node = new ToolNode({
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
-    });
-
-    await node.initialize();
-    const result = await node.sendMessage(broadcastMessage);
-
-    expect(result).toEqual({
-      originatingNodeId: 'test-node',
-      content: 'Response',
-    });
-  });
-
-  it('should include tool results in messages to LLM after execution', async () => {
+  it('should return JSON string with error when tool execution fails', async () => {
     const tools: ToolDefinition[] = [
       { name: 'calculator', description: 'Calculate math', parameters: {} },
     ];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValueOnce({
-      callId: 'call_calc',
-      name: 'calculator',
-      success: true,
-      result: 4,
-    });
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'What is 2+2?' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools)
-      .mockResolvedValueOnce({
-        content: '',
-        toolCalls: [
-          {
-            id: 'call_calc',
-            type: 'function' as const,
-            function: {
-              name: 'calculator',
-              arguments: JSON.stringify({ expression: '2+2' }),
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        content: 'The result is 4',
-        toolCalls: undefined,
-      });
-
-    const node = new ToolNode({
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
-    });
-
-    await node.initialize();
-    await node.sendMessage(broadcastMessage);
-
-    // Second call should include the tool result message
-    const secondCallArgs = vi.mocked(mockProvider.generateWithTools).mock
-      .calls[1]?.[0] as { messages: Array<{ content: string }> };
-    expect(secondCallArgs?.messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          originatingNodeId: 'test-node',
-        }),
-      ]),
-    );
-  });
-
-  it('should return error message when tool is not found', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'known_tool', description: 'Known tool', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValueOnce({
-      callId: 'call_unknown',
-      name: 'unknown_tool',
-      success: false,
-      error: 'Tool "unknown_tool" not found',
-    });
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Call unknown tool' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools)
-      .mockResolvedValueOnce({
-        content: '',
-        toolCalls: [
-          {
-            id: 'call_unknown',
-            type: 'function' as const,
-            function: {
-              name: 'unknown_tool',
-              arguments: JSON.stringify({ param: 'value' }),
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        content: '',
-        toolCalls: undefined,
-      });
-
-    const node = new ToolNode({
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
-    });
-
-    await node.initialize();
-    await node.sendMessage(broadcastMessage);
-
-    // The error should be included in the messages sent back to LLM
-    const secondCallArgs = vi.mocked(mockProvider.generateWithTools).mock
-      .calls[1]?.[0] as { messages: Array<{ content: string }> };
-    expect(secondCallArgs?.messages[1]?.content).toContain('not found');
-  });
-
-  it('should handle error during tool execution and return to LLM', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'calculator', description: 'Calculate math', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValueOnce({
+    vi.mocked(mockMCPClient.invokeTool).mockResolvedValue({
       callId: 'call_calc',
       name: 'calculator',
       success: false,
       error: 'Connection timeout',
     });
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'What is 2+2?' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools)
-      .mockResolvedValueOnce({
-        content: '',
-        toolCalls: [
-          {
-            id: 'call_calc',
-            type: 'function' as const,
-            function: {
-              name: 'calculator',
-              arguments: JSON.stringify({ expression: '2+2' }),
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        content: 'Processing complete with error handling',
-        toolCalls: undefined,
-      });
 
     const node = new ToolNode({
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    const result = await node.sendMessage(broadcastMessage);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        {
+          id: 'call_calc',
+          type: 'function' as const,
+          function: {
+            name: 'calculator',
+            arguments: JSON.stringify({ expression: '2+2' }),
+          },
+        },
+      ],
+    });
+
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'What is 2+2?' },
+    });
 
     expect(result).toEqual({
       originatingNodeId: 'test-node',
-      content: 'Processing complete with error handling',
+      content: JSON.stringify([
+        {
+          callId: 'call_calc',
+          name: 'calculator',
+          success: false,
+          error: 'Connection timeout',
+        },
+      ]),
     });
   });
 
-  it('should handle multiple tool calls', async () => {
+  it('should return JSON string with caught exception when tool throws', async () => {
+    const tools: ToolDefinition[] = [
+      { name: 'calculator', description: 'Calculate math', parameters: {} },
+    ];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockMCPClient.invokeTool).mockRejectedValue(
+      new Error('Network error'),
+    );
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    await node.initialize();
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        {
+          id: 'call_calc',
+          type: 'function' as const,
+          function: {
+            name: 'calculator',
+            arguments: JSON.stringify({ expression: '2+2' }),
+          },
+        },
+      ],
+    });
+
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'What is 2+2?' },
+    });
+
+    expect(result).toEqual({
+      originatingNodeId: 'test-node',
+      content: JSON.stringify([
+        {
+          callId: 'call_calc',
+          name: 'calculator',
+          success: false,
+          error: 'Error: Network error',
+        },
+      ]),
+    });
+  });
+
+  it('should handle multiple tool calls in parallel', async () => {
     const tools: ToolDefinition[] = [
       { name: 'tool_a', parameters: {} },
       { name: 'tool_b', parameters: {} },
@@ -563,99 +513,70 @@ describe('ToolNode', () => {
         success: true,
         result: 'result_b',
       });
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'Use multiple tools' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools)
-      .mockResolvedValueOnce({
-        content: '',
-        toolCalls: [
-          {
-            id: 'call_a',
-            type: 'function' as const,
-            function: {
-              name: 'tool_a',
-              arguments: JSON.stringify({ param: 'a' }),
-            },
-          },
-          {
-            id: 'call_b',
-            type: 'function' as const,
-            function: {
-              name: 'tool_b',
-              arguments: JSON.stringify({ param: 'b' }),
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        content: 'Both tools completed',
-        toolCalls: undefined,
-      });
 
     const node = new ToolNode({
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    await node.sendMessage(broadcastMessage);
-
-    // Should have called generateWithTools twice
-    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(2);
-  });
-
-  it('should return undefined when final LLM call after tool execution fails', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'calculator', description: 'Calculate math', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValueOnce({
-      callId: 'call_calc',
-      name: 'calculator',
-      success: true,
-      result: 4,
-    });
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { content: 'What is 2+2?' },
-    };
-
-    // First call succeeds with tool calls
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValueOnce({
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
       content: '',
       toolCalls: [
         {
-          id: 'call_calc',
+          id: 'call_a',
           type: 'function' as const,
           function: {
-            name: 'calculator',
-            arguments: JSON.stringify({ expression: '2+2' }),
+            name: 'tool_a',
+            arguments: JSON.stringify({ param: 'a' }),
+          },
+        },
+        {
+          id: 'call_b',
+          type: 'function' as const,
+          function: {
+            name: 'tool_b',
+            arguments: JSON.stringify({ param: 'b' }),
           },
         },
       ],
     });
-    // Second call (after tool execution) fails
-    vi.mocked(mockProvider.generateWithTools).mockRejectedValue(
-      new Error('Final synthesis failed'),
-    );
+
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Use multiple tools' },
+    });
+
+    // Should have invoked both tools
+    expect(mockMCPClient.invokeTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('should publish status change events to event stream', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
-    const result = await node.sendMessage(broadcastMessage);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Test' },
+    });
 
-    expect(result).toBeUndefined();
+    // Should publish 3 events: evaluating-relevance, generating, and idle
+    expect(mockEventStream.publish).toHaveBeenCalledTimes(3);
   });
 });

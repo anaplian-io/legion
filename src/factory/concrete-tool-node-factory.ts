@@ -6,7 +6,7 @@ import {
   ToolNodeFactory,
 } from '../types/tool-node-factory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { MCPClient } from '../mcp/mcp-client.js';
+import { MCPClient } from '../adapter/mcp-client.js';
 
 export interface ConcreteToolNodeFactoryProps {
   readonly provider: Provider;

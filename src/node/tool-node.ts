@@ -6,8 +6,8 @@ import {
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
-import { ToolDefinition, GenerateWithToolsProps } from '../types/tool.js';
-import { MCPClient } from '../mcp/mcp-client.js';
+import { ToolDefinition } from '../types/tool.js';
+import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 
 export interface ToolNodeProps {
   readonly id: string;
@@ -46,91 +46,86 @@ export class ToolNode implements Node<'tool'> {
   public readonly sendMessage = async (
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
-    const { provider } = this.props;
-    await this.setStatus('generating');
+    const { provider, mcpClient } = this.props;
+    if (this.tools.length === 0) {
+      await this.initialize();
+    }
+    const concatenatedBroadcast =
+      broadcastMessage.workingMemory.messages.map(
+        (message, index) =>
+          `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
+      ) + `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
+    this.setStatus('evaluating-relevance');
+    const relevant = await provider.askYesNoQuestion(`${this.preamble}
 
+    New Information: ${concatenatedBroadcast}
+
+    Question: Will one or more of your tools help resolve the above information?`);
+    if (!relevant) {
+      this.setStatus('idle');
+      return undefined;
+    }
+    const messages = [
+      ...broadcastMessage.workingMemory.messages,
+      broadcastMessage.broadcast,
+    ];
+    this.setStatus('generating');
     const systemPrompt = `You are a tool invocation node. Use the available tools to process the broadcast message.
+You MUST make a tool call.
 
 Available working memory:
 ${broadcastMessage.workingMemory.messages.map((m, i) => `[MESSAGE ${i}]: ${m.content}`).join('\n')}
 
 New broadcast: ${broadcastMessage.broadcast.content}
 `;
-
-    const messages: GenerateWithToolsProps['messages'] = [
-      { content: broadcastMessage.broadcast.content },
-    ];
-
-    let responseContent = '';
-    let toolCalls = undefined;
-
-    try {
-      const result = await provider.generateWithTools({
-        systemPrompt,
-        messages,
-        tools: this.tools,
-      });
-      responseContent = result.content;
-      toolCalls = result.toolCalls;
-    } catch (error) {
-      console.error(`[ToolNode ${this.id}]: error getting tool calls:`, error);
-      await this.setStatus('idle');
+    const response = await provider.generateWithTools({
+      messages,
+      systemPrompt,
+      tools: this.tools,
+    });
+    if (!response.toolCalls || response.toolCalls.length === 0) {
+      this.setStatus('idle');
       return undefined;
     }
-
-    if (toolCalls && toolCalls.length > 0) {
-      const toolResults: GenerateWithToolsProps['messages'] = [];
-      for (const toolCall of toolCalls) {
-        const result = await this.mcpClient.invokeTool(
-          toolCall.id,
-          toolCall.function.name,
-          toolCall.function.arguments,
-        );
-        if (result.success) {
-          toolResults.push({
-            originatingNodeId: this.id,
-            content: JSON.stringify(result.result),
-          });
-        } else {
-          toolResults.push({
-            originatingNodeId: this.id,
-            content: JSON.stringify({ error: result.error }),
-          });
+    const toolCallResponse = await Promise.all(
+      response.toolCalls.map(async (call) => {
+        try {
+          return await mcpClient.invokeTool(
+            call.id,
+            call.function.name,
+            call.function.arguments,
+          );
+        } catch (e) {
+          return {
+            callId: call.id,
+            name: call.function.name,
+            success: false,
+            error: `${e}`,
+          } satisfies ToolResult;
         }
-      }
-      const finalMessages: GenerateWithToolsProps['messages'] = [
-        { content: broadcastMessage.broadcast.content },
-        ...toolResults,
-      ];
-      try {
-        const finalResult = await provider.generateWithTools({
-          systemPrompt,
-          messages: finalMessages,
-          tools: this.tools,
-        });
-        responseContent = finalResult.content;
-      } catch (error) {
-        console.error(
-          `[ToolNode ${this.id}]: error after tool execution:`,
-          error,
-        );
-        await this.setStatus('idle');
-        return undefined;
-      }
-    }
-    const response: NodeResponse = {
+      }),
+    );
+    this.setStatus('idle');
+    return {
       originatingNodeId: this.id,
-      content: responseContent,
+      content: JSON.stringify(toolCallResponse),
     };
-    await this.setStatus('idle');
-    return response;
   };
 
-  private readonly setStatus = async (newStatus: NodeStatus): Promise<void> => {
+  private readonly setStatus = (newStatus: NodeStatus): void => {
     this._nodeStatus = newStatus;
     this.props.eventStream.publish({
       topicName: 'node/status-change',
       data: { nodeId: this.id, status: newStatus },
     });
   };
+
+  public get preamble(): string {
+    return `You will have the following tools available:
+    ${this.tools.map((tool) => JSON.stringify(tool)).join('\n')}
+    
+    Pay attention to whether the provided information below is a query that you will
+    be able to use one of your tools to resolve.
+    `;
+  }
 }

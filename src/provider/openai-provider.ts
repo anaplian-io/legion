@@ -1,6 +1,7 @@
 import {
   GenerateProps,
   GenerateWithToolsProps,
+  MinimalOpenAi,
   Provider,
   ToolCall,
   ToolDefinition,
@@ -9,7 +10,7 @@ import { OpenAI } from 'openai';
 
 export interface OpenAiProviderProps {
   readonly model: string;
-  readonly client: OpenAI;
+  readonly client: MinimalOpenAi;
 }
 
 export class OpenaiProvider implements Provider {
@@ -22,7 +23,7 @@ export class OpenaiProvider implements Provider {
         content: props.systemPrompt,
       },
       ...props.messages.map((m) => ({
-        role: 'user' as const,
+        role: 'assistant' as const,
         content: m.content,
       })),
     ];
@@ -108,7 +109,9 @@ Example: {"answer": true}`,
       },
     });
 
-    const { answer } = JSON.parse(response.output_text) as { answer: boolean };
+    const { answer } = JSON.parse(
+      response.output_text.replaceAll('```json', '').replaceAll('```', ''),
+    ) as { answer: boolean };
     return answer;
   };
 
@@ -141,7 +144,9 @@ ${content}`,
       },
     });
 
-    const { left, right } = JSON.parse(response.output_text) as {
+    const { left, right } = JSON.parse(
+      response.output_text.replaceAll('```json', '').replaceAll('```', ''),
+    ) as {
       left: string;
       right: string;
     };
@@ -155,7 +160,7 @@ ${content}`,
       name: tool.name,
       description: tool.description ?? null,
       parameters: tool.parameters,
-      strict: null,
+      strict: true,
     };
   }
 
@@ -170,11 +175,7 @@ ${content}`,
       ...props.messages.map(
         (m) =>
           ({
-            role: (m.originatingNodeId ? 'tool' : 'user') as
-              | 'user'
-              | 'assistant'
-              | 'system'
-              | 'developer',
+            role: 'user',
             content: m.content,
           }) satisfies OpenAI.Responses.EasyInputMessage,
       ),
@@ -194,7 +195,10 @@ ${content}`,
       input: inputItems,
       tools: mappedTools,
     };
-    const response = await this.props.client.responses.create(params);
+    const response = await this.props.client.responses.create({
+      ...params,
+      tool_choice: 'required',
+    });
     const content = response.output_text ?? '';
     const toolCalls: ToolCall[] = [];
     if (response.output && Array.isArray(response.output)) {
