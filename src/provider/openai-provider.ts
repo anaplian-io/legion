@@ -1,6 +1,7 @@
 import {
   GenerateProps,
   GenerateWithToolsProps,
+  MinimalOpenAi,
   Provider,
   ToolCall,
   ToolDefinition,
@@ -9,7 +10,7 @@ import { OpenAI } from 'openai';
 
 export interface OpenAiProviderProps {
   readonly model: string;
-  readonly client: OpenAI;
+  readonly client: MinimalOpenAi;
 }
 
 export class OpenaiProvider implements Provider {
@@ -22,7 +23,7 @@ export class OpenaiProvider implements Provider {
         content: props.systemPrompt,
       },
       ...props.messages.map((m) => ({
-        role: 'user' as const,
+        role: 'assistant' as const,
         content: m.content,
       })),
     ];
@@ -174,11 +175,7 @@ ${content}`,
       ...props.messages.map(
         (m) =>
           ({
-            role: (m.originatingNodeId ? 'tool' : 'user') as
-              | 'user'
-              | 'assistant'
-              | 'system'
-              | 'developer',
+            role: 'user',
             content: m.content,
           }) satisfies OpenAI.Responses.EasyInputMessage,
       ),

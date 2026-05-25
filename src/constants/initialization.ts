@@ -19,6 +19,7 @@ import { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import { LoadedSession, SessionLoader } from '../utilities/session-loader.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SessionSaver } from '../utilities/session-saver.js';
+import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -82,10 +83,18 @@ export const init = async () => {
   const openAi = new OpenAI({
     baseURL: settings.baseUrl,
     apiKey: settings.apiKey,
+    maxRetries: settings.openAiMaxRetries ?? 0,
+    timeout: settings.openAiTimeout ?? 30_000,
   });
 
   const model = settings.model;
-  const provider = new OpenaiProvider({ model, client: openAi });
+  const provider = new OpenaiProvider({
+    model,
+    client: new QueuingOpenAi({
+      client: openAi,
+      maxParallelism: settings.maxParallelism ?? 4,
+    }),
+  });
 
   // Create event stream for node communication
   const eventStream = new ConcreteEventStream();
@@ -149,14 +158,16 @@ export const init = async () => {
   // Create sensory node with Wikipedia sensor
   const wikipediaSensor = new WikipediaSensor(provider);
   const sensoryNode = new SensoryNode({
-    id: 'sensory-node',
+    id: `wiki-sensor-${crypto.randomUUID().slice(0, 8)}`,
     provider,
     eventStream,
     sensor: wikipediaSensor,
   });
 
   // Create supporting services for EpochOrchestrator
-  const attentionGate = new StaticAttentionGate({ n: 'all' });
+  const attentionGate = new StaticAttentionGate({
+    n: settings.attentionGateN ?? 'all',
+  });
   const relevanceFilter = new LlmRelevanceFilter({
     provider,
     attentionGate,
@@ -211,8 +222,8 @@ export const init = async () => {
     provider,
     relevanceFilter,
     distiller,
-    maxWorkingMemoryMessages: 10,
-    contextLengthThreshold: 5000,
+    maxWorkingMemoryMessages: settings.maxWorkingMemoryMessages ?? 10,
+    contextLengthThreshold: settings.contextLengthThreshold ?? 5000,
     memoryNodeSplitter: nodeSplitter,
     initialWorkingMemory,
     initialBroadcast,

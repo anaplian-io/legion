@@ -7,7 +7,7 @@ import {
 import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
 import { ToolDefinition } from '../types/tool.js';
-import { MCPClient, ToolResult } from '../mcp/mcp-client.js';
+import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 
 export interface ToolNodeProps {
   readonly id: string;
