@@ -10,7 +10,6 @@ import type { NodeSplitter } from '../types/node-splitter.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 
-// Type alias for test file
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;
 
@@ -43,6 +42,7 @@ describe('EpochOrchestrator', () => {
       split: vi.fn(),
     };
     eventStream = new ConcreteEventStream();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   it('should create an orchestrator with initial working memory', () => {
@@ -613,6 +613,85 @@ describe('EpochOrchestrator', () => {
       'node-a-right',
     ]);
     expect(mockMemoryNodeSplitter.split).toHaveBeenCalledWith(nodeA);
+  });
+
+  it('should spawn a new node when filtered messages come from non-memory nodes', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
+    });
+
+    // Create a non-memory node (tool node)
+    const toolNode: Node<'tool'> = {
+      id: 'tool-node',
+      kind: 'tool' as const,
+      status: 'idle',
+      context: 'Tool context',
+      sendMessage: vi.fn().mockResolvedValue({
+        originatingNodeId: 'tool-node',
+        content: 'Tool response',
+      }),
+    };
+
+    orchestrator.addNode(toolNode);
+
+    // Filter returns the tool's message
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'Tool response', originatingNodeId: 'tool-node' },
+    ]);
+    const mockNewNode = createMockNode('new-memory-node');
+    vi.mocked(mockMemoryNodeFactory.create).mockReturnValue(mockNewNode);
+
+    await orchestrator.runEpoch();
+
+    // Should spawn a new memory node since the only responding node was a tool
+    expect(mockMemoryNodeFactory.create).toHaveBeenCalled();
+  });
+
+  it('should handle node throwing an error during sendMessage', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      eventStream,
+    });
+
+    const nodeA: Node<'memory'> = {
+      id: 'node-a',
+      kind: 'memory' as const,
+      status: 'idle',
+      context: 'Context for node-a',
+      sendMessage: vi.fn().mockRejectedValue(new Error('Something went wrong')),
+    };
+
+    orchestrator.addNode(nodeA);
+
+    // Filter returns empty because the response was undefined due to error
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([]);
+    const mockNewNode = createMockNode('new-node');
+    vi.mocked(mockMemoryNodeFactory.create).mockReturnValue(mockNewNode);
+
+    await orchestrator.runEpoch();
+
+    // Should handle the error gracefully and spawn a new node
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '[EpochOrchestrator] Node node-a threw an error:',
+      ),
+    );
+    expect(mockMemoryNodeFactory.create).toHaveBeenCalled();
   });
 });
 

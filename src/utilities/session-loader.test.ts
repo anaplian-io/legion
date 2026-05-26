@@ -32,12 +32,35 @@ describe('SessionLoader', () => {
     vi.clearAllMocks();
   });
 
+  it('should return undefined when nodes directory does not exist', () => {
+    existsSync.mockReturnValue(false);
+    readdirSync.mockReturnValue([]);
+
+    const mockEventStream: EventStream = {
+      subscribe: vi.fn(),
+      publish: vi.fn(),
+    };
+    const mockMemoryNodeFactory: MemoryNodeFactory = {
+      create: vi.fn(),
+    };
+
+    const result = SessionLoader.load({
+      directory: mockDirectory,
+      eventStream: mockEventStream,
+      memoryNodeFactory: mockMemoryNodeFactory,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
   it('should load nodes and working memory from disk', () => {
     const nodeFiles = ['node-1.json', 'node-2.json'];
     readdirSync.mockReturnValue(nodeFiles);
     existsSync.mockImplementation((filePath: string) => {
       if (typeof filePath === 'string') {
-        return filePath.includes('nodes');
+        return (
+          filePath.includes('nodes') || filePath.includes('working-memory.json')
+        );
       }
       return false;
     });
@@ -57,6 +80,12 @@ describe('SessionLoader', () => {
           id: 'node-2',
           kind: 'memory',
           context: 'Context for node-2',
+        });
+      }
+      if (filePath.includes('working-memory.json')) {
+        return JSON.stringify({
+          workingMemory: { messages: [] },
+          broadcast: { content: '' },
         });
       }
       throw new Error(`ENOENT: no such file or directory, open '${filePath}'`);
@@ -119,8 +148,9 @@ describe('SessionLoader', () => {
   it('should load working memory with messages', () => {
     const nodeFiles: string[] = [];
     readdirSync.mockReturnValue(nodeFiles);
-    existsSync.mockImplementation((filePath: string) =>
-      filePath.includes('working-memory.json'),
+    existsSync.mockImplementation(
+      (filePath: string) =>
+        filePath.includes('nodes') || filePath.includes('working-memory.json'),
     );
     readFileSync.mockImplementation(() => {
       return JSON.stringify({
@@ -186,37 +216,42 @@ describe('SessionLoader', () => {
     ).toThrow('Permission denied');
   });
 
-  it('should panic if working memory file cannot be read', () => {
+  it('should handle missing working memory file gracefully', () => {
     const nodeFiles: string[] = [];
     readdirSync.mockReturnValue(nodeFiles);
     existsSync.mockImplementation((filePath: string) =>
-      filePath.includes('working-memory.json'),
+      filePath.includes('nodes'),
     );
-    readFileSync.mockImplementation(() => {
-      throw new Error('Permission denied');
-    });
+    // working-memory.json doesn't exist, so readFileSync should not be called
 
     const mockEventStream: EventStream = {
       subscribe: vi.fn(),
       publish: vi.fn(),
     };
     const mockMemoryNodeFactory: MemoryNodeFactory = {
-      create: vi.fn(),
+      create: vi.fn(() => ({
+        id: 'default-id',
+        kind: 'memory' as const,
+        context: '',
+        status: 'idle' as const,
+        sendMessage: vi.fn(),
+      })),
     };
 
-    expect(() =>
-      SessionLoader.load({
-        directory: mockDirectory,
-        eventStream: mockEventStream,
-        memoryNodeFactory: mockMemoryNodeFactory,
-      }),
-    ).toThrow('Permission denied');
+    const result = SessionLoader.load({
+      directory: mockDirectory,
+      eventStream: mockEventStream,
+      memoryNodeFactory: mockMemoryNodeFactory,
+    });
+
+    expect(result).toBeUndefined();
   });
 
   it('should handle empty node files array', () => {
     readdirSync.mockReturnValue([]);
-    existsSync.mockImplementation((filePath: string) =>
-      filePath.includes('working-memory.json'),
+    existsSync.mockImplementation(
+      (filePath: string) =>
+        filePath.includes('nodes') || filePath.includes('working-memory.json'),
     );
     readFileSync.mockImplementation(() => {
       return JSON.stringify({
@@ -285,8 +320,9 @@ describe('SessionLoader', () => {
   it('should throw if working memory file contains invalid JSON', () => {
     const nodeFiles: string[] = [];
     readdirSync.mockReturnValue(nodeFiles);
-    existsSync.mockImplementation((filePath: string) =>
-      filePath.includes('working-memory.json'),
+    existsSync.mockImplementation(
+      (filePath: string) =>
+        filePath.includes('nodes') || filePath.includes('working-memory.json'),
     );
     // Return invalid JSON to trigger parse error
     readFileSync.mockImplementation(() => 'not valid json');
@@ -336,8 +372,9 @@ describe('SessionLoader', () => {
   it('should extract broadcast from last working memory message', () => {
     const nodeFiles: string[] = [];
     readdirSync.mockReturnValue(nodeFiles);
-    existsSync.mockImplementation((filePath: string) =>
-      filePath.includes('working-memory.json'),
+    existsSync.mockImplementation(
+      (filePath: string) =>
+        filePath.includes('nodes') || filePath.includes('working-memory.json'),
     );
     readFileSync.mockImplementation(() => {
       return JSON.stringify({
@@ -366,6 +403,6 @@ describe('SessionLoader', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
     });
 
-    expect(result.broadcast.content).toBe('Third');
+    expect(result?.broadcast.content).toBe('Third');
   });
 });

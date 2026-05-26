@@ -8,6 +8,9 @@ export interface McpServerStdIo {
 
 export interface LegionSettings {
   readonly llmProvider: 'openai';
+  readonly model: string;
+  readonly saveLocation: string;
+  readonly initialBroadcastMessage: string;
   readonly baseUrl?: string;
   readonly apiKey?: string;
   readonly mcpServers?: Record<string, McpServerStdIo>;
