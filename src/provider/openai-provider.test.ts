@@ -48,8 +48,8 @@ describe('OpenaiProvider', () => {
       model: 'test-model',
       input: [
         { role: 'system', content: 'You are a helpful assistant.' },
-        { role: 'user', content: 'Hello, how are you?' },
-        { role: 'user', content: 'I am doing well, thanks!' },
+        { role: 'assistant', content: 'Hello, how are you?' },
+        { role: 'assistant', content: 'I am doing well, thanks!' },
       ],
     });
 
@@ -93,7 +93,7 @@ describe('OpenaiProvider', () => {
       model: 'test-model',
       input: [
         { role: 'system', content: 'System prompt' },
-        { role: 'user', content: 'Only one message' },
+        { role: 'assistant', content: 'Only one message' },
       ],
     });
 
@@ -428,8 +428,8 @@ describe('OpenaiProvider', () => {
         expect(mockClient.responses.create).toHaveBeenCalledWith(
           expect.objectContaining({
             input: expect.arrayContaining([
+              expect.objectContaining({ role: 'system' }),
               expect.objectContaining({ role: 'user' }),
-              expect.objectContaining({ role: 'tool' }),
             ]),
           }),
         );

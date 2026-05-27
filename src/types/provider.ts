@@ -1,5 +1,11 @@
 import { Message } from './message.js';
 import { GenerateWithToolsProps, ToolCall, ToolDefinition } from './tool.js';
+import {
+  Response,
+  ResponseCreateParamsNonStreaming,
+} from 'openai/resources/responses/responses';
+import { OpenAI } from 'openai';
+import RequestOptions = OpenAI.RequestOptions;
 
 export interface GenerateProps {
   readonly systemPrompt: string;
@@ -19,4 +25,13 @@ export interface Provider {
   readonly generateWithTools: (
     props: GenerateWithToolsProps,
   ) => Promise<{ content: string; toolCalls: ToolCall[] | undefined }>;
+}
+
+export interface MinimalOpenAi {
+  readonly responses: {
+    readonly create: (
+      body: ResponseCreateParamsNonStreaming,
+      options?: RequestOptions,
+    ) => Promise<Response>;
+  };
 }

@@ -54,7 +54,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -73,7 +73,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -90,7 +90,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -117,7 +117,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     // Don't call initialize - should auto-initialize on first sendMessage
@@ -136,7 +136,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -157,7 +157,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -183,7 +183,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -217,7 +217,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -287,7 +287,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -309,7 +309,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -338,7 +338,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -367,7 +367,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -408,7 +408,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -458,7 +458,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -519,7 +519,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
@@ -563,7 +563,7 @@ describe('ToolNode', () => {
       provider: mockProvider,
       eventStream: mockEventStream,
       mcpClient:
-        mockMCPClient as unknown as import('../mcp/mcp-client.js').MCPClient,
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
     });
 
     await node.initialize();
