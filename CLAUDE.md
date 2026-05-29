@@ -52,7 +52,13 @@ All LLM interactions go through the `Provider` interface (`src/types/provider.ts
 
 Uses OpenAI SDK (compatible with LM Studio APIs).
 
-### Testing Strategy
+## Coding Standards & Constraints
+
+- **NO EXPLICIT ANY**: The use of `any` is strictly prohibited. Always use specific types or generics to ensure type safety.
+- **Error Handling**: Prioritize descriptive errors over generic ones.
+- **Testing**: 100% coverage thresholds are enforced via Vitest.
+
+## Testing Strategy
 
 - **Vitest** with globals enabled
 - 100% coverage thresholds enforced
