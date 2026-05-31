@@ -93,6 +93,8 @@ export const init = async () => {
     client: new QueuingOpenAi({
       client: openAi,
       maxParallelism: settings.maxParallelism ?? 4,
+      retryOptions: { retries: 3 },
+      totalTimeout: settings.openAiTimeout ?? 60_000,
     }),
   });
 
