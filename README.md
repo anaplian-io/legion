@@ -247,7 +247,7 @@ When no nodes have anything to say, use LLM to:
 - [x] Implement SensoryNode for external input via Sensor interface (`src/node/sensory-node.ts`)
 - [x] Implement ToolNode for LLM tool invocation via Model Context Protocol (`src/node/tool-node.ts`)
 - [x] Create MCPClient wrapper around SDK Client (`src/adapter/mcp-client.ts`)
-- [x] Integrate with EpochOrchestrator for two-phase tool calling
+- [x] Integrate with EpochOrchestrator for single-phase tool calling (tool results are broadcast raw; LLM synthesis of results is not yet implemented)
 - [x] Implement ConcreteToolNodeFactory with proper dependency injection
 - [x] Add shutdown method to MCPClient with error handling
 - Tests: `src/node/tool-node.test.ts`, `src/node/sensory-node.test.ts`, `src/mcp/mcp-client.test.ts`, `src/factory/concrete-tool-node-factory.test.ts`

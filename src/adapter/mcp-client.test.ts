@@ -59,6 +59,24 @@ describe('MCPClient', () => {
     ]);
   });
 
+  it('should fall back to an empty-object schema for a non-object inputSchema', async () => {
+    vi.mocked(mockSdkClient.listTools).mockResolvedValue({
+      tools: [
+        // A misbehaving server returning a non-object schema.
+        {
+          name: 'bad_tool',
+          description: 'Bad schema',
+          inputSchema: null as unknown as Record<string, unknown>,
+        },
+      ],
+    });
+
+    const mcpClient = new MCPClient({ client: asMockClient(mockSdkClient) });
+    const tools = await mcpClient.getAvailableTools();
+
+    expect(tools[0]?.parameters).toEqual({ type: 'object', properties: {} });
+  });
+
   it('should handle missing description in tools', async () => {
     vi.mocked(mockSdkClient.listTools).mockResolvedValue({
       tools: [{ name: 'tool1', inputSchema: {} }],
