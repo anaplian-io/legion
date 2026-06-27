@@ -54,9 +54,15 @@ export class SensoryNode implements Node<'sensory'> {
 
   private readonly setStatus = async (newStatus: NodeStatus): Promise<void> => {
     this._nodeStatus = newStatus;
-    this.props.eventStream.publish({
-      topicName: 'node/status-change',
-      data: { nodeId: this.id, status: newStatus },
-    });
+    try {
+      this.props.eventStream.publish({
+        topicName: 'node/status-change',
+        data: { nodeId: this.id, status: newStatus },
+      });
+    } catch (e) {
+      console.warn(
+        `[SensoryNode ${this.id}] event publish threw during execution: ${e}`,
+      );
+    }
   };
 }

@@ -130,6 +130,7 @@ describe('SessionLoader', () => {
       ],
       workingMemory: { messages: [] },
       broadcast: { content: '' },
+      nodeStats: new Map(),
     });
 
     expect(mockMemoryNodeFactory.create).toHaveBeenCalledTimes(2);
@@ -190,6 +191,7 @@ describe('SessionLoader', () => {
         messages: [{ content: 'First message' }, { content: 'Second message' }],
       },
       broadcast: { content: 'Second message' },
+      nodeStats: new Map(),
     });
   });
 
@@ -278,6 +280,7 @@ describe('SessionLoader', () => {
       nodes: [],
       workingMemory: { messages: [] },
       broadcast: { content: '' },
+      nodeStats: new Map(),
     });
   });
 
@@ -342,6 +345,53 @@ describe('SessionLoader', () => {
         memoryNodeFactory: mockMemoryNodeFactory,
       }),
     ).toThrow('not valid json');
+  });
+
+  it('should restore node stats from stats.json when present', () => {
+    readdirSync.mockReturnValue([]);
+    existsSync.mockImplementation(
+      (filePath: string) =>
+        filePath.includes('nodes') ||
+        filePath.includes('working-memory.json') ||
+        filePath.includes('stats.json'),
+    );
+    readFileSync.mockImplementation((filePath: string) => {
+      if (filePath.includes('working-memory.json')) {
+        return JSON.stringify({
+          workingMemory: { messages: [] },
+          broadcast: { content: '' },
+        });
+      }
+      if (filePath.includes('stats.json')) {
+        return JSON.stringify([
+          {
+            nodeId: 'node-1',
+            stats: { epochsAlive: 9, epochsSpoken: 4, epochsFiltered: 2 },
+          },
+        ]);
+      }
+      throw new Error(`unexpected read ${filePath}`);
+    });
+
+    const mockEventStream: EventStream = {
+      subscribe: vi.fn(),
+      publish: vi.fn(),
+    };
+    const mockMemoryNodeFactory: MemoryNodeFactory = {
+      create: vi.fn(),
+    };
+
+    const result = SessionLoader.load({
+      directory: mockDirectory,
+      eventStream: mockEventStream,
+      memoryNodeFactory: mockMemoryNodeFactory,
+    });
+
+    expect(result?.nodeStats.get('node-1')).toEqual({
+      epochsAlive: 9,
+      epochsSpoken: 4,
+      epochsFiltered: 2,
+    });
   });
 
   it('should normalize the directory path', () => {

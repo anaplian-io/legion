@@ -23,9 +23,16 @@ export interface EpochParticipation {
  */
 export class NodeRegistry {
   private readonly nodesById = new Map<string, Node<string>>();
-  private readonly statsById = new Map<string, NodeStats>();
+  private readonly statsById: Map<string, NodeStats>;
 
-  constructor(private readonly eventStream: EventStream) {}
+  constructor(
+    private readonly eventStream: EventStream,
+    initialStats?: Map<string, NodeStats>,
+  ) {
+    // Seed from restored stats so nodes loaded from a session keep their
+    // accrued history (register() preserves any id already present).
+    this.statsById = new Map(initialStats);
+  }
 
   public register(node: Node<string>): void {
     this.nodesById.set(node.id, node);

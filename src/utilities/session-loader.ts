@@ -5,11 +5,14 @@ import { WorkingMemory } from '../types/working-memory.js';
 import { Node } from '../types/node.js';
 import { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import { EventStream } from '../types/event-stream.js';
+import { NodeStats } from '../types/node-stats.js';
+import { NodeStatsEntry } from '../types/event-stream.js';
 
 export interface LoadedSession {
   readonly nodes: Node<'memory'>[];
   readonly workingMemory: WorkingMemory;
   readonly broadcast: Message;
+  readonly nodeStats: Map<string, NodeStats>;
 }
 
 export const SessionLoader = {
@@ -55,10 +58,22 @@ export const SessionLoader = {
       return undefined;
     }
 
+    // Stats are optional: a session saved before stats persistence (or before
+    // the first stats event) simply restores with empty stats.
+    const nodeStats = new Map<string, NodeStats>();
+    const statsFilePath = path.join(normalizedDirectory, 'stats.json');
+    if (fs.existsSync(statsFilePath)) {
+      const entries = JSON.parse(
+        fs.readFileSync(statsFilePath, 'utf-8'),
+      ) as NodeStatsEntry[];
+      entries.forEach(({ nodeId, stats }) => nodeStats.set(nodeId, stats));
+    }
+
     return {
       nodes,
       workingMemory,
       broadcast,
+      nodeStats,
     };
   },
 };

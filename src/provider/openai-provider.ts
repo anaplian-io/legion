@@ -82,9 +82,10 @@ ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
       },
     });
 
-    const { rankedIndices } = JSON.parse(response.output_text) as {
-      rankedIndices: number[];
-    };
+    const { rankedIndices } = parseJsonOutput<{ rankedIndices: number[] }>(
+      response.output_text,
+      'rankByRelevance',
+    );
 
     return rankedIndices;
   };
@@ -132,9 +133,10 @@ Example: {"answer": true}`,
       },
     });
 
-    const { answer } = JSON.parse(
-      response.output_text.replaceAll('```json', '').replaceAll('```', ''),
-    ) as { answer: boolean };
+    const { answer } = parseJsonOutput<{ answer: boolean }>(
+      response.output_text,
+      'askYesNoQuestion',
+    );
     return answer;
   };
 
@@ -173,12 +175,10 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
       },
     });
 
-    const { left, right } = JSON.parse(
-      response.output_text.replaceAll('```json', '').replaceAll('```', ''),
-    ) as {
-      left: string;
-      right: string;
-    };
+    const { left, right } = parseJsonOutput<{ left: string; right: string }>(
+      response.output_text,
+      'splitString',
+    );
 
     return [left, right];
   };
@@ -264,3 +264,31 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
     return { content, toolCalls: undefined };
   };
 }
+
+/**
+ * Parses a structured-output response body, tolerating a missing/empty
+ * `output_text` (which a local model can return on a refusal or tool-only
+ * response) and markdown code fences, and surfacing failures with the calling
+ * method's name rather than an opaque JSON error.
+ */
+const parseJsonOutput = <T>(
+  outputText: string | undefined,
+  method: string,
+): T => {
+  const cleaned = (outputText ?? '')
+    .replaceAll('```json', '')
+    .replaceAll('```', '')
+    .trim();
+  if (cleaned.length === 0) {
+    throw new Error(
+      `[OpenaiProvider.${method}] model returned no structured output`,
+    );
+  }
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch (e) {
+    throw new Error(
+      `[OpenaiProvider.${method}] failed to parse structured output "${cleaned}": ${e}`,
+    );
+  }
+};

@@ -88,15 +88,18 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
   });
 };
 
+const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
+
 export const init = async () => {
   const settings: LegionSettings = rawSettings;
+  const openAiTimeout = settings.openAiTimeout ?? DEFAULT_OPENAI_TIMEOUT_MS;
 
   // Create OpenAI client and provider
   const openAi = new OpenAI({
     baseURL: settings.baseUrl,
     apiKey: settings.apiKey,
     maxRetries: settings.openAiMaxRetries ?? 0,
-    timeout: settings.openAiTimeout ?? 30_000,
+    timeout: openAiTimeout,
   });
 
   const model = settings.model;
@@ -106,7 +109,7 @@ export const init = async () => {
       client: openAi,
       maxParallelism: settings.maxParallelism ?? 4,
       retryOptions: { retries: 3 },
-      totalTimeout: settings.openAiTimeout ?? 60_000,
+      totalTimeout: openAiTimeout,
     }),
   });
 
@@ -252,6 +255,7 @@ export const init = async () => {
     memoryNodeFactory,
     eventStream,
     initialNodes,
+    initialNodeStats: loadedSession?.nodeStats,
   });
 
   return {
