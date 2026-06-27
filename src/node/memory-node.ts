@@ -39,10 +39,11 @@ export class MemoryNode implements Node<'memory'> {
   ): Promise<NodeResponse> => {
     const { provider } = this.props;
     // Shared between the relevance check and the generation call so both
-    // present an identical [identity + context][working memory][broadcast]
-    // prefix, maximizing prompt-cache reuse.
+    // present an identical [identity + context][working memory][afferent]
+    // [broadcast] prefix, maximizing prompt-cache reuse.
     const messages = [
       ...broadcastMessage.workingMemory.messages,
+      ...(broadcastMessage.afferentContext ?? []),
       broadcastMessage.broadcast,
     ];
     await this.setStatus('evaluating-relevance');

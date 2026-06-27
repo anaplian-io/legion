@@ -137,19 +137,34 @@ Created dynamically through:
 
 ## Epoch Cycle
 
-Each epoch corresponds to a single broadcast message:
+Each epoch runs in two sequential waves — **afferent** (perception) then
+**cognitive** (reasoning) — modeling sensory input feeding the global workspace
+rather than competing within it:
 
 ```
-1. Broadcast initial broadcast (from orchestrator props) to all nodes
-2. Each node generates response (or undefined if nothing to say)
-3. Filter ranks all outputs by relevance to working memory
-4. Top broadcasts selected for propagation
-5. Distillation creates new WM entry from successful broadcasts
-6. Working memory updates (rolling window with max capacity)
-7. Context length threshold check: nodes exceeding threshold are split
-8. If no nodes responded: spawn a new MemoryNode via factory, seeded with current WM context
-9. Next epoch begins
+Afferent wave
+1. Poll afferent nodes (tools, sensors) with WM + broadcast
+2. Collect their outputs as afferent context
+
+Cognitive wave
+3. Poll memory nodes with WM + afferent context + broadcast
+4. Filter ranks the memory outputs by relevance to working memory
+5. Top broadcasts selected for propagation
+6. Distillation creates new WM entry from successful broadcasts
+7. Working memory updates (rolling window with max capacity)
+8. Context length threshold check: nodes exceeding threshold are split
+9. Underperforming memory nodes are pruned
+10. If no memory node responded: spawn a new MemoryNode via factory, seeded with current WM context
+11. Next epoch begins
 ```
+
+**Afferent context is not filtered.** Tool/sensor output flows to every memory
+node as additional context, but is never a broadcast candidate — only memory
+outputs compete for the spotlight (distillation). This keeps a single
+bottleneck (consistent with GWT) and maximizes cross-pollination: a memory node
+that engages afferent input still updates its own context even when its output
+does not win the spotlight. Memory nodes see the prompt prefix
+`[identity + context][working memory][afferent context][broadcast]`.
 
 **Initial Broadcast**: The orchestrator requires an `initialBroadcast` message passed at construction time. This addresses the fencepost problem - epochs start with this broadcast rather than reading from working memory.
 
@@ -164,14 +179,19 @@ When a node's context exceeds the configured threshold:
 
 ## Edge Cases
 
-### All Nodes Return `Undefined`
+### No Memory Node Survives
 
-When no nodes have anything to say (`candidateMessages.length === 0`):
+When no memory output survives the relevance filter (`survivors.length === 0`),
+even if afferent nodes produced output:
 
 - **Bootstrap**: Spawn a new MemoryNode using the factory, seeded with current working memory (or initial broadcast if WM is empty)
 - Each node gets a unique UUID via `crypto.randomUUID()`
 - The new node receives the concatenated WM messages as its initial context
 - Epoch ends after spawning; next epoch will include the new node
+
+Because afferent output is no longer a broadcast candidate, an epoch in which
+only a tool/sensor responded cleanly bootstraps a memory node rather than
+dropping the work — the orphan case the single-wave design exhibited.
 
 ### Empty Filtered Messages
 

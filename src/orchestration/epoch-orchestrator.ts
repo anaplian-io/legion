@@ -81,21 +81,27 @@ export class EpochOrchestrator {
   }
 
   public readonly runEpoch = async (): Promise<void> => {
-    const { aliveNodeIds, candidates } = await this.gatherCandidates();
+    // Afferent wave: tools and sensors perceive first. Their output is context
+    // for the cognitive wave, never a broadcast candidate, so it bypasses the
+    // relevance filter entirely (no upstream bottleneck on perception).
+    const afferent = await this.pollNodes(this._registry.afferentNodes());
+    const afferentContext = afferent.candidates.map((c) => ({
+      content: c.content,
+    }));
+
+    // Cognitive wave: memory nodes reason with the afferent context in hand.
+    const cognitive = await this.pollNodes(
+      this._registry.memoryNodes(),
+      afferentContext,
+    );
     const survivors = await this.props.relevanceFilter.filter(
       this.workingMemory,
-      candidates,
+      cognitive.candidates,
     );
 
-    this._registry.recordEpoch({
-      aliveNodeIds,
-      spokenNodeIds: new Set(candidates.map((c) => c.originatingNodeId)),
-      survivingNodeIds: new Set(
-        survivors.map((s) => s.originatingNodeId).filter(isDefined),
-      ),
-    });
+    this.recordEpochStats(afferent, cognitive, survivors);
 
-    if (this.survivingMemoryNodes(survivors).length === 0) {
+    if (survivors.length === 0) {
       this.spawnNewNode();
       return;
     }
@@ -105,15 +111,19 @@ export class EpochOrchestrator {
     this.pruneNodes();
   };
 
-  private readonly gatherCandidates = async (): Promise<EpochCandidates> => {
+  private readonly pollNodes = async (
+    nodes: Node<string>[],
+    afferentContext?: readonly Message[],
+  ): Promise<EpochCandidates> => {
     const responses = await Promise.all(
-      this._registry.all().map(async (node) => {
+      nodes.map(async (node) => {
         try {
           return {
             node,
             response: await node.sendMessage({
               workingMemory: this.workingMemory,
               broadcast: this._currentBroadcast,
+              afferentContext,
             }),
           };
         } catch (e) {
@@ -136,13 +146,30 @@ export class EpochOrchestrator {
     };
   };
 
-  private readonly survivingMemoryNodes = (survivors: Message[]) =>
-    survivors
-      .map((message) => message.originatingNodeId)
-      .filter(isDefined)
-      .map((id) => this._registry.all().find((node) => node.id === id))
-      .filter(isDefined)
-      .filter((node) => node.kind === 'memory');
+  private readonly recordEpochStats = (
+    afferent: EpochCandidates,
+    cognitive: EpochCandidates,
+    survivors: Message[],
+  ): void => {
+    const survivingNodeIds = new Set(
+      survivors.map((s) => s.originatingNodeId).filter(isDefined),
+    );
+    // Afferent output never passes through the relevance filter, so a spoken
+    // afferent node is counted as surviving (its filter rate stays 0).
+    afferent.candidates.forEach((c) =>
+      survivingNodeIds.add(c.originatingNodeId),
+    );
+
+    this._registry.recordEpoch({
+      aliveNodeIds: [...afferent.aliveNodeIds, ...cognitive.aliveNodeIds],
+      spokenNodeIds: new Set(
+        [...afferent.candidates, ...cognitive.candidates].map(
+          (c) => c.originatingNodeId,
+        ),
+      ),
+      survivingNodeIds,
+    });
+  };
 
   private readonly distill = async (survivors: Message[]): Promise<Message> => {
     const content = await this.props.distiller.distill({

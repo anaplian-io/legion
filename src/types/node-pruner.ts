@@ -1,9 +1,9 @@
-import { MemoryNode } from '../node/memory-node.js';
+import { Node } from './node.js';
 import { NodeStats } from './node-stats.js';
 
 export interface NodePruner {
   /**
-   * Selects underperforming memory nodes to remove from the collective.
+   * Selects underperforming nodes to remove from the collective.
    *
    * Returns the subset of `nodes` that should be pruned (nodes in, nodes out,
    * mirroring RelevanceFilter and NodeSplitter). The orchestrator maps the
@@ -11,11 +11,15 @@ export interface NodePruner {
    * enforcing any population floor, so they never return so many nodes that
    * the collective is emptied.
    *
-   * @param nodes The current memory nodes eligible for pruning.
+   * The signature is node-kind-agnostic so the same pruner can later target
+   * dead-weight afferent nodes (e.g. tools that rarely contribute), not only
+   * memory nodes.
+   *
+   * @param nodes The candidate nodes eligible for pruning.
    * @param stats Per-node statistics keyed by node id.
    */
-  readonly selectForPruning: (
-    nodes: MemoryNode[],
+  readonly selectForPruning: <T extends string>(
+    nodes: Node<T>[],
     stats: Map<string, NodeStats>,
-  ) => MemoryNode[];
+  ) => Node<T>[];
 }

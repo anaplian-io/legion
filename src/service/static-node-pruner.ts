@@ -1,6 +1,6 @@
 import { NodePruner } from '../types/node-pruner.js';
 import { NodeStats } from '../types/node-stats.js';
-import { MemoryNode } from '../node/memory-node.js';
+import { Node } from '../types/node.js';
 
 export interface StaticNodePrunerProps {
   /**
@@ -30,10 +30,10 @@ export interface StaticNodePrunerProps {
 export class StaticNodePruner implements NodePruner {
   constructor(private readonly props: StaticNodePrunerProps) {}
 
-  public readonly selectForPruning = (
-    nodes: MemoryNode[],
+  public readonly selectForPruning = <T extends string>(
+    nodes: Node<T>[],
     stats: Map<string, NodeStats>,
-  ): MemoryNode[] => {
+  ): Node<T>[] => {
     const { minEpochsAlive, minMemoryNodes } = this.props;
 
     // Pair each node with its stats, keeping only nodes that have a recorded
@@ -42,7 +42,7 @@ export class StaticNodePruner implements NodePruner {
     const eligible = nodes
       .map((node) => ({ node, stat: stats.get(node.id) }))
       .filter(
-        (entry): entry is { node: MemoryNode; stat: NodeStats } =>
+        (entry): entry is { node: Node<T>; stat: NodeStats } =>
           entry.stat !== undefined && entry.stat.epochsAlive >= minEpochsAlive,
       );
 
