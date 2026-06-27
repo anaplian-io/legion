@@ -300,6 +300,35 @@ describe('ToolNode', () => {
     expect(callArgs.systemPrompt).toContain('New broadcast');
   });
 
+  it('should concatenate working memory without stray separators in relevance check', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    await node.initialize();
+    await node.sendMessage({
+      workingMemory: {
+        messages: [{ content: 'First WM' }, { content: 'Second WM' }],
+      },
+      broadcast: { content: 'New broadcast' },
+    });
+
+    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
+    expect(askCall).toBeDefined();
+    expect(askCall).toContain(
+      '[WORKING MEMORY MESSAGE 0]:First WM\n[WORKING MEMORY MESSAGE 1]:Second WM\n[NEW BROADCAST MESSAGE]:New broadcast',
+    );
+    expect(askCall).not.toContain('First WM\n,');
+  });
+
   it('should set status to evaluating-relevance during sendMessage', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);

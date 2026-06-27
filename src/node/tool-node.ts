@@ -51,10 +51,13 @@ export class ToolNode implements Node<'tool'> {
       await this.initialize();
     }
     const concatenatedBroadcast =
-      broadcastMessage.workingMemory.messages.map(
-        (message, index) =>
-          `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
-      ) + `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
+      broadcastMessage.workingMemory.messages
+        .map(
+          (message, index) =>
+            `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
+        )
+        .join('') +
+      `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
     this.setStatus('evaluating-relevance');
     const relevant = await provider.askYesNoQuestion(`${this.preamble}
 

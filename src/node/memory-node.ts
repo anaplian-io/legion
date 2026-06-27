@@ -39,10 +39,13 @@ export class MemoryNode implements Node<'memory'> {
   ): Promise<NodeResponse> => {
     const { provider } = this.props;
     const concatenatedBroadcast =
-      broadcastMessage.workingMemory.messages.map(
-        (message, index) =>
-          `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
-      ) + `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
+      broadcastMessage.workingMemory.messages
+        .map(
+          (message, index) =>
+            `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
+        )
+        .join('') +
+      `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
     await this.setStatus('evaluating-relevance');
     const relevant = await provider.askYesNoQuestion(`${this.preamble}
 
