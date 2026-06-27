@@ -47,7 +47,8 @@ export class OpenaiProvider implements Provider {
       input: [
         {
           role: 'system' as const,
-          content: `You rank items by how much each one advances the given concept. Return every input index exactly once, ordered most to least relevant. Output only the structured result.
+          content: `You rank items by how much each one advances the given concept. Return every input index exactly once, ordered most to least relevant.
+Respond with ONLY a JSON object matching the schema.
 Example: {"rankedIndices": [2, 0, 1]}`,
         },
         {
@@ -107,6 +108,7 @@ ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
           content: `${props.question}
 
 Answer the above yes/no question.
+Respond with ONLY a JSON object matching the schema.
 Example: {"answer": true}`,
         },
       ] satisfies OpenAI.Responses.ResponseInputItem[],
@@ -145,6 +147,7 @@ Example: {"answer": true}`,
         {
           role: 'system' as const,
           content: `A node's accumulated experience has grown too large and must split into two specialists. Divide the content by topic so each part is internally coherent and the two overlap as little as possible. Preserve the original wording; do not summarize or invent.
+Respond with ONLY a JSON object matching the schema.
 Example: {"left": "This is some content about rainbows.", "right": "This is some content about birds."}`,
         },
         {
