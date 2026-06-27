@@ -65,6 +65,11 @@ export class NodeRegistry {
     );
   }
 
+  /** Non-memory nodes (tools, sensors) that feed context into the workspace. */
+  public afferentNodes(): Node<string>[] {
+    return this.all().filter((node) => node.kind !== 'memory');
+  }
+
   public stats(): Map<string, NodeStats> {
     return new Map(this.statsById);
   }

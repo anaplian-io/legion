@@ -774,7 +774,7 @@ describe('EpochOrchestrator', () => {
     expect(mockMemoryNodeSplitter.split).toHaveBeenCalledWith(nodeA);
   });
 
-  it('should spawn a new node when filtered messages come from non-memory nodes', async () => {
+  it('should feed afferent (tool/sensor) output to memory nodes as context, not as broadcast candidates', async () => {
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
@@ -788,7 +788,6 @@ describe('EpochOrchestrator', () => {
       eventStream,
     });
 
-    // Create a non-memory node (tool node)
     const toolNode: Node<'tool'> = {
       id: 'tool-node',
       kind: 'tool' as const,
@@ -799,19 +798,68 @@ describe('EpochOrchestrator', () => {
         content: 'Tool response',
       }),
     };
+    const memorySend = vi.fn().mockResolvedValue({
+      originatingNodeId: 'mem',
+      content: 'Memory response',
+    });
+    orchestrator.addNode(toolNode);
+    orchestrator.addNode(createMockNode('mem', memorySend));
 
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'Memory response', originatingNodeId: 'mem' },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+
+    await orchestrator.runEpoch();
+
+    // The memory node receives the tool output as afferentContext.
+    expect(memorySend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        afferentContext: [{ content: 'Tool response' }],
+      }),
+    );
+    // Only the memory output reaches the relevance filter; the tool output is
+    // never a broadcast candidate.
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
+      { content: 'Memory response', originatingNodeId: 'mem' },
+    ]);
+    // A memory node responded, so no spawn is needed.
+    expect(mockMemoryNodeFactory.create).not.toHaveBeenCalled();
+  });
+
+  it('should spawn a new node when no memory node responds, even if afferent nodes did', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    const toolNode: Node<'tool'> = {
+      id: 'tool-node',
+      kind: 'tool' as const,
+      status: 'idle',
+      context: 'Tool context',
+      sendMessage: vi.fn().mockResolvedValue({
+        originatingNodeId: 'tool-node',
+        content: 'Tool response',
+      }),
+    };
     orchestrator.addNode(toolNode);
 
-    // Filter returns the tool's message
-    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Tool response', originatingNodeId: 'tool-node' },
-    ]);
+    // No memory nodes responded this epoch.
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([]);
     const mockNewNode = createMockNode('new-memory-node');
     vi.mocked(mockMemoryNodeFactory.create).mockReturnValue(mockNewNode);
 
     await orchestrator.runEpoch();
 
-    // Should spawn a new memory node since the only responding node was a tool
     expect(mockMemoryNodeFactory.create).toHaveBeenCalled();
   });
 
