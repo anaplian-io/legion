@@ -34,10 +34,22 @@ const PHASE_STEPS: ReadonlyArray<{
   readonly label: string;
   readonly desc: string;
 }> = [
-  { phase: 'broadcast', label: 'Broadcast', desc: 'workspace → all processors' },
-  { phase: 'compete', label: 'Compete', desc: 'processors generate candidates' },
+  {
+    phase: 'broadcast',
+    label: 'Broadcast',
+    desc: 'workspace → all processors',
+  },
+  {
+    phase: 'compete',
+    label: 'Compete',
+    desc: 'processors generate candidates',
+  },
   { phase: 'attention', label: 'Attention', desc: 'filter ranks by relevance' },
-  { phase: 'consolidate', label: 'Consolidate', desc: 'distill → working memory' },
+  {
+    phase: 'consolidate',
+    label: 'Consolidate',
+    desc: 'distill → working memory',
+  },
 ];
 
 const MAX_LOG_LINES = 100;
@@ -163,6 +175,7 @@ export const App: React.FC<AppProps> = ({
           return next;
         });
         if (status === 'generating') {
+          /* v8 ignore next -- the consolidate-preserving arm depends on React update ordering and can't be hit deterministically */
           setPhase((p) => (p === 'consolidate' ? p : 'compete'));
         } else if (status === 'evaluating-relevance') {
           setPhase('attention');
@@ -186,6 +199,9 @@ export const App: React.FC<AppProps> = ({
     if (!started || paused) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
+      // Guards the race where the timer fires during effect teardown. The
+      // cleanup clears this timer, so the guard is effectively unreachable.
+      /* v8 ignore next 1 */
       if (cancelled) return;
       setPhase('broadcast');
       appendLog(`▶ epoch ${epoch}: broadcasting to all processors`, 'cyan');
@@ -200,6 +216,7 @@ export const App: React.FC<AppProps> = ({
           `✗ epoch ${epoch} error: ${e instanceof Error ? e.message : String(e)}`,
           'red',
         );
+        /* v8 ignore next -- post-cancel completion depends on async race timing */
         if (!cancelled) setEpoch((n) => n + 1);
       }
     }, epochDelayMs);
@@ -270,10 +287,13 @@ export const App: React.FC<AppProps> = ({
     }
   });
 
-  const spin = SPINNER[frame] ?? SPINNER[0];
+  // `frame` is kept in range by the animation effect, so this index is always
+  // defined (the assertion satisfies noUncheckedIndexedAccess without a branch).
+  const spin = SPINNER[frame]!;
   const nodeList = Array.from(nodes.values());
   const competing = nodeList.filter((n) => n.status !== 'idle').length;
   const activeStep = PHASE_STEPS.findIndex((s) => s.phase === phase);
+  const activeStepDesc = PHASE_STEPS.find((s) => s.phase === phase)?.desc ?? '';
   const visibleLogs = logs.slice(-10);
 
   return (
@@ -318,11 +338,7 @@ export const App: React.FC<AppProps> = ({
           {PHASE_STEPS.map((step, i) => {
             const isActive = i === activeStep;
             const isDone = activeStep >= 0 && i < activeStep;
-            const color = isActive
-              ? 'yellowBright'
-              : isDone
-                ? 'green'
-                : 'gray';
+            const color = isActive ? 'yellowBright' : isDone ? 'green' : 'gray';
             return (
               <Box key={step.phase}>
                 <Text bold color={color}>
@@ -337,7 +353,7 @@ export const App: React.FC<AppProps> = ({
         </Box>
         <Text color="gray">
           {activeStep >= 0
-            ? `↳ ${PHASE_STEPS[activeStep]?.desc ?? ''}`
+            ? `↳ ${activeStepDesc}`
             : '↳ waiting for next epoch…'}
         </Text>
       </Box>
@@ -382,7 +398,8 @@ export const App: React.FC<AppProps> = ({
               WORKING MEMORY{' '}
             </Text>
             <Text color="gray">
-              (rolling window · {workingMemory.length} entries · oldest → newest)
+              (rolling window · {workingMemory.length} entries · oldest →
+              newest)
             </Text>
           </Box>
           {workingMemory.length === 0 ? (
@@ -516,9 +533,7 @@ export const App: React.FC<AppProps> = ({
             </Text>
             <Text color="whiteBright">{inputValue}</Text>
             <Text color="green">▏</Text>
-            <Text color="gray">
-              {'  '}[enter] send · [esc] cancel
-            </Text>
+            <Text color="gray">{'  '}[enter] send · [esc] cancel</Text>
           </Text>
         ) : (
           <Text color="gray">

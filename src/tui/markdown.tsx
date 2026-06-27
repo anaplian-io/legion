@@ -14,6 +14,7 @@ const renderInline = (
   tokens: Token[] | undefined,
   baseColor: string,
 ): React.ReactNode[] => {
+  /* v8 ignore next 3 -- defensive guard for an absent token list */
   if (!tokens) {
     return [];
   }
@@ -63,15 +64,23 @@ const renderInline = (
           </Text>
         );
       case 'text':
+        // Inline text tokens from `marked` carry no nested tokens.
         return (
           <Text key={i} color={baseColor}>
-            {token.tokens ? renderInline(token.tokens, baseColor) : token.text}
+            {token.text}
           </Text>
         );
+      case 'image':
+        return (
+          <Text key={i} color={baseColor}>
+            {token.text}
+          </Text>
+        );
+      /* v8 ignore next 7 -- catch-all for inline token types marked does not emit here */
       default:
         return (
           <Text key={i} color={baseColor}>
-            {'text' in token ? (token.text as string) : ''}
+            {token.raw}
           </Text>
         );
     }
@@ -98,11 +107,11 @@ const renderBlocks = (
           </Text>
         );
       case 'text':
+        // Block-level text tokens carry inline tokens; renderInline tolerates
+        // an absent list (see its guard), so no branch is needed here.
         return (
           <Text key={i} color={baseColor} wrap="wrap">
-            {'tokens' in token && token.tokens
-              ? renderInline(token.tokens, baseColor)
-              : token.text}
+            {renderInline(token.tokens, baseColor)}
           </Text>
         );
       case 'space':
@@ -146,13 +155,13 @@ const renderBlocks = (
           <Box key={i} flexDirection="column">
             {table.rows.map((row, r) => (
               <Box key={r} flexDirection="column" marginTop={1}>
-                {row.map((cell, c) => (
+                {table.header.map((headerCell, c) => (
                   <Box key={c} flexDirection="column">
                     <Text bold color="cyanBright" wrap="wrap">
-                      {table.header[c]?.text ?? ''}
+                      {headerCell.text}
                     </Text>
                     <Text color={baseColor} wrap="wrap">
-                      {renderInline(cell.tokens, baseColor)}
+                      {renderInline(row[c]?.tokens, baseColor)}
                     </Text>
                   </Box>
                 ))}

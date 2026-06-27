@@ -95,7 +95,8 @@ describe('OpenaiProvider', () => {
           { role: 'system', content: 'Everything is in the system prompt.' },
           {
             role: 'user',
-            content: 'Produce the output now, following the instructions above.',
+            content:
+              'Produce the output now, following the instructions above.',
           },
         ],
       });
