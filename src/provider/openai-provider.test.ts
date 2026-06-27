@@ -284,6 +284,8 @@ describe('OpenaiProvider', () => {
 
         const result = await provider.generateWithTools(props);
 
+        // The schema lacks additionalProperties:false and required, so strict
+        // mode must be disabled to avoid the API rejecting the tool.
         expect(mockClient.responses.create).toHaveBeenCalledWith(
           expect.objectContaining({
             tools: [
@@ -292,7 +294,7 @@ describe('OpenaiProvider', () => {
                 name: 'get_weather',
                 description: 'Get current weather',
                 parameters: expect.any(Object),
-                strict: true,
+                strict: false,
               },
             ],
           }),
@@ -310,6 +312,41 @@ describe('OpenaiProvider', () => {
             },
           },
         ]);
+      });
+
+      it('should enable strict mode for a fully compliant tool schema', async () => {
+        vi.mocked(mockClient.responses.create).mockResolvedValue({
+          output_text: '',
+          output: [],
+        });
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        await provider.generateWithTools({
+          systemPrompt: 'You are a helpful assistant.',
+          messages: [{ content: 'What is the weather?' }],
+          tools: [
+            {
+              name: 'get_weather',
+              description: 'Get current weather',
+              parameters: {
+                type: 'object',
+                additionalProperties: false,
+                properties: { location: { type: 'string' } },
+                required: ['location'],
+              },
+            },
+          ],
+        });
+
+        expect(mockClient.responses.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tools: [expect.objectContaining({ strict: true })],
+          }),
+        );
       });
 
       it('should handle empty tools array', async () => {

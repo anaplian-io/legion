@@ -8,6 +8,7 @@ import {
   ToolDefinition,
 } from '../types/provider.js';
 import { OpenAI } from 'openai';
+import { isStrictEligible } from '../utilities/is-strict-eligible.js';
 
 export interface OpenAiProviderProps {
   readonly model: string;
@@ -188,7 +189,11 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
       name: tool.name,
       description: tool.description ?? null,
       parameters: tool.parameters,
-      strict: true,
+      // Strict mode is only safe when the schema satisfies OpenAI's
+      // requirements (additionalProperties:false and all properties required,
+      // recursively). Enabling it on an arbitrary MCP schema gets the tool
+      // rejected, so we opt in only when the schema is provably compliant.
+      strict: isStrictEligible(tool.parameters),
     };
   }
 

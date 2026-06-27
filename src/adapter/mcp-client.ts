@@ -9,6 +9,21 @@ export interface ToolResult {
   readonly error?: string;
 }
 
+/**
+ * Coerces an MCP tool's `inputSchema` into a usable JSON object schema.
+ *
+ * The MCP SDK types `inputSchema` loosely, and a misbehaving server can return
+ * a non-object value. Rather than blindly casting and forwarding malformed
+ * schemas to the model, fall back to a minimal empty-object schema (a tool
+ * that takes no arguments) when the schema is not a usable object.
+ */
+const normalizeToolSchema = (schema: unknown): Record<string, unknown> => {
+  if (typeof schema === 'object' && schema !== null && !Array.isArray(schema)) {
+    return schema as Record<string, unknown>;
+  }
+  return { type: 'object', properties: {} };
+};
+
 export class MCPClient {
   private readonly _client: Client;
 
@@ -21,7 +36,7 @@ export class MCPClient {
     return response.tools.map((tool) => ({
       name: tool.name,
       description: tool.description ?? '',
-      parameters: tool.inputSchema as Record<string, unknown>,
+      parameters: normalizeToolSchema(tool.inputSchema),
     }));
   };
 
