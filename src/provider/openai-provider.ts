@@ -214,8 +214,12 @@ ${content}`,
             id: call.call_id,
             type: 'function' as const,
             function: {
+              // `call.arguments` is already a JSON string per the Responses
+              // API. Re-stringifying double-encodes it, so the downstream
+              // JSON.parse in MCPClient.invokeTool yields a string instead of
+              // the arguments object and the tool call is malformed.
               name: call.name,
-              arguments: JSON.stringify(call.arguments),
+              arguments: call.arguments,
             },
           });
         }

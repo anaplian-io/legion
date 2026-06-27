@@ -110,6 +110,25 @@ describe('MCPClient', () => {
     });
   });
 
+  it('should pass a parsed object (not a string) to callTool for single-encoded args', async () => {
+    // Regression guard for the provider double-encoding bug: a double-encoded
+    // arguments string is still valid JSON, so it passes JSON.parse — but it
+    // parses to a string rather than the arguments object, producing a
+    // malformed callTool. This pins the contract that invokeTool receives a
+    // single-encoded JSON object string and forwards a real object.
+    vi.mocked(mockSdkClient.callTool).mockResolvedValue({
+      content: [{ type: 'text' as const, text: 'ok' }],
+    });
+
+    const mcpClient = new MCPClient({ client: asMockClient(mockSdkClient) });
+    await mcpClient.invokeTool('call_1', 'test_tool', '{"location":"NYC"}');
+
+    const forwardedArgs = vi.mocked(mockSdkClient.callTool).mock.calls[0]?.[0]
+      ?.arguments;
+    expect(typeof forwardedArgs).toBe('object');
+    expect(forwardedArgs).toEqual({ location: 'NYC' });
+  });
+
   it('should return error for invalid JSON arguments', async () => {
     const mcpClient = new MCPClient({ client: asMockClient(mockSdkClient) });
     const result = await mcpClient.invokeTool(

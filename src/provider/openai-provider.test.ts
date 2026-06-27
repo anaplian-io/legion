@@ -256,7 +256,8 @@ describe('OpenaiProvider', () => {
               type: 'function_call',
               call_id: 'call_123',
               name: 'get_weather',
-              arguments: { location: 'San Francisco' },
+              // The Responses API returns arguments as a JSON string.
+              arguments: '{"location":"San Francisco"}',
             },
           ],
         });
@@ -288,8 +289,9 @@ describe('OpenaiProvider', () => {
             id: 'call_123',
             type: 'function',
             function: {
+              // Passed through unchanged; not re-stringified.
               name: 'get_weather',
-              arguments: JSON.stringify({ location: 'San Francisco' }),
+              arguments: '{"location":"San Francisco"}',
             },
           },
         ]);
@@ -365,13 +367,13 @@ describe('OpenaiProvider', () => {
               type: 'function_call',
               call_id: 'call_1',
               name: 'tool_a',
-              arguments: { param: 'value_a' },
+              arguments: '{"param":"value_a"}',
             },
             {
               type: 'function_call',
               call_id: 'call_2',
               name: 'tool_b',
-              arguments: { param: 'value_b' },
+              arguments: '{"param":"value_b"}',
             },
           ],
         });
