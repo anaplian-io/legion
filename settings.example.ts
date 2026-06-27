@@ -12,6 +12,11 @@ export default {
   baseUrl: 'http://127.0.0.1:1234/v1',
   apiKey: 'lm-studio',
   maxParallelism: 4,
+  // Node pruning (all optional; defaults shown).
+  pruneMinEpochsAlive: 5,
+  pruneMinBroadcasts: 1,
+  pruneMaxFilterRate: 0.9,
+  pruneMinMemoryNodes: 1,
   mcpServers: {
     'ddg-search': {
       command: 'uvx',

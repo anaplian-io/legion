@@ -6,7 +6,9 @@ import type { Node, BroadcastMessage, NodeResponse } from '../types/node.js';
 import type { WorkingMemory } from '../types/working-memory.js';
 import { Distiller } from '../types/distiller.js';
 import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
+import type { MemoryNode } from '../node/memory-node.js';
 import type { NodeSplitter } from '../types/node-splitter.js';
+import type { NodePruner } from '../types/node-pruner.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 
@@ -19,6 +21,7 @@ describe('EpochOrchestrator', () => {
   let mockDistiller: TestDistiller;
   let mockMemoryNodeFactory: MemoryNodeFactory;
   let mockMemoryNodeSplitter: TestMemoryNodeSplitter;
+  let mockNodePruner: NodePruner;
   let eventStream: ConcreteEventStream;
 
   beforeEach(() => {
@@ -41,6 +44,10 @@ describe('EpochOrchestrator', () => {
     mockMemoryNodeSplitter = {
       split: vi.fn(),
     };
+    // Default: prune nothing, so existing tests observe unchanged behavior.
+    mockNodePruner = {
+      selectForPruning: vi.fn().mockReturnValue([]),
+    };
     eventStream = new ConcreteEventStream();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -58,6 +65,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -77,6 +85,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
       initialNodes: [nodeA, nodeB],
     });
@@ -94,6 +103,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -112,6 +122,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -128,6 +139,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -150,6 +162,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -174,6 +187,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -204,6 +218,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -234,6 +249,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -272,6 +288,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -295,6 +312,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -335,6 +353,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -368,6 +387,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -392,6 +412,140 @@ describe('EpochOrchestrator', () => {
     });
   });
 
+  it('should accumulate per-node stats across epochs', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    orchestrator.addNode(
+      createMockNode('speaker', async () => ({
+        originatingNodeId: 'speaker',
+        content: 'kept',
+      })),
+    );
+    orchestrator.addNode(createMockNode('silent', async () => undefined));
+    orchestrator.addNode(
+      createMockNode('filtered', async () => ({
+        originatingNodeId: 'filtered',
+        content: 'dropped',
+      })),
+    );
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'kept', originatingNodeId: 'speaker' },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+
+    await orchestrator.runEpoch();
+
+    const stats = orchestrator.nodeStats;
+    expect(stats.get('speaker')).toEqual({
+      epochsAlive: 1,
+      epochsSpoken: 1,
+      epochsFiltered: 0,
+    });
+    expect(stats.get('silent')).toEqual({
+      epochsAlive: 1,
+      epochsSpoken: 0,
+      epochsFiltered: 0,
+    });
+    expect(stats.get('filtered')).toEqual({
+      epochsAlive: 1,
+      epochsSpoken: 1,
+      epochsFiltered: 1,
+    });
+  });
+
+  it('should publish a node-stats-updated event each epoch', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    orchestrator.addNode(
+      createMockNode('node-a', async () => ({
+        originatingNodeId: 'node-a',
+        content: 'Response',
+      })),
+    );
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'Response', originatingNodeId: 'node-a' },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+
+    let published: Array<{ nodeId: string }> | undefined;
+    eventStream.subscribe({
+      topicName: 'orchestrator/node-stats-updated',
+      receiver: (data) => {
+        published = data.nodeStats;
+      },
+    });
+
+    await orchestrator.runEpoch();
+
+    expect(published).toEqual([
+      {
+        nodeId: 'node-a',
+        stats: { epochsAlive: 1, epochsSpoken: 1, epochsFiltered: 0 },
+      },
+    ]);
+  });
+
+  it('should prune nodes selected by the pruner and drop their stats', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    const speaker = createMockNode('speaker', async () => ({
+      originatingNodeId: 'speaker',
+      content: 'kept',
+    }));
+    const deadweight = createMockNode('deadweight', async () => undefined);
+    orchestrator.addNode(speaker);
+    orchestrator.addNode(deadweight);
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'kept', originatingNodeId: 'speaker' },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockNodePruner.selectForPruning).mockReturnValue([
+      deadweight as unknown as MemoryNode,
+    ]);
+
+    await orchestrator.runEpoch();
+
+    expect(mockNodePruner.selectForPruning).toHaveBeenCalled();
+    expect(orchestrator.nodes.map((n) => n.id)).toEqual(['speaker']);
+    expect(orchestrator.nodeStats.has('deadweight')).toBe(false);
+  });
+
   it('should apply rolling window to working memory', async () => {
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
@@ -402,6 +556,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -457,6 +612,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -506,6 +662,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -543,6 +700,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -575,6 +733,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 10, // Small threshold to trigger split
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -625,6 +784,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
@@ -665,6 +825,7 @@ describe('EpochOrchestrator', () => {
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
       eventStream,
     });
 
