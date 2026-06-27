@@ -247,6 +247,44 @@ describe('OpenaiProvider', () => {
       expect(result).toBe(false);
     });
 
+    it('throws a descriptive error when the model returns no output', async () => {
+      vi.mocked(mockClient.responses.create).mockResolvedValue({
+        output_text: undefined,
+      });
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await expect(
+        provider.askYesNoQuestion({
+          systemPrompt: 'You are a node.',
+          messages: [],
+          question: 'Is this a test?',
+        }),
+      ).rejects.toThrow('askYesNoQuestion');
+    });
+
+    it('throws a descriptive error when the output is not valid JSON', async () => {
+      vi.mocked(mockClient.responses.create).mockResolvedValue({
+        output_text: 'not json at all',
+      });
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await expect(
+        provider.askYesNoQuestion({
+          systemPrompt: 'You are a node.',
+          messages: [],
+          question: 'Is this a test?',
+        }),
+      ).rejects.toThrow('failed to parse structured output');
+    });
+
     describe('generateWithTools', () => {
       it('should call responses.create with tools and return tool calls when present', async () => {
         const props = {

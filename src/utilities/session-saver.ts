@@ -74,5 +74,14 @@ export const SessionSaver = {
         );
       },
     });
+    eventStream.subscribe({
+      topicName: 'orchestrator/node-stats-updated',
+      receiver: (event) => {
+        fs.writeFileSync(
+          path.join(normalizedDirectory, 'stats.json'),
+          JSON.stringify(event.nodeStats, null, 2),
+        );
+      },
+    });
   },
 };

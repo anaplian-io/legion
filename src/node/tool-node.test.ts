@@ -617,4 +617,34 @@ describe('ToolNode', () => {
     // Should publish 3 events: evaluating-relevance, generating, and idle
     expect(mockEventStream.publish).toHaveBeenCalledTimes(3);
   });
+
+  it('should not throw if event publish throws during status change', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+
+    const throwingEventStream: EventStream = {
+      publish: vi.fn().mockImplementation(() => {
+        throw new Error('Publish failed');
+      }),
+      subscribe: vi.fn(),
+    };
+
+    const node = new ToolNode({
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: throwingEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+    });
+
+    await node.initialize();
+
+    await expect(
+      node.sendMessage({
+        workingMemory: { messages: [] },
+        broadcast: { content: 'Test' },
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

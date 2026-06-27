@@ -16,7 +16,9 @@ export class WorkingMemoryBuffer {
   private readonly _workingMemory: WorkingMemory;
 
   constructor(private readonly props: WorkingMemoryBufferProps) {
-    this._workingMemory = props.initial ?? { messages: [] };
+    // Clone so the caller's initial object (and its messages array) is not
+    // mutated in place as the window rolls.
+    this._workingMemory = { messages: [...(props.initial?.messages ?? [])] };
   }
 
   public get workingMemory(): WorkingMemory {

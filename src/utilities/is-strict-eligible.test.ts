@@ -10,6 +10,27 @@ describe('isStrictEligible', () => {
     expect(isStrictEligible([])).toBe(false);
   });
 
+  it('rejects schemas carrying unvalidated composition/reference keywords', () => {
+    for (const keyword of [
+      'anyOf',
+      'oneOf',
+      'allOf',
+      'not',
+      '$ref',
+      'enum',
+      'const',
+    ]) {
+      expect(
+        isStrictEligible({
+          type: 'object',
+          additionalProperties: false,
+          properties: {},
+          [keyword]: [],
+        }),
+      ).toBe(false);
+    }
+  });
+
   it('returns true for a fully compliant object schema', () => {
     expect(
       isStrictEligible({

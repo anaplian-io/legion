@@ -13,8 +13,26 @@
  * strict-mode optimisation; a false positive would break a real tool call, so
  * we never risk one.
  */
+// JSON Schema keywords whose strict-mode constraints this checker does not
+// validate. A node carrying any of them is treated as not provably compliant.
+const UNSUPPORTED_KEYWORDS = [
+  'anyOf',
+  'oneOf',
+  'allOf',
+  'not',
+  '$ref',
+  'enum',
+  'const',
+] as const;
+
 export const isStrictEligible = (schema: unknown): boolean => {
   if (!isRecord(schema)) {
+    return false;
+  }
+
+  // Conservatively reject composition/reference keywords we don't recurse into,
+  // so we never green-light a schema OpenAI strict mode would reject.
+  if (UNSUPPORTED_KEYWORDS.some((keyword) => keyword in schema)) {
     return false;
   }
 

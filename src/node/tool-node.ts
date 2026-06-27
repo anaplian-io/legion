@@ -104,10 +104,16 @@ export class ToolNode implements Node<'tool'> {
 
   private readonly setStatus = (newStatus: NodeStatus): void => {
     this._nodeStatus = newStatus;
-    this.props.eventStream.publish({
-      topicName: 'node/status-change',
-      data: { nodeId: this.id, status: newStatus },
-    });
+    try {
+      this.props.eventStream.publish({
+        topicName: 'node/status-change',
+        data: { nodeId: this.id, status: newStatus },
+      });
+    } catch (e) {
+      console.warn(
+        `[ToolNode ${this.id}] event publish threw during execution: ${e}`,
+      );
+    }
   };
 
   public get preamble(): string {

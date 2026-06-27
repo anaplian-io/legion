@@ -111,9 +111,14 @@ describe('QueuingOpenAi', () => {
       options,
     );
 
+    // Options are forwarded with an AbortSignal merged in so the overall
+    // timeout can cancel the in-flight request.
     expect(mockClient.responses.create).toHaveBeenCalledWith(
       expect.anything(),
-      options,
+      expect.objectContaining({
+        timeout: 5000,
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 

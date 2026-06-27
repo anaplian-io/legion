@@ -29,10 +29,17 @@ export class QueuingOpenAi implements MinimalOpenAi {
       const operation = async () => {
         return this.queue.add(async () => {
           return pTimeout(
-            pRetry(() => this.props.client.responses.create(body, options), {
-              ...this.props.retryOptions,
-              signal,
-            }),
+            pRetry(
+              () =>
+                this.props.client.responses.create(body, {
+                  ...options,
+                  signal,
+                }),
+              {
+                ...this.props.retryOptions,
+                signal,
+              },
+            ),
             {
               milliseconds: this.props.totalTimeout,
             },
@@ -43,6 +50,8 @@ export class QueuingOpenAi implements MinimalOpenAi {
       try {
         return await operation();
       } catch (e) {
+        // On timeout (or any failure) abort the in-flight request so it does
+        // not run on detached after we have already rejected.
         controller.abort();
         throw e;
       }

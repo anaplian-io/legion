@@ -1,312 +1,192 @@
-# Legion Design
+# Legion
 
-> Group intelligence AI agent system based on Global Workspace Theory
+> _"We are Geth. There are currently 1,183 programs active within this platform."_
+>
+> — Legion, _Mass Effect 2_
 
-## Overview
+A group-intelligence agent. Legion is named for the Geth companion in _Mass
+Effect_ — a single mobile platform housing over a thousand individual programs
+that reach decisions by consensus. No one program is "Legion"; Legion is what
+emerges when they run together. _"I am Legion, for we are many."_
 
-Legion implements a distributed cognitive architecture inspired by **Global Workspace Theory (GWT)**, where specialized "unconscious" processors compete for attention and broadcast to a global workspace.
+This project takes that idea literally. Many small, specialized language-model
+nodes each hold a sliver of context. They perceive, deliberate, and compete for
+a shared spotlight; the winning thought is broadcast back to all of them and
+consolidated into collective memory. Intelligence is the emergent behaviour of
+the swarm, not any single node.
 
-### Core Principles (from GWT)
+## Global Workspace Theory
 
-- **Unconscious processors**: Specialized agents that operate without central control
-- **Attention as spotlight**: A filter mechanism selects which information enters working memory
-- **Global broadcast**: Winning content is broadcast to all nodes
-- **Fleeting working memory**: ~10 messages, short-term retention (few seconds)
+The architecture is a computational reading of **Global Workspace Theory**
+(GWT), a model of consciousness in which many unconscious, parallel processors
+compete for access to a limited-capacity "global workspace." Whatever wins is
+broadcast to the entire system; that broadcast _is_ the conscious moment.
 
-## Architecture
+Legion maps the theory onto running software:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Global Workspace                         │
-│              (Rolling window of N messages)                 │
-└───────────────────┬─────────────────────────────────────────┘
-                    │
-        ┌───────────┼───────────┐
-        ▼           ▼           ▼
-   ┌────────┐ ┌────────┐ ┌────────┐
-   │ Node A │ │ Node B │ │ Node C │ ... (N nodes)
-   └────────┘ └────────┘ └────────┘
-        ▲           ▲           ▲
-        └───────────┴───────────┘
-              Filter/Ranker
-         (LLM-based relevance scorer)
-```
+| GWT concept                   | Legion                                                        |
+| ----------------------------- | ------------------------------------------------------------- |
+| Unconscious processors        | **Nodes** — specialized sub-agents (`src/node/`)              |
+| Sensory input                 | **Afferent nodes** — tools & sensors feeding perception       |
+| Competition for the spotlight | **Relevance filter** + **attention gate** (`src/service/`)    |
+| The conscious broadcast       | The **distilled** message propagated each epoch               |
+| Working memory                | A rolling window of recent broadcasts (`WorkingMemoryBuffer`) |
+| Learning / forgetting         | Node **splitting** (growth) and **pruning** (decay)           |
 
-### Key Components
+The design goal is a system that scales **horizontally** — more small nodes on
+modest hardware — rather than vertically into one ever-larger model. It targets
+local, OpenAI-compatible runtimes such as [LM Studio](https://lmstudio.ai/), and
+prompt construction is tuned for prefix caching so a node's stable identity and
+accumulated context are reused across calls.
 
-| Component              | Description                                        | Status  |
-| ---------------------- | -------------------------------------------------- | ------- |
-| **Nodes**              | Sub-agents with specialized knowledge/context      | ✅ Done |
-| **Filter**             | LLM-based relevance scorer that ranks broadcasts   | ✅ Done |
-| **Working Memory**     | Rolling window of recent broadcasts (configurable) | ✅ Done |
-| **Distiller**          | Converts successful broadcasts into WM entry       | ✅ Done |
-| **Epoch Orchestrator** | Coordinates the full epoch cycle                   | ✅ Done |
-| **AttentionGate**      | Dynamic top-K selection for broadcasts             | ✅ Done |
-| **Node Splitter**      | LLM-based context splitting on overflow            | ✅ Done |
-| **ToolNode**           | LLM tool invocation via Model Context Protocol     | ✅ Done |
+## The epoch cycle
 
-## Concepts
-
-### Nodes
-
-Nodes are the primary computational units. Each node:
-
-- Has its own identity (`id`, `name`)
-- Maintains its own context/history (implicit memory)
-- Runs a lightweight LLM (optimized for token caching)
-- Receives broadcasts and determines relevance
-
-**Node lifecycle:**
-
-1. **Birth**: Node created with initial instructions/context
-2. **Growth**: Context grows through relevant broadcasts
-3. **Split**: On overflow, node splits by topic clustering (LLM-based)
-4. **Decay**: Context can be pruned via compaction
-
-### Working Memory
-
-- Small, rolling window of messages (default: 10)
-- Configurable capacity based on task demands
-- Dynamic scheduling via a function that determines broadcast acceptance
-
-### Filter
-
-The filter is the attention mechanism. It:
-
-1. Receives all node outputs from an epoch
-2. Ranks broadcasts by relevance to working memory using LLM
-3. Returns ranked indices (no scores needed)
-4. AttentionGate trims to top-K broadcasts
-
-**Relevance ranking prompt:**
+Time advances in **epochs**. Each epoch carries one broadcast through two
+sequential waves — perception, then cognition — modelling sensory input feeding
+the workspace rather than competing inside it.
 
 ```
-You are a relevance ranking assistant. Given a concept and a list of items,
-return the items ranked from most to least relevant to the concept.
-
-Concept: [concatenated working memory]
-
-Items:
-0: [broadcast from node A]
-1: [broadcast from node B]
-...
-
-Respond with ONLY a JSON array of the original indices in order of relevance.
-Example: {"rankedIndices": [2, 0, 1]}
+                       ┌─────────────────────────────┐
+   current broadcast ─▶│        AFFERENT WAVE        │
+   + working memory    │   tools, sensors perceive   │
+                       └──────────────┬──────────────┘
+                                      │ afferent context
+                                      ▼
+                       ┌─────────────────────────────┐
+                       │       COGNITIVE WAVE        │
+                       │  memory nodes reason, each  │
+                       │  deciding whether to speak  │
+                       └──────────────┬──────────────┘
+                                      │ candidate broadcasts
+                                      ▼
+                  relevance filter ─▶ attention gate ─▶ survivors
+                                      │
+                                      ▼
+                        distiller → next broadcast
+                                      │
+                  working memory rolls · nodes split · nodes prune
 ```
 
-### Distillation
+1. **Afferent wave.** Tool and sensor nodes are polled with working memory and
+   the current broadcast. Their outputs become _afferent context_.
+2. **Cognitive wave.** Memory nodes are polled with that afferent context
+   alongside working memory and the broadcast. Each node first decides whether
+   it has something non-redundant to add, and only then generates.
+3. **Competition.** The relevance filter ranks the memory outputs against
+   working memory; the attention gate trims to the top-K survivors.
+4. **Consolidation.** The distiller fuses the survivors into a single new
+   broadcast — the "conscious" thought for the next epoch.
+5. **Memory & lifecycle.** Working memory rolls forward, oversized nodes split,
+   and underperforming nodes are pruned.
 
-After filtering, a distillation step converts successful broadcasts into a new working memory entry. This is the "conscious consolidation" phase.
+### Afferent context is never filtered
 
-**Distillation prompt:**
+Tool and sensor output flows to **every** memory node as context, but it never
+competes for the spotlight — only memory outputs do. This keeps a single
+bottleneck, consistent with GWT, and is deliberate: a memory node that engages
+with afferent input updates its own context even when its response doesn't win
+the broadcast. The "subconscious" still did work. Memory nodes see the prompt
+prefix `[identity + accumulated context][working memory][afferent context][broadcast]`,
+ordered so the large, stable prefix stays cache-friendly.
 
-```
-You are a working memory distiller. Convert the following successful
-broadcasts into a concise new working memory entry.
+## Nodes
 
-Working Memory (last 10 messages):
-...
+All nodes implement a common `Node` interface (`src/types/node.ts`): an `id`, a
+`kind`, accumulated `context`, and a `sendMessage` that returns a response or
+nothing.
 
-Broadcasts from this epoch:
-- Node A: ...
-- Node B: ...
+- **MemoryNode** (`src/node/memory-node.ts`) — the cognitive unit. Holds a
+  specialized body of experience, decides relevance, generates, and appends each
+  exchange to its own growing context.
+- **ToolNode** (`src/node/tool-node.ts`) — afferent. Invokes external tools over
+  the [Model Context Protocol](https://modelcontextprotocol.io/); raw results
+  become afferent context.
+- **SensoryNode** (`src/node/sensory-node.ts`) — afferent. Pulls in external
+  observations through a `Sensor` (e.g. the bundled Wikipedia sensor).
 
-Output: One concise message that captures key insights for next epoch.
-```
+### Growth: splitting
 
-## Types of Nodes
+When a memory node's context exceeds `contextLengthThreshold`, a `NodeSplitter`
+divides it by topic into two coherent specialists, each inheriting half the
+parent's experience. The collective grows new expertise under load.
 
-### IO Nodes (Preconfigured)
+### Decay: pruning
 
-Static nodes for input/output:
+Left unchecked, splitting and bootstrapping only ever _add_ nodes. The
+orchestrator accumulates per-node statistics (`epochsAlive`, `epochsSpoken`,
+`epochsFiltered`) and a `NodePruner` removes dead weight:
 
-| Node Type   | Purpose                                       |
-| ----------- | --------------------------------------------- |
-| `io/input`  | Receives external user input                  |
-| `io/output` | Formats and outputs results                   |
-| `io/query`  | Specialized LLM for querying external sources |
+- Nodes are eligible only after a `minEpochsAlive` grace period (so freshly
+  spawned or split nodes aren't culled before they can contribute).
+- An eligible node is pruned if it spoke in fewer than `minBroadcasts` epochs
+  (inert) or was filtered out in more than `maxFilterRate` of the epochs it
+  spoke (low-signal).
+- A `minMemoryNodes` floor is always honoured; when more nodes qualify than the
+  floor allows, the worst performers go first.
 
-### Emergent Nodes
+### Bootstrapping
 
-Created dynamically through:
+If no memory node survives an epoch, the orchestrator spawns a fresh MemoryNode
+seeded with current working memory — the collective regrows a perspective rather
+than falling silent.
 
-- **Topic splitting**: When context overflows
-- **Specialization**: When patterns emerge in task processing
-- **Bootstrapping**: When all nodes remain silent, generate new node from WM
+## Provider abstraction
 
-## Epoch Cycle
+All model interaction goes through the `Provider` interface
+(`src/types/provider.ts`), so the cognitive machinery is decoupled from any
+specific API:
 
-Each epoch runs in two sequential waves — **afferent** (perception) then
-**cognitive** (reasoning) — modeling sensory input feeding the global workspace
-rather than competing within it:
+- `generate` — chat completion from a system prompt and messages
+- `rankByRelevance` — orders items against a concept (the filter's engine)
+- `askYesNoQuestion` — a node's relevance gate
+- `splitString` — semantic bisection for node splitting
+- `generateWithTools` — tool-calling for ToolNodes
 
-```
-Afferent wave
-1. Poll afferent nodes (tools, sensors) with WM + broadcast
-2. Collect their outputs as afferent context
-
-Cognitive wave
-3. Poll memory nodes with WM + afferent context + broadcast
-4. Filter ranks the memory outputs by relevance to working memory
-5. Top broadcasts selected for propagation
-6. Distillation creates new WM entry from successful broadcasts
-7. Working memory updates (rolling window with max capacity)
-8. Context length threshold check: nodes exceeding threshold are split
-9. Underperforming memory nodes are pruned
-10. If no memory node responded: spawn a new MemoryNode via factory, seeded with current WM context
-11. Next epoch begins
-```
-
-**Afferent context is not filtered.** Tool/sensor output flows to every memory
-node as additional context, but is never a broadcast candidate — only memory
-outputs compete for the spotlight (distillation). This keeps a single
-bottleneck (consistent with GWT) and maximizes cross-pollination: a memory node
-that engages afferent input still updates its own context even when its output
-does not win the spotlight. Memory nodes see the prompt prefix
-`[identity + context][working memory][afferent context][broadcast]`.
-
-**Initial Broadcast**: The orchestrator requires an `initialBroadcast` message passed at construction time. This addresses the fencepost problem - epochs start with this broadcast rather than reading from working memory.
-
-### Node Splitting
-
-When a node's context exceeds the configured threshold:
-
-1. The splitter uses LLM to analyze and intelligently split the context
-2. Two new nodes are created with focused, coherent contexts
-3. Original node is replaced by the two split nodes
-4. New nodes receive their own provider for runtime operations
-
-## Edge Cases
-
-### No Memory Node Survives
-
-When no memory output survives the relevance filter (`survivors.length === 0`),
-even if afferent nodes produced output:
-
-- **Bootstrap**: Spawn a new MemoryNode using the factory, seeded with current working memory (or initial broadcast if WM is empty)
-- Each node gets a unique UUID via `crypto.randomUUID()`
-- The new node receives the concatenated WM messages as its initial context
-- Epoch ends after spawning; next epoch will include the new node
-
-Because afferent output is no longer a broadcast candidate, an epoch in which
-only a tool/sensor responded cleanly bootstraps a memory node rather than
-dropping the work — the orphan case the single-wave design exhibited.
-
-### Empty Filtered Messages
-
-When all candidate messages are filtered out by relevance:
-
-- **Next Epoch**: Working memory remains unchanged
-- No distillation occurs
-- Nodes retain their context; they may respond in future epochs if relevant
-
-### Node Pruning Triggers
-
-After each epoch, the orchestrator accumulates per-node stats (`epochsAlive`,
-`epochsSpoken`, `epochsFiltered`) and the `NodePruner` removes memory nodes
-that, once past a grace period, are underperforming. Implemented by
-`StaticNodePruner`:
-
-- A node is eligible only after `minEpochsAlive` epochs (grace period prevents
-  spawn/prune thrashing of freshly created nodes).
-- Among eligible nodes, prune any that:
-  - Spoke in fewer than `minBroadcasts` epochs (inert), OR
-  - Were filtered in more than `maxFilterRate * 100%` of the epochs they spoke
-    (low-signal).
-- A `minMemoryNodes` floor is always enforced; when more nodes qualify than the
-  floor permits, the worst performers (highest filter rate) are dropped first.
-
-Split children and spawned nodes start with fresh stats (and thus a full grace
-period). Stats are published on the `orchestrator/node-stats-updated` event for
-visibility.
-
-> **Note:** the originally specified `minRelevanceScore` trigger is deferred.
-> The relevance filter returns ranked indices rather than scalar scores, so a
-> true average relevance score is not currently measurable; filter rate serves
-> as the quality signal instead.
-
-### Node Bootstrap from WM
-
-When no nodes have anything to say, use LLM to:
-
-1. Analyze current WM for gaps/knowledge needs
-2. Generate new node instructions for the missing perspective
-
-## Technology Stack
-
-| Component | Choice                                          |
-| --------- | ----------------------------------------------- |
-| Runtime   | Node.js + TypeScript (ESM)                      |
-| Testing   | Vitest                                          |
-| LLM API   | OpenAI SDK (supports LM Studio compatible APIs) |
-
-## Development Phases
-
-### Phase 1: Node Implementation ✅ COMPLETE
-
-- [x] Define Node interface (`src/types/node.ts`)
-- [x] Implement Provider adapters for LM Studio (`src/provider/openai-provider.ts`)
-- [x] Create MemoryNode implementation (`src/node/memory-node.ts`)
-
-### Phase 2: Filter & Working Memory ✅ COMPLETE
-
-- [x] Implement relevance filter (`src/service/llm-relevance-filter.ts`)
-- [x] Create working memory interface (`src/types/working-memory.ts`)
-- [x] Add attention gate for dynamic ranking (`src/types/attention-gate.ts`)
-- [x] Implement relevance ranking via LLM (returns indices, not scores)
-- Tests: `src/node/memory-node.test.ts`, `src/service/llm-relevance-filter.test.ts`
-
-### Phase 3: Epoch Orchestration ✅ COMPLETE
-
-- [x] Integrate filter into epoch cycle
-- [x] Implement broadcast propagation
-- [x] Test multi-node communication
-- [x] Implement distiller interface and LLM-based implementation
-- Tests: `src/orchestration/epoch-orchestrator.test.ts`, `src/service/llm-distiller.test.ts`
-
-### Phase 4: Node Splitting ✅ COMPLETE
-
-- [x] Add `splitString` method to Provider interface
-- [x] Implement LLM-based context splitting in OpenaiProvider
-- [x] Create MemoryNodeSplitter with two-provider pattern
-- [x] Integrate splitting into epoch cycle via threshold check
-- Tests: `src/service/memory-node-splitter.test.ts`
-
-### Phase 5: Static Implementations for Testing ✅ COMPLETE
-
-- [x] Implement StaticAttentionGate for deterministic testing
-- [x] All interfaces have minimal implementations
-- [x] 100% test coverage achieved (46 tests, 117/117 lines)
-
-### Phase 6: IO Nodes and ToolNode with MCP ✅ COMPLETE
-
-- [x] Implement SensoryNode for external input via Sensor interface (`src/node/sensory-node.ts`)
-- [x] Implement ToolNode for LLM tool invocation via Model Context Protocol (`src/node/tool-node.ts`)
-- [x] Create MCPClient wrapper around SDK Client (`src/adapter/mcp-client.ts`)
-- [x] Integrate with EpochOrchestrator for single-phase tool calling (tool results are broadcast raw; LLM synthesis of results is not yet implemented)
-- [x] Implement ConcreteToolNodeFactory with proper dependency injection
-- [x] Add shutdown method to MCPClient with error handling
-- Tests: `src/node/tool-node.test.ts`, `src/node/sensory-node.test.ts`, `src/mcp/mcp-client.test.ts`, `src/factory/concrete-tool-node-factory.test.ts`
-
-### Phase 7: TUI Layer (Future) ⏳ TODO
-
-- [ ] Ink-based terminal UI
-- [ ] Real-time node activity visualization
+`OpenaiProvider` implements it against the OpenAI SDK, wrapped by
+`QueuingOpenAi`, which adds bounded concurrency, retries, and request timeouts —
+important when many nodes hit a single local model at once.
 
 ## Setup
 
 ```bash
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Build
-npm run build
-
-# Lint and format
-npm run lint
-npm run format
+npm install            # install dependencies
+cp settings.example.ts settings.ts   # then edit to taste (the build does this for you)
 ```
+
+`settings.ts` configures the model endpoint (defaults to a local LM Studio
+server), MCP tool servers, working-memory size, and the split/prune thresholds.
+See `settings.example.ts` for the full list.
+
+## Development
+
+```bash
+npm test           # run the suite with coverage (100% thresholds enforced)
+npm run build      # compile TypeScript to dist/
+npm run lint       # ESLint + Prettier check
+npm run format     # auto-fix
+npm run release    # clean install, lint, build, test
+```
+
+Run a single test file with `npx vitest src/node/memory-node.test.ts`.
+
+### Conventions
+
+- **No `any`.** Specific types or generics only.
+- **Descriptive errors** over generic ones.
+- **100% coverage** is enforced, but coverage is a floor, not the goal — tests
+  assert behaviour, not just lines.
+
+## Project status
+
+The cognitive core is complete and exercised end to end: nodes, working memory,
+the two-wave epoch, relevance filtering, distillation, splitting, pruning,
+MCP tool calling, sensory input, and session persistence.
+
+Tool calling is single-phase — results are broadcast raw and synthesized
+globally by the distiller rather than by the calling node, so a dedicated
+second tool-synthesis pass is intentionally unnecessary. A terminal UI for
+visualizing node activity in real time is the main planned addition.
+
+## License
+
+MIT

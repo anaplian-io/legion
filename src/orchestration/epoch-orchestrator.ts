@@ -26,6 +26,7 @@ export interface EpochOrchestratorProps {
   readonly memoryNodeFactory: MemoryNodeFactory;
   readonly eventStream: EventStream;
   readonly initialNodes?: Node<string>[];
+  readonly initialNodeStats?: Map<string, NodeStats> | undefined;
 }
 
 interface CandidateMessage {
@@ -46,7 +47,10 @@ export class EpochOrchestrator {
   private readonly _workingMemory: WorkingMemoryBuffer;
 
   constructor(private readonly props: EpochOrchestratorProps) {
-    this._registry = new NodeRegistry(props.eventStream);
+    this._registry = new NodeRegistry(
+      props.eventStream,
+      props.initialNodeStats,
+    );
     this._workingMemory = new WorkingMemoryBuffer({
       maxMessages: props.maxWorkingMemoryMessages,
       eventStream: props.eventStream,

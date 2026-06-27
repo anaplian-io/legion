@@ -570,4 +570,29 @@ describe('SessionSaver', () => {
       expect(savedEvent.broadcast).toEqual({ content: 'Broadcast' });
     });
   });
+
+  describe('orchestrator/node-stats-updated event', () => {
+    it('should persist node stats to stats.json', async () => {
+      fs.mkdirSync(mockDirectory, { recursive: true });
+
+      SessionSaver.watch({ eventStream, directory: mockDirectory });
+
+      const nodeStats = [
+        {
+          nodeId: 'node-1',
+          stats: { epochsAlive: 7, epochsSpoken: 5, epochsFiltered: 1 },
+        },
+      ];
+
+      eventStream.publish({
+        topicName: 'orchestrator/node-stats-updated',
+        data: { nodeStats },
+      });
+
+      const expectedPath = path.join(mockDirectory, 'stats.json');
+      const callArgs = writeFileSync.mock.calls[0] as [string, string];
+      expect(callArgs[0]).toBe(expectedPath);
+      expect(JSON.parse(callArgs[1])).toEqual(nodeStats);
+    });
+  });
 });

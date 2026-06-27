@@ -214,4 +214,31 @@ describe('SensoryNode', () => {
     expect(mockProvider.rankByRelevance).not.toHaveBeenCalled();
     expect(mockProvider.splitString).not.toHaveBeenCalled();
   });
+
+  it('should not throw if event publish throws during status change', async () => {
+    const sensor = { sense: vi.fn().mockResolvedValue('Sensation') };
+    const throwingEventStream = {
+      publish: () => {
+        throw new Error('Publish failed');
+      },
+      subscribe: () => {},
+    } as unknown as ConcreteEventStream;
+
+    const node = new SensoryNode({
+      id: 'sensory-1',
+      provider: mockProvider,
+      eventStream: throwingEventStream,
+      sensor,
+    });
+
+    await expect(
+      node.sendMessage({
+        workingMemory: { messages: [] },
+        broadcast: { content: 'test' },
+      }),
+    ).resolves.toEqual({
+      originatingNodeId: 'sensory-1',
+      content: 'Sensation',
+    });
+  });
 });
