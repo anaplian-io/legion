@@ -13,17 +13,17 @@ export class LlmDistiller implements Distiller {
   ): Promise<string> => {
     const { workingMemory, broadcasts } = props;
 
-    const systemPrompt = `You are a working memory distiller. Convert the following successful
-broadcasts into a concise new working memory entry.
+    const systemPrompt = `You consolidate a reasoning step into one line of working memory. Capture only what the next step needs: new facts, decisions, and open questions. Drop restated context. Be terse and concrete.`;
 
-Working Memory:
+    const userContent = `Working memory:
 ${workingMemory.messages.map((message, index) => `${index}: ${message.content}`).join('\n')}
 
-Broadcasts from this epoch:
-${broadcasts.map((broadcast, index) => `[BROADCAST ${index}]: ${broadcast}`).join('\n')}
+This step's surviving broadcasts:
+${broadcasts.map((broadcast, index) => `[BROADCAST ${index}]: ${broadcast}`).join('\n')}`;
 
-Output: One concise message that captures key insights for next epoch.`;
-
-    return this.props.provider.generate({ systemPrompt, messages: [] });
+    return this.props.provider.generate({
+      systemPrompt,
+      messages: [{ content: userContent }],
+    });
   };
 }

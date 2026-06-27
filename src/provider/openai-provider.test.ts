@@ -48,8 +48,8 @@ describe('OpenaiProvider', () => {
       model: 'test-model',
       input: [
         { role: 'system', content: 'You are a helpful assistant.' },
-        { role: 'assistant', content: 'Hello, how are you?' },
-        { role: 'assistant', content: 'I am doing well, thanks!' },
+        { role: 'user', content: 'Hello, how are you?' },
+        { role: 'user', content: 'I am doing well, thanks!' },
       ],
     });
 
@@ -93,7 +93,7 @@ describe('OpenaiProvider', () => {
       model: 'test-model',
       input: [
         { role: 'system', content: 'System prompt' },
-        { role: 'assistant', content: 'Only one message' },
+        { role: 'user', content: 'Only one message' },
       ],
     });
 
@@ -119,7 +119,10 @@ describe('OpenaiProvider', () => {
       expect(mockClient.responses.create).toHaveBeenCalledWith({
         model: 'test-model',
         temperature: 0,
-        input: expect.stringContaining('fruit'),
+        input: [
+          { role: 'system', content: expect.any(String) },
+          { role: 'user', content: expect.stringContaining('fruit') },
+        ],
         text: {
           format: {
             type: 'json_schema',
@@ -196,12 +199,20 @@ describe('OpenaiProvider', () => {
         client: mockClient as unknown as OpenAI,
       });
 
-      const result = await provider.askYesNoQuestion('Is this a test?');
+      const result = await provider.askYesNoQuestion({
+        systemPrompt: 'You are a node.',
+        messages: [{ content: 'Some working memory' }],
+        question: 'Is this a test?',
+      });
 
       expect(mockClient.responses.create).toHaveBeenCalledWith({
         model: 'test-model',
         temperature: 0,
-        input: expect.stringContaining('Is this a test?'),
+        input: [
+          { role: 'system', content: 'You are a node.' },
+          { role: 'user', content: 'Some working memory' },
+          { role: 'user', content: expect.stringContaining('Is this a test?') },
+        ],
         text: {
           format: {
             type: 'json_schema',
@@ -227,7 +238,11 @@ describe('OpenaiProvider', () => {
         client: mockClient as unknown as OpenAI,
       });
 
-      const result = await provider.askYesNoQuestion('Is this a test?');
+      const result = await provider.askYesNoQuestion({
+        systemPrompt: 'You are a node.',
+        messages: [],
+        question: 'Is this a test?',
+      });
 
       expect(result).toBe(false);
     });
@@ -490,7 +505,11 @@ describe('OpenaiProvider', () => {
         client: mockClient as unknown as OpenAI,
       });
 
-      await provider.askYesNoQuestion('Test question');
+      await provider.askYesNoQuestion({
+        systemPrompt: 'You are a node.',
+        messages: [],
+        question: 'Test question',
+      });
 
       expect(mockClient.responses.create).toHaveBeenCalledWith(
         expect.objectContaining({

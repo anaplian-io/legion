@@ -50,40 +50,27 @@ export class ToolNode implements Node<'tool'> {
     if (this.tools.length === 0) {
       await this.initialize();
     }
-    const concatenatedBroadcast =
-      broadcastMessage.workingMemory.messages
-        .map(
-          (message, index) =>
-            `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
-        )
-        .join('') +
-      `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
-    this.setStatus('evaluating-relevance');
-    const relevant = await provider.askYesNoQuestion(`${this.preamble}
-
-    New Information: ${concatenatedBroadcast}
-
-    Question: Will one or more of your tools help resolve the above information?`);
-    if (!relevant) {
-      this.setStatus('idle');
-      return undefined;
-    }
+    // Shared between the relevance check and the tool-calling generation so
+    // both present an identical [tools preamble][working memory][broadcast]
+    // prefix, maximizing prompt-cache reuse.
     const messages = [
       ...broadcastMessage.workingMemory.messages,
       broadcastMessage.broadcast,
     ];
+    this.setStatus('evaluating-relevance');
+    const relevant = await provider.askYesNoQuestion({
+      systemPrompt: this.preamble,
+      messages,
+      question: `Given your tools above and the broadcast below, will one or more of them help resolve it? Answer yes only if a tool call would make concrete progress.`,
+    });
+    if (!relevant) {
+      this.setStatus('idle');
+      return undefined;
+    }
     this.setStatus('generating');
-    const systemPrompt = `You are a tool invocation node. Use the available tools to process the broadcast message.
-You MUST make a tool call.
-
-Available working memory:
-${broadcastMessage.workingMemory.messages.map((m, i) => `[MESSAGE ${i}]: ${m.content}`).join('\n')}
-
-New broadcast: ${broadcastMessage.broadcast.content}
-`;
     const response = await provider.generateWithTools({
       messages,
-      systemPrompt,
+      systemPrompt: `You are a tool invocation node. Use the available tools to act on the broadcast. You MUST make a tool call.`,
       tools: this.tools,
     });
     if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -124,11 +111,10 @@ New broadcast: ${broadcastMessage.broadcast.content}
   };
 
   public get preamble(): string {
-    return `You will have the following tools available:
-    ${this.tools.map((tool) => JSON.stringify(tool)).join('\n')}
-    
-    Pay attention to whether the provided information below is a query that you will
-    be able to use one of your tools to resolve.
-    `;
+    return `You are a tool node in a collective reasoning system. You contribute only by invoking tools when a broadcast names a task one of your tools can resolve.
+
+Your available tools:
+${this.tools.map((tool) => JSON.stringify(tool)).join('\n')}
+`;
   }
 }

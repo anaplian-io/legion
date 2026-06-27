@@ -263,7 +263,7 @@ describe('ToolNode', () => {
     );
   });
 
-  it('should include working memory in system prompt', async () => {
+  it('should pass working memory and broadcast as discrete messages to generateWithTools', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
@@ -293,14 +293,22 @@ describe('ToolNode', () => {
     await node.initialize();
     await node.sendMessage(broadcastMessage);
 
+    // Working memory and broadcast travel as discrete messages; the system
+    // prompt stays a stable, cacheable instruction free of volatile content.
     const callArgs = vi.mocked(mockProvider.generateWithTools).mock
-      .calls[0]?.[0] as { systemPrompt: string };
-    expect(callArgs.systemPrompt).toContain('Previous message 1');
-    expect(callArgs.systemPrompt).toContain('Previous message 2');
-    expect(callArgs.systemPrompt).toContain('New broadcast');
+      .calls[0]?.[0] as {
+      systemPrompt: string;
+      messages: { content: string }[];
+    };
+    expect(callArgs.messages).toEqual([
+      { content: 'Previous message 1' },
+      { content: 'Previous message 2' },
+      { content: 'New broadcast' },
+    ]);
+    expect(callArgs.systemPrompt).not.toContain('Previous message 1');
   });
 
-  it('should concatenate working memory without stray separators in relevance check', async () => {
+  it('should pass working memory and broadcast as discrete messages in relevance check', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
     vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
@@ -323,10 +331,11 @@ describe('ToolNode', () => {
 
     const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
     expect(askCall).toBeDefined();
-    expect(askCall).toContain(
-      '[WORKING MEMORY MESSAGE 0]:First WM\n[WORKING MEMORY MESSAGE 1]:Second WM\n[NEW BROADCAST MESSAGE]:New broadcast',
-    );
-    expect(askCall).not.toContain('First WM\n,');
+    expect(askCall?.messages).toEqual([
+      { content: 'First WM' },
+      { content: 'Second WM' },
+      { content: 'New broadcast' },
+    ]);
   });
 
   it('should set status to evaluating-relevance during sendMessage', async () => {
