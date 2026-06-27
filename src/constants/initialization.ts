@@ -12,6 +12,7 @@ import { LlmRelevanceFilter } from '../service/llm-relevance-filter.js';
 import { StaticAttentionGate } from '../service/static-attention-gate.js';
 import { LlmDistiller } from '../service/llm-distiller.js';
 import { MemoryNodeSplitter } from '../service/memory-node-splitter.js';
+import { StaticNodePruner } from '../service/static-node-pruner.js';
 import { ConcreteMemoryNodeFactory } from '../factory/concrete-memory-node-factory.js';
 import { EventStream } from '../types/event-stream.js';
 import { Node } from '../types/node.js';
@@ -72,6 +73,17 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
       console.info(
         `[Orchestrator] working memory updated - ${data.workingMemory.messages.length} messages, current broadcast: "${data.broadcast.content.slice(0, 50)}..."`,
       );
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/node-stats-updated',
+    receiver: (data) => {
+      data.nodeStats.forEach(({ nodeId, stats }) => {
+        console.info(
+          `[Orchestrator] node stats: ${nodeId} - alive: ${stats.epochsAlive}, spoke: ${stats.epochsSpoken}, filtered: ${stats.epochsFiltered}`,
+        );
+      });
     },
   });
 };
@@ -186,6 +198,13 @@ export const init = async () => {
     eventStream,
   });
 
+  const nodePruner = new StaticNodePruner({
+    minEpochsAlive: settings.pruneMinEpochsAlive ?? 5,
+    minBroadcasts: settings.pruneMinBroadcasts ?? 1,
+    maxFilterRate: settings.pruneMaxFilterRate ?? 0.9,
+    minMemoryNodes: settings.pruneMinMemoryNodes ?? 1,
+  });
+
   // Create initial nodes (tool nodes + sensory node, plus loaded nodes if any)
   const initialNodes: Node<string>[] = [];
 
@@ -227,6 +246,7 @@ export const init = async () => {
     maxWorkingMemoryMessages: settings.maxWorkingMemoryMessages ?? 10,
     contextLengthThreshold: settings.contextLengthThreshold ?? 5000,
     memoryNodeSplitter: nodeSplitter,
+    nodePruner,
     initialWorkingMemory,
     initialBroadcast,
     memoryNodeFactory,

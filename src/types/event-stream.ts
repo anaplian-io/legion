@@ -1,6 +1,7 @@
 import { Node, NodeStatus } from './node.js';
 import { WorkingMemory } from './working-memory.js';
 import { Message } from './message.js';
+import { NodeStats } from './node-stats.js';
 
 export interface NodeStatusChangeData {
   readonly nodeId: string;
@@ -88,12 +89,32 @@ export interface SubscribeOrchestratorWorkingMemoryUpdated {
   readonly receiver: (data: WorkingMemoryUpdatedData) => void | Promise<void>;
 }
 
+export interface NodeStatsEntry {
+  readonly nodeId: string;
+  readonly stats: NodeStats;
+}
+
+export interface NodeStatsUpdatedData {
+  readonly nodeStats: NodeStatsEntry[];
+}
+
+export interface PublishOrchestratorNodeStatsUpdated {
+  readonly topicName: 'orchestrator/node-stats-updated';
+  readonly data: NodeStatsUpdatedData;
+}
+
+export interface SubscribeOrchestratorNodeStatsUpdated {
+  readonly topicName: PublishOrchestratorNodeStatsUpdated['topicName'];
+  readonly receiver: (data: NodeStatsUpdatedData) => void | Promise<void>;
+}
+
 export type PublishProps =
   | PublishOrchestratorNodesChanged
   | PublishOrchestratorNodeAdded
   | PublishOrchestratorNodeRemoved
   | PublishOrchestratorNodeUpdated
   | PublishOrchestratorWorkingMemoryUpdated
+  | PublishOrchestratorNodeStatsUpdated
   | PublishNodeStatusChange;
 
 export type SubscribeProps =
@@ -102,6 +123,7 @@ export type SubscribeProps =
   | SubscribeOrchestratorNodeRemoved
   | SubscribeOrchestratorNodeUpdated
   | SubscribeOrchestratorWorkingMemoryUpdated
+  | SubscribeOrchestratorNodeStatsUpdated
   | SubscribeNodeStatusChange;
 
 export type Topics = PublishProps['topicName'];

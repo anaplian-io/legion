@@ -20,4 +20,12 @@ export interface LegionSettings {
   readonly attentionGateN?: number | 'all';
   readonly maxWorkingMemoryMessages?: number;
   readonly contextLengthThreshold?: number;
+  /** Epochs a node must survive before it becomes eligible for pruning. */
+  readonly pruneMinEpochsAlive?: number;
+  /** Minimum epochs an eligible node must have spoken in to be retained. */
+  readonly pruneMinBroadcasts?: number;
+  /** Maximum tolerated fraction of a node's spoken epochs that were filtered. */
+  readonly pruneMaxFilterRate?: number;
+  /** Floor on the memory-node population; pruning never drops below this. */
+  readonly pruneMinMemoryNodes?: number;
 }

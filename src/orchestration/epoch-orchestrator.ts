@@ -8,6 +8,8 @@ import { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import { NodeSplitter } from '../types/node-splitter.js';
 import { EventStream } from '../types/event-stream.js';
 import { MemoryNode } from '../node/memory-node.js';
+import { NodePruner } from '../types/node-pruner.js';
+import { NodeStats } from '../types/node-stats.js';
 import { isDefined } from '../utilities/is-defined.js';
 
 export interface EpochOrchestratorProps {
@@ -17,6 +19,7 @@ export interface EpochOrchestratorProps {
   readonly maxWorkingMemoryMessages: number;
   readonly contextLengthThreshold: number;
   readonly memoryNodeSplitter: NodeSplitter<'memory'>;
+  readonly nodePruner: NodePruner;
   readonly initialWorkingMemory?: WorkingMemory;
   readonly initialBroadcast: Message;
   readonly memoryNodeFactory: MemoryNodeFactory;
@@ -24,9 +27,16 @@ export interface EpochOrchestratorProps {
   readonly initialNodes?: Node<string>[];
 }
 
+const ZERO_STATS: NodeStats = {
+  epochsAlive: 0,
+  epochsSpoken: 0,
+  epochsFiltered: 0,
+};
+
 export class EpochOrchestrator {
   private _currentBroadcast: Message;
   private readonly _nodes = new Map<string, Node<string>>();
+  private readonly _stats = new Map<string, NodeStats>();
   private readonly _workingMemory: WorkingMemory;
 
   constructor(private readonly props: EpochOrchestratorProps) {
@@ -39,8 +49,17 @@ export class EpochOrchestrator {
     return Array.from(this._nodes.values());
   }
 
+  public get nodeStats(): Map<string, NodeStats> {
+    return new Map(this._stats);
+  }
+
   public addNode(node: Node<string>): void {
     this._nodes.set(node.id, node);
+    // New nodes (including split children and spawned nodes) start with fresh
+    // stats and thus a full grace period.
+    if (!this._stats.has(node.id)) {
+      this._stats.set(node.id, ZERO_STATS);
+    }
     this.props.eventStream.publish({
       topicName: 'orchestrator/nodes-changed',
       data: { allNodes: this.nodes },
@@ -55,6 +74,7 @@ export class EpochOrchestrator {
 
   public removeNode(nodeId: string): void {
     this._nodes.delete(nodeId);
+    this._stats.delete(nodeId);
     this.props.eventStream.publish({
       topicName: 'orchestrator/nodes-changed',
       data: { allNodes: this.nodes },
@@ -113,6 +133,22 @@ export class EpochOrchestrator {
       this._workingMemory,
       candidateMessages,
     );
+
+    // Record per-node statistics for this epoch before any branching, so a
+    // quiet epoch still credits nodes that spoke and were filtered. The nodes
+    // alive this epoch are exactly those we polled (split/spawned nodes added
+    // below start their grace period next epoch).
+    const aliveNodeIds = nodeResponses.map(({ node }) => node.id);
+    const spokenNodeIds = new Set(
+      candidateMessages.map((message) => message.originatingNodeId),
+    );
+    const survivingNodeIds = new Set(
+      filteredMessages
+        .map((message) => message.originatingNodeId)
+        .filter(isDefined),
+    );
+    this.recordEpochStats(aliveNodeIds, spokenNodeIds, survivingNodeIds);
+
     const sourceMemoryNodes = filteredMessages
       .map((message) => message.originatingNodeId)
       .filter(isDefined)
@@ -135,6 +171,46 @@ export class EpochOrchestrator {
     };
     this.pruneWorkingMemory();
     await this.checkAndSplitMemoryNodes();
+    this.pruneNodes();
+  };
+
+  private readonly recordEpochStats = (
+    aliveNodeIds: string[],
+    spokenNodeIds: Set<string>,
+    survivingNodeIds: Set<string>,
+  ): void => {
+    for (const nodeId of aliveNodeIds) {
+      // Every alive node was registered via addNode, which seeds its stats, so
+      // the lookup is always defined.
+      const current = this._stats.get(nodeId) as NodeStats;
+      const spoke = spokenNodeIds.has(nodeId);
+      const filtered = spoke && !survivingNodeIds.has(nodeId);
+      this._stats.set(nodeId, {
+        epochsAlive: current.epochsAlive + 1,
+        epochsSpoken: current.epochsSpoken + (spoke ? 1 : 0),
+        epochsFiltered: current.epochsFiltered + (filtered ? 1 : 0),
+      });
+    }
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/node-stats-updated',
+      data: {
+        nodeStats: Array.from(this._stats.entries()).map(([nodeId, stats]) => ({
+          nodeId,
+          stats,
+        })),
+      },
+    });
+  };
+
+  private readonly pruneNodes = (): void => {
+    const memoryNodes = Array.from(this._nodes.values()).filter(
+      (node): node is MemoryNode => node.kind === 'memory',
+    );
+    const toPrune = this.props.nodePruner.selectForPruning(
+      memoryNodes,
+      this._stats,
+    );
+    toPrune.forEach((node) => this.removeNode(node.id));
   };
 
   private readonly checkAndSplitMemoryNodes = async (): Promise<void> => {

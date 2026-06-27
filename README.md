@@ -183,11 +183,28 @@ When all candidate messages are filtered out by relevance:
 
 ### Node Pruning Triggers
 
-Prune nodes that:
+After each epoch, the orchestrator accumulates per-node stats (`epochsAlive`,
+`epochsSpoken`, `epochsFiltered`) and the `NodePruner` removes memory nodes
+that, once past a grace period, are underperforming. Implemented by
+`StaticNodePruner`:
 
-- Have fewer than `minBroadcasts` total broadcasts, OR
-- Were filtered in more than `maxFilterRate * 100%` of epochs they spoke, OR
-- Have average relevance score below `minRelevanceScore`
+- A node is eligible only after `minEpochsAlive` epochs (grace period prevents
+  spawn/prune thrashing of freshly created nodes).
+- Among eligible nodes, prune any that:
+  - Spoke in fewer than `minBroadcasts` epochs (inert), OR
+  - Were filtered in more than `maxFilterRate * 100%` of the epochs they spoke
+    (low-signal).
+- A `minMemoryNodes` floor is always enforced; when more nodes qualify than the
+  floor permits, the worst performers (highest filter rate) are dropped first.
+
+Split children and spawned nodes start with fresh stats (and thus a full grace
+period). Stats are published on the `orchestrator/node-stats-updated` event for
+visibility.
+
+> **Note:** the originally specified `minRelevanceScore` trigger is deferred.
+> The relevance filter returns ranked indices rather than scalar scores, so a
+> true average relevance score is not currently measurable; filter rate serves
+> as the quality signal instead.
 
 ### Node Bootstrap from WM
 
