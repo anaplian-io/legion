@@ -88,6 +88,34 @@ describe('LlmRelevanceFilter', () => {
     ]);
   });
 
+  it('should concatenate multi-message working memory without stray separators', async () => {
+    const workingMemory: WorkingMemory = {
+      messages: [{ content: 'First context' }, { content: 'Second context' }],
+    };
+    const candidateMessages: Message[] = [
+      { content: 'Candidate 1' },
+      { content: 'Candidate 2' },
+      { content: 'Candidate 3' },
+    ];
+
+    vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(1);
+    vi.mocked(mockProvider.rankByRelevance).mockResolvedValue([0, 1, 2]);
+
+    const filter = new LlmRelevanceFilter({
+      provider: mockProvider,
+      attentionGate: mockAttentionGate,
+    });
+
+    await filter.filter(workingMemory, candidateMessages);
+
+    // Regression: bare .join() inserted a comma between the per-message
+    // entries; the concept string must concatenate them cleanly.
+    expect(mockProvider.rankByRelevance).toHaveBeenCalledWith(
+      '[MESSAGE 0]:First context\n[MESSAGE 1]:Second context\n',
+      ['Candidate 1', 'Candidate 2', 'Candidate 3'],
+    );
+  });
+
   it('should handle empty candidate messages', async () => {
     const workingMemory: WorkingMemory = {
       messages: [{ content: 'Context' }],

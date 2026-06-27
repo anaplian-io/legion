@@ -131,6 +131,35 @@ describe('MemoryNode', () => {
     expect(askCall).toContain('[NEW BROADCAST MESSAGE]:New broadcast');
   });
 
+  it('should concatenate working memory without stray separators', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: {
+        messages: [{ content: 'First WM' }, { content: 'Second WM' }],
+      },
+      broadcast: { content: 'New broadcast' },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+    });
+
+    await node.sendMessage(broadcastMessage);
+
+    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
+    expect(askCall).toBeDefined();
+    expect(askCall).toContain(
+      '[WORKING MEMORY MESSAGE 0]:First WM\n[WORKING MEMORY MESSAGE 1]:Second WM\n[NEW BROADCAST MESSAGE]:New broadcast',
+    );
+    // Regression: array+string coercion previously inserted a comma between
+    // mapped entries and dropped the trailing newline before the new broadcast.
+    expect(askCall).not.toContain('First WM\n,');
+  });
+
   it('should handle empty working memory', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },

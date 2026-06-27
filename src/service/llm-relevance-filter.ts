@@ -23,7 +23,7 @@ export class LlmRelevanceFilter implements RelevanceFilter {
     }
     const concatenatedConcept = workingMemory.messages
       .map((message, index) => `[MESSAGE ${index}]:${message.content}\n`)
-      .join();
+      .join('');
     const attentionGateValue = await attentionGate.getTopN({ workingMemory });
     if (
       attentionGateValue === 'all' ||
