@@ -1,4 +1,5 @@
 import {
+  AskYesNoQuestionProps,
   GenerateProps,
   GenerateWithToolsProps,
   MinimalOpenAi,
@@ -23,7 +24,7 @@ export class OpenaiProvider implements Provider {
         content: props.systemPrompt,
       },
       ...props.messages.map((m) => ({
-        role: 'assistant' as const,
+        role: 'user' as const,
         content: m.content,
       })),
     ];
@@ -43,13 +44,21 @@ export class OpenaiProvider implements Provider {
     const response = await this.props.client.responses.create({
       model: this.props.model,
       temperature: 0,
-      input: `You are a relevance ranking assistant. Given a concept and a list of items, return the items ranked from most to least relevant to the concept.
-Respond with ONLY a JSON array of the original indices in order of relevance (most to least).
-Example: {"rankedIndices": [2, 0, 1]}
+      input: [
+        {
+          role: 'system' as const,
+          content: `You rank items by how much each one advances the given concept. Return every input index exactly once, ordered most to least relevant. Output only the structured result.
+Example: {"rankedIndices": [2, 0, 1]}`,
+        },
+        {
+          role: 'user' as const,
+          content: `Concept:
+${concept}
 
-Concept: "${concept}"
-
-Items: ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
+Items:
+${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
+        },
+      ] satisfies OpenAI.Responses.ResponseInputItem[],
       text: {
         format: {
           type: 'json_schema',
@@ -79,17 +88,28 @@ Items: ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
   };
 
   public readonly askYesNoQuestion = async (
-    question: string,
+    props: AskYesNoQuestionProps,
   ): Promise<boolean> => {
     const response = await this.props.client.responses.create({
       model: this.props.model,
       temperature: 0,
-      input: `
-${question}
+      input: [
+        {
+          role: 'system' as const,
+          content: props.systemPrompt,
+        },
+        ...props.messages.map((m) => ({
+          role: 'user' as const,
+          content: m.content,
+        })),
+        {
+          role: 'user' as const,
+          content: `${props.question}
 
 Answer the above yes/no question.
-Respond with ONLY a JSON object.
 Example: {"answer": true}`,
+        },
+      ] satisfies OpenAI.Responses.ResponseInputItem[],
       text: {
         format: {
           type: 'json_schema',
@@ -121,12 +141,17 @@ Example: {"answer": true}`,
     const response = await this.props.client.responses.create({
       model: this.props.model,
       temperature: 0,
-      input: `Split the following content into two coherent parts based on semantic grouping of concepts.
-Respond with ONLY a JSON object.
-Example Output: {"left": "This is some content about rainbows.", "right": "This is some content about birds."}
-
-Content to split:
-${content}`,
+      input: [
+        {
+          role: 'system' as const,
+          content: `A node's accumulated experience has grown too large and must split into two specialists. Divide the content by topic so each part is internally coherent and the two overlap as little as possible. Preserve the original wording; do not summarize or invent.
+Example: {"left": "This is some content about rainbows.", "right": "This is some content about birds."}`,
+        },
+        {
+          role: 'user' as const,
+          content,
+        },
+      ] satisfies OpenAI.Responses.ResponseInputItem[],
       text: {
         format: {
           type: 'json_schema',

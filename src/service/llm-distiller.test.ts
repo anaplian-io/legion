@@ -39,15 +39,15 @@ describe('LlmDistiller', () => {
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining(
-        'You are a working memory distiller',
+        'consolidate a reasoning step into one line of working memory',
       ),
-      messages: [],
+      messages: [{ content: expect.stringContaining('Node A') }],
     });
 
     expect(result).toBe('New consolidated insight');
   });
 
-  it('should include working memory in system prompt', async () => {
+  it('should include working memory in the user message', async () => {
     const distiller = new LlmDistiller({ provider: mockProvider });
     const workingMemory: WorkingMemory = { messages: [{ content: 'Test WM' }] };
     const broadcasts = [''];
@@ -55,12 +55,12 @@ describe('LlmDistiller', () => {
     await distiller.distill({ workingMemory, broadcasts });
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('Test WM'),
-      messages: [],
+      systemPrompt: expect.any(String),
+      messages: [{ content: expect.stringContaining('Test WM') }],
     });
   });
 
-  it('should include all broadcasts in system prompt', async () => {
+  it('should include all broadcasts in the user message', async () => {
     const distiller = new LlmDistiller({ provider: mockProvider });
     const workingMemory: WorkingMemory = { messages: [] };
     const broadcasts = ['A content', 'B content'];
@@ -71,8 +71,8 @@ describe('LlmDistiller', () => {
       systemPrompt: string;
       messages: Array<{ content: string }>;
     };
-    expect(callArgs.systemPrompt).toContain('[BROADCAST 0]: A content');
-    expect(callArgs.systemPrompt).toContain('[BROADCAST 1]: B content');
+    expect(callArgs.messages[0]?.content).toContain('[BROADCAST 0]: A content');
+    expect(callArgs.messages[0]?.content).toContain('[BROADCAST 1]: B content');
   });
 
   it('should handle empty broadcasts', async () => {
@@ -96,8 +96,8 @@ describe('LlmDistiller', () => {
     await distiller.distill({ workingMemory, broadcasts });
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('Working Memory:'),
-      messages: [],
+      systemPrompt: expect.any(String),
+      messages: [{ content: expect.stringContaining('Working memory:') }],
     });
   });
 });

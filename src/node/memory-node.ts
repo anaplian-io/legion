@@ -38,28 +38,23 @@ export class MemoryNode implements Node<'memory'> {
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
     const { provider } = this.props;
-    const concatenatedBroadcast =
-      broadcastMessage.workingMemory.messages
-        .map(
-          (message, index) =>
-            `[WORKING MEMORY MESSAGE ${index}]:${message.content}\n`,
-        )
-        .join('') +
-      `[NEW BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}`;
-    await this.setStatus('evaluating-relevance');
-    const relevant = await provider.askYesNoQuestion(`${this.preamble}
-
-    New Information: ${concatenatedBroadcast}
-
-    Question: Is your experience relevant to this new information?`);
-    await this.setStatus('idle');
-    if (!relevant) {
-      return undefined;
-    }
+    // Shared between the relevance check and the generation call so both
+    // present an identical [identity + context][working memory][broadcast]
+    // prefix, maximizing prompt-cache reuse.
     const messages = [
       ...broadcastMessage.workingMemory.messages,
       broadcastMessage.broadcast,
     ];
+    await this.setStatus('evaluating-relevance');
+    const relevant = await provider.askYesNoQuestion({
+      systemPrompt: this.preamble,
+      messages,
+      question: `Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.`,
+    });
+    await this.setStatus('idle');
+    if (!relevant) {
+      return undefined;
+    }
     await this.setStatus('generating');
     const response: NodeResponse = {
       originatingNodeId: this.id,
@@ -82,14 +77,11 @@ export class MemoryNode implements Node<'memory'> {
   };
 
   public get preamble(): string {
-    return `You are a single memory and processing node of a larger
-processing system that specializes in a given set of areas. You prefer to
-weigh in on queries related to your core experience, but you may choose
-to weigh in if you believe you have something relevant to add.
+    return `You are one specialist node in a collective reasoning system. Every node sees each broadcast, but each speaks only from its own expertise. Silence is the default: respond only when your experience materially improves the collective's answer. Generic or redundant responses are filtered out and make the collective worse, not better.
 
-This is your compiled total set of experience:
+Your accumulated experience follows. Reason only from it and from the broadcast you are given; do not invent expertise you do not have.
+───────────────────────────────────────
 ${this.context}
---------------
 `;
   }
 

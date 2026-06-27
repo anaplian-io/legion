@@ -12,6 +12,19 @@ export interface GenerateProps {
   readonly messages: Message[];
 }
 
+export interface AskYesNoQuestionProps {
+  /**
+   * Stable, cacheable prefix (e.g. a node's identity + accumulated context).
+   * Placed first so it can be reused as a prompt-cache prefix across the
+   * relevance check and the subsequent generation call.
+   */
+  readonly systemPrompt: string;
+  /** Volatile stimuli (working memory + broadcast) shared with `generate`. */
+  readonly messages: Message[];
+  /** The yes/no question, appended after the shared prefix. */
+  readonly question: string;
+}
+
 export type { GenerateWithToolsProps, ToolCall, ToolDefinition };
 
 export interface Provider {
@@ -20,7 +33,7 @@ export interface Provider {
     concept: string,
     items: string[],
   ) => Promise<number[]>;
-  readonly askYesNoQuestion: (question: string) => Promise<boolean>;
+  readonly askYesNoQuestion: (props: AskYesNoQuestionProps) => Promise<boolean>;
   readonly splitString: (content: string) => Promise<[string, string]>;
   readonly generateWithTools: (
     props: GenerateWithToolsProps,

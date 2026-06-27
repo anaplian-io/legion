@@ -85,11 +85,15 @@ describe('MemoryNode', () => {
 
     const result = await node.sendMessage(broadcastMessage);
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Is your experience relevant to this new information?',
-      ),
-    );
+    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
+      systemPrompt: expect.stringContaining('Initial context'),
+      messages: [
+        { content: 'Previous message 1' },
+        { content: 'Previous message 2' },
+        { content: 'New broadcast' },
+      ],
+      question: expect.stringContaining('non-redundant'),
+    });
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('Initial context'),
@@ -126,12 +130,14 @@ describe('MemoryNode', () => {
 
     const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
     expect(askCall).toBeDefined();
-    expect(askCall).toContain('You are a single memory and processing node');
-    expect(askCall).toContain('Specialized in test scenarios');
-    expect(askCall).toContain('[NEW BROADCAST MESSAGE]:New broadcast');
+    expect(askCall?.systemPrompt).toContain(
+      'You are one specialist node in a collective reasoning system',
+    );
+    expect(askCall?.systemPrompt).toContain('Specialized in test scenarios');
+    expect(askCall?.messages).toEqual([{ content: 'New broadcast' }]);
   });
 
-  it('should concatenate working memory without stray separators', async () => {
+  it('should pass working memory and broadcast as discrete messages', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: {
         messages: [{ content: 'First WM' }, { content: 'Second WM' }],
@@ -152,12 +158,15 @@ describe('MemoryNode', () => {
 
     const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
     expect(askCall).toBeDefined();
-    expect(askCall).toContain(
-      '[WORKING MEMORY MESSAGE 0]:First WM\n[WORKING MEMORY MESSAGE 1]:Second WM\n[NEW BROADCAST MESSAGE]:New broadcast',
-    );
-    // Regression: array+string coercion previously inserted a comma between
-    // mapped entries and dropped the trailing newline before the new broadcast.
-    expect(askCall).not.toContain('First WM\n,');
+    // Working memory and the broadcast are now discrete messages rather than a
+    // concatenated string, so the provider can place the volatile suffix after
+    // the cacheable identity+context prefix (and there is no separator bug to
+    // reintroduce).
+    expect(askCall?.messages).toEqual([
+      { content: 'First WM' },
+      { content: 'Second WM' },
+      { content: 'New broadcast' },
+    ]);
   });
 
   it('should handle empty working memory', async () => {
