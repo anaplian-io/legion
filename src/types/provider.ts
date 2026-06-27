@@ -1,9 +1,9 @@
 import { Message } from './message.js';
 import { GenerateWithToolsProps, ToolCall, ToolDefinition } from './tool.js';
 import {
-  Response,
-  ResponseCreateParamsNonStreaming,
-} from 'openai/resources/responses/responses';
+  ChatCompletion,
+  ChatCompletionCreateParamsNonStreaming,
+} from 'openai/resources/chat/completions';
 import { OpenAI } from 'openai';
 import RequestOptions = OpenAI.RequestOptions;
 
@@ -41,10 +41,12 @@ export interface Provider {
 }
 
 export interface MinimalOpenAi {
-  readonly responses: {
-    readonly create: (
-      body: ResponseCreateParamsNonStreaming,
-      options?: RequestOptions,
-    ) => Promise<Response>;
+  readonly chat: {
+    readonly completions: {
+      readonly create: (
+        body: ChatCompletionCreateParamsNonStreaming,
+        options?: RequestOptions,
+      ) => Promise<ChatCompletion>;
+    };
   };
 }

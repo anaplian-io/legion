@@ -648,6 +648,80 @@ describe('EpochOrchestrator', () => {
     );
   });
 
+  it('should inject a broadcast into the global workspace', () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    let publishedBroadcast: string | undefined;
+    eventStream.subscribe({
+      topicName: 'orchestrator/working-memory-updated',
+      receiver: (data) => {
+        publishedBroadcast = data.broadcast.content;
+      },
+    });
+
+    orchestrator.injectBroadcast('User typed this');
+
+    expect(orchestrator.currentBroadcast.content).toBe('User typed this');
+    expect(publishedBroadcast).toBe('User typed this');
+  });
+
+  it('should use an injected broadcast on the next epoch', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    const sendMessageSpy = vi.fn();
+    sendMessageSpy.mockResolvedValue({
+      originatingNodeId: 'node-a',
+      content: 'Response',
+    });
+    const nodeA: Node<'memory'> = {
+      id: 'node-a',
+      kind: 'memory' as const,
+      status: 'idle',
+      context: 'Context for node-a',
+      sendMessage: sendMessageSpy,
+    };
+    orchestrator.addNode(nodeA);
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'Response', originatingNodeId: 'node-a' },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
+
+    orchestrator.injectBroadcast('Hello workspace');
+    await orchestrator.runEpoch();
+
+    // The injected message is what nodes received this epoch.
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        broadcast: expect.objectContaining({ content: 'Hello workspace' }),
+      }),
+    );
+    // The pending injection was consumed; the epoch then distilled normally.
+    expect(orchestrator.currentBroadcast.content).toBe('Distilled insight');
+  });
+
   it('should spawn a new node when all candidates return undefined', async () => {
     const initialWM: WorkingMemory = {
       messages: [{ content: 'Existing message' }],
