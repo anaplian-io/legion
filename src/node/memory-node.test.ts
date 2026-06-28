@@ -3,10 +3,12 @@ import { MemoryNode } from './memory-node.js';
 import type { Provider } from '../types/provider.js';
 import type { BroadcastMessage } from '../types/node.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import type { CuriosityGate } from '../types/curiosity-gate.js';
 
 describe('MemoryNode', () => {
   let mockProvider: Provider;
   let eventStream: ConcreteEventStream;
+  let mockCuriosityGate: CuriosityGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -17,6 +19,9 @@ describe('MemoryNode', () => {
       generateWithTools: vi.fn(),
     };
     eventStream = new ConcreteEventStream();
+    mockCuriosityGate = {
+      isCurious: vi.fn().mockResolvedValue(false),
+    };
   });
 
   it('should create a memory node with the given props', () => {
@@ -25,6 +30,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(node.id).toBe('memory-1');
@@ -42,12 +48,15 @@ describe('MemoryNode', () => {
     };
 
     vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    // Set curiosity gate to false so both checks fail
+    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
 
     const node = new MemoryNode({
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(node.status).toBe('idle');
@@ -79,6 +88,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(node.status).toBe('idle');
@@ -111,6 +121,36 @@ describe('MemoryNode', () => {
     expect(node.status).toBe('idle');
   });
 
+  it('should generate response when curiosity overrides low relevance', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: { messages: [] },
+      broadcast: { content: 'New broadcast' },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(true);
+    vi.mocked(mockProvider.generate).mockResolvedValue('Curious response');
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      curiosityGate: mockCuriosityGate,
+    });
+
+    const result = await node.sendMessage(broadcastMessage);
+
+    expect(mockCuriosityGate.isCurious).toHaveBeenCalledWith({
+      broadcastMessage,
+      nodeContext: 'Initial context',
+    });
+    expect(result).toEqual({
+      originatingNodeId: 'memory-1',
+      content: 'Curious response',
+    });
+  });
+
   it('should use preamble in askYesNoQuestion', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
@@ -124,6 +164,7 @@ describe('MemoryNode', () => {
       initialContext: 'Specialized in test scenarios',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -152,6 +193,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -183,6 +225,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -199,6 +242,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(node.id).toBe('test-id');
@@ -220,6 +264,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(node.status).toBe('idle');
@@ -253,6 +298,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -289,6 +335,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -324,6 +371,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
@@ -359,6 +407,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream: throwingEventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
@@ -378,6 +427,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -409,6 +459,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
+      curiosityGate: mockCuriosityGate,
     });
 
     await node.sendMessage(broadcastMessage1);

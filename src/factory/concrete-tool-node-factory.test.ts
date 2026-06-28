@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteToolNodeFactory } from './concrete-tool-node-factory.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
+import type { CuriosityGate } from '../types/curiosity-gate.js';
 
 // Mock MCP Client
 interface MockMcpClient {
@@ -12,6 +13,7 @@ describe('ConcreteToolNodeFactory', () => {
   let mockProvider: Provider;
   let mockEventStream: EventStream;
   let mockMcpClient: MockMcpClient;
+  let mockCuriosityGate: CuriosityGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -26,6 +28,9 @@ describe('ConcreteToolNodeFactory', () => {
       subscribe: vi.fn(),
     };
     mockMcpClient = {};
+    mockCuriosityGate = {
+      isCurious: vi.fn().mockResolvedValue(false),
+    };
   });
 
   it('should create a factory with the given props', () => {
@@ -33,6 +38,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(typeof factory.create).toBe('function');
@@ -43,6 +49,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      curiosityGate: mockCuriosityGate,
     });
 
     const node = factory.create({
@@ -59,6 +66,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      curiosityGate: mockCuriosityGate,
     });
 
     const node = factory.create({
@@ -74,6 +82,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      curiosityGate: mockCuriosityGate,
     });
 
     const node = factory.create({

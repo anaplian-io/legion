@@ -6,12 +6,14 @@ import {
 } from '../types/node.js';
 import { Provider } from '../types/provider.js';
 import { EventStream } from '../types/event-stream.js';
+import { CuriosityGate } from '../types/curiosity-gate.js';
 
 export interface MemoryNodeProps {
   readonly id: string;
   readonly initialContext: string;
   readonly provider: Provider;
   readonly eventStream: EventStream;
+  readonly curiosityGate: CuriosityGate;
 }
 
 export class MemoryNode implements Node<'memory'> {
@@ -38,9 +40,6 @@ export class MemoryNode implements Node<'memory'> {
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
     const { provider } = this.props;
-    // Shared between the relevance check and the generation call so both
-    // present an identical [identity + context][working memory][afferent]
-    // [broadcast] prefix, maximizing prompt-cache reuse.
     const messages = [
       ...broadcastMessage.workingMemory.messages,
       ...(broadcastMessage.afferentContext ?? []),
@@ -52,8 +51,12 @@ export class MemoryNode implements Node<'memory'> {
       messages,
       question: `Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.`,
     });
+    const curious = await this.props.curiosityGate.isCurious({
+      broadcastMessage,
+      nodeContext: this.context,
+    });
     await this.setStatus('idle');
-    if (!relevant) {
+    if (!relevant && !curious) {
       return undefined;
     }
     await this.setStatus('generating');

@@ -7,19 +7,23 @@ import {
 } from '../types/tool-node-factory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { MCPClient } from '../adapter/mcp-client.js';
+import { CuriosityGate } from '../types/curiosity-gate.js';
 
 export interface ConcreteToolNodeFactoryProps {
   readonly provider: Provider;
   readonly mcpClient: Client;
+  readonly curiosityGate: CuriosityGate;
 }
 
 export class ConcreteToolNodeFactory implements ToolNodeFactory {
   private readonly _provider: Provider;
   private readonly _mcpClient: MCPClient;
+  private readonly _curiosityGate: CuriosityGate;
 
   constructor(props: ConcreteToolNodeFactoryProps) {
     this._provider = props.provider;
     this._mcpClient = new MCPClient({ client: props.mcpClient });
+    this._curiosityGate = props.curiosityGate;
   }
 
   public readonly create = (props: CreateToolNodeProps): Node<'tool'> => {
@@ -29,6 +33,7 @@ export class ConcreteToolNodeFactory implements ToolNodeFactory {
       provider: this._provider,
       eventStream: props.eventStream,
       mcpClient: this._mcpClient,
+      curiosityGate: this._curiosityGate,
     });
   };
 }
