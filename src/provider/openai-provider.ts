@@ -7,7 +7,11 @@ import {
   ToolCall,
   ToolDefinition,
 } from '../types/provider.js';
-import { OpenAI } from 'openai';
+import {
+  ChatCompletion,
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from 'openai/resources/chat/completions';
 import { isStrictEligible } from '../utilities/is-strict-eligible.js';
 
 export interface OpenAiProviderProps {
@@ -18,53 +22,76 @@ export interface OpenAiProviderProps {
 export class OpenaiProvider implements Provider {
   constructor(private readonly props: OpenAiProviderProps) {}
 
-  public readonly generate = async (props: GenerateProps): Promise<string> => {
-    const inputItems = [
-      {
-        role: 'system' as const,
-        content: props.systemPrompt,
-      },
-      ...props.messages.map((m) => ({
-        role: 'user' as const,
-        content: m.content,
-      })),
+  /** Text of the first choice, or '' when absent/null. */
+  private readonly firstContent = (response: ChatCompletion): string => {
+    const choice = response.choices[0];
+    return choice ? (choice.message.content ?? '') : '';
+  };
+
+  /**
+   * System prompt + the caller's messages as user turns. Chat-templated models
+   * reject prompts with no user turn, so when the caller puts the whole task in
+   * the system prompt and passes no messages (e.g. the distiller), a minimal
+   * user turn is synthesized.
+   */
+  private readonly buildMessages = (
+    systemPrompt: string,
+    messages: readonly { content: string }[],
+  ): ChatCompletionMessageParam[] => {
+    const items: ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(
+        (m): ChatCompletionMessageParam => ({
+          role: 'user',
+          content: m.content,
+        }),
+      ),
     ];
+    if (messages.length === 0) {
+      items.push({
+        role: 'user',
+        content: 'Produce the output now, following the instructions above.',
+      });
+    }
+    return items;
+  };
 
-    const response = await this.props.client.responses.create({
+  public readonly generate = async (props: GenerateProps): Promise<string> => {
+    const response = await this.props.client.chat.completions.create({
       model: this.props.model,
-      input: inputItems satisfies OpenAI.Responses.ResponseInputItem[],
+      messages: this.buildMessages(props.systemPrompt, props.messages),
     });
-
-    return response.output_text ?? '';
+    return this.firstContent(response);
   };
 
   public readonly rankByRelevance = async (
     concept: string,
     items: string[],
   ): Promise<number[]> => {
-    const response = await this.props.client.responses.create({
+    const response = await this.props.client.chat.completions.create({
       model: this.props.model,
       temperature: 0,
-      input: [
+      messages: [
         {
-          role: 'system' as const,
+          role: 'system',
           content: `You rank items by how much each one advances the given concept. Return every input index exactly once, ordered most to least relevant.
 Respond with ONLY a JSON object matching the schema.
 Example: {"rankedIndices": [2, 0, 1]}`,
         },
         {
-          role: 'user' as const,
+          role: 'user',
           content: `Concept:
 ${concept}
 
 Items:
 ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
         },
-      ] satisfies OpenAI.Responses.ResponseInputItem[],
-      text: {
-        format: {
-          type: 'json_schema',
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
           name: 'ranking',
+          strict: true,
           schema: {
             type: 'object',
             properties: {
@@ -82,42 +109,40 @@ ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
       },
     });
 
-    const { rankedIndices } = parseJsonOutput<{ rankedIndices: number[] }>(
-      response.output_text,
+    return parseJsonOutput<{ rankedIndices: number[] }>(
+      this.firstContent(response),
       'rankByRelevance',
-    );
-
-    return rankedIndices;
+    ).rankedIndices;
   };
 
   public readonly askYesNoQuestion = async (
     props: AskYesNoQuestionProps,
   ): Promise<boolean> => {
-    const response = await this.props.client.responses.create({
+    const response = await this.props.client.chat.completions.create({
       model: this.props.model,
       temperature: 0,
-      input: [
+      messages: [
+        { role: 'system', content: props.systemPrompt },
+        ...props.messages.map(
+          (m): ChatCompletionMessageParam => ({
+            role: 'user',
+            content: m.content,
+          }),
+        ),
         {
-          role: 'system' as const,
-          content: props.systemPrompt,
-        },
-        ...props.messages.map((m) => ({
-          role: 'user' as const,
-          content: m.content,
-        })),
-        {
-          role: 'user' as const,
+          role: 'user',
           content: `${props.question}
 
 Answer the above yes/no question.
 Respond with ONLY a JSON object matching the schema.
 Example: {"answer": true}`,
         },
-      ] satisfies OpenAI.Responses.ResponseInputItem[],
-      text: {
-        format: {
-          type: 'json_schema',
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
           name: 'yes_no_answer',
+          strict: true,
           schema: {
             type: 'object',
             properties: {
@@ -133,35 +158,35 @@ Example: {"answer": true}`,
       },
     });
 
-    const { answer } = parseJsonOutput<{ answer: boolean }>(
-      response.output_text,
+    return parseJsonOutput<{ answer: boolean }>(
+      this.firstContent(response),
       'askYesNoQuestion',
-    );
-    return answer;
+    ).answer;
   };
 
   public readonly splitString = async (
     content: string,
   ): Promise<[string, string]> => {
-    const response = await this.props.client.responses.create({
+    const response = await this.props.client.chat.completions.create({
       model: this.props.model,
       temperature: 0,
-      input: [
+      messages: [
         {
-          role: 'system' as const,
+          role: 'system',
           content: `A node's accumulated experience has grown too large and must split into two specialists. Divide the content by topic so each part is internally coherent and the two overlap as little as possible. Preserve the original wording; do not summarize or invent.
 Respond with ONLY a JSON object matching the schema.
 Example: {"left": "This is some content about rainbows.", "right": "This is some content about birds."}`,
         },
         {
-          role: 'user' as const,
+          role: 'user',
           content,
         },
-      ] satisfies OpenAI.Responses.ResponseInputItem[],
-      text: {
-        format: {
-          type: 'json_schema',
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
           name: 'split_output',
+          strict: true,
           schema: {
             type: 'object',
             properties: {
@@ -176,88 +201,72 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
     });
 
     const { left, right } = parseJsonOutput<{ left: string; right: string }>(
-      response.output_text,
+      this.firstContent(response),
       'splitString',
     );
 
     return [left, right];
   };
 
-  private mapToolToOpenAITool(tool: ToolDefinition): OpenAI.Responses.Tool {
+  private mapToolToOpenAITool(tool: ToolDefinition): ChatCompletionTool {
     return {
-      type: 'function' as const,
-      name: tool.name,
-      description: tool.description ?? null,
-      parameters: tool.parameters,
-      // Strict mode is only safe when the schema satisfies OpenAI's
-      // requirements (additionalProperties:false and all properties required,
-      // recursively). Enabling it on an arbitrary MCP schema gets the tool
-      // rejected, so we opt in only when the schema is provably compliant.
-      strict: isStrictEligible(tool.parameters),
+      type: 'function',
+      function: {
+        name: tool.name,
+        ...(tool.description !== undefined
+          ? { description: tool.description }
+          : {}),
+        parameters: tool.parameters,
+        // Strict mode is only safe when the schema satisfies OpenAI's
+        // requirements (additionalProperties:false and all properties required,
+        // recursively). Enabling it on an arbitrary MCP schema gets the tool
+        // rejected, so we opt in only when the schema is provably compliant.
+        strict: isStrictEligible(tool.parameters),
+      },
     };
   }
 
   public readonly generateWithTools = async (
     props: GenerateWithToolsProps,
   ): Promise<{ content: string; toolCalls: ToolCall[] | undefined }> => {
-    const inputItems: OpenAI.Responses.ResponseInputItem[] = [
-      {
-        role: 'system' as const,
-        content: props.systemPrompt,
-      } satisfies OpenAI.Responses.EasyInputMessage,
+    const messages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: props.systemPrompt },
       ...props.messages.map(
-        (m) =>
-          ({
-            role: 'user',
-            content: m.content,
-          }) satisfies OpenAI.Responses.EasyInputMessage,
+        (m): ChatCompletionMessageParam => ({
+          role: 'user',
+          content: m.content,
+        }),
       ),
     ];
 
-    const mappedTools: OpenAI.Responses.Tool[] = [];
-    for (const tool of props.tools) {
-      mappedTools.push(this.mapToolToOpenAITool(tool));
-    }
+    const tools = props.tools.map((tool) => this.mapToolToOpenAITool(tool));
 
-    const params: {
-      model: string;
-      input: OpenAI.Responses.ResponseInputItem[];
-      tools: OpenAI.Responses.Tool[];
-    } = {
+    const response = await this.props.client.chat.completions.create({
       model: this.props.model,
-      input: inputItems,
-      tools: mappedTools,
-    };
-    const response = await this.props.client.responses.create({
-      ...params,
+      messages,
+      tools,
       tool_choice: 'required',
     });
-    const content = response.output_text ?? '';
+
+    const message = response.choices[0]?.message;
+    const content = message?.content ?? '';
     const toolCalls: ToolCall[] = [];
-    if (response.output && Array.isArray(response.output)) {
-      for (const item of response.output) {
-        if (
-          item &&
-          typeof item === 'object' &&
-          'type' in item &&
-          item.type === 'function_call'
-        ) {
-          const call = item as OpenAI.Responses.ResponseFunctionToolCall;
-          toolCalls.push({
-            id: call.call_id,
-            type: 'function' as const,
-            function: {
-              // `call.arguments` is already a JSON string per the Responses
-              // API. Re-stringifying double-encodes it, so the downstream
-              // JSON.parse in MCPClient.invokeTool yields a string instead of
-              // the arguments object and the tool call is malformed.
-              name: call.name,
-              arguments: call.arguments,
-            },
-          });
-        }
+    for (const call of message?.tool_calls ?? []) {
+      if (call.type === 'function') {
+        toolCalls.push({
+          id: call.id,
+          type: 'function',
+          // `call.function.arguments` is already a JSON string; pass it through
+          // unchanged so MCPClient.invokeTool parses the arguments object
+          // rather than a double-encoded string.
+          function: {
+            name: call.function.name,
+            arguments: call.function.arguments,
+          },
+        });
       }
     }
+
     if (toolCalls.length > 0) {
       return { content, toolCalls };
     }
@@ -266,16 +275,13 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
 }
 
 /**
- * Parses a structured-output response body, tolerating a missing/empty
- * `output_text` (which a local model can return on a refusal or tool-only
- * response) and markdown code fences, and surfacing failures with the calling
- * method's name rather than an opaque JSON error.
+ * Parses a structured-output response body, tolerating a missing/empty body
+ * (which a local model can return on a refusal or tool-only response) and
+ * markdown code fences, and surfacing failures with the calling method's name
+ * rather than an opaque JSON error.
  */
-const parseJsonOutput = <T>(
-  outputText: string | undefined,
-  method: string,
-): T => {
-  const cleaned = (outputText ?? '')
+const parseJsonOutput = <T>(content: string, method: string): T => {
+  const cleaned = content
     .replaceAll('```json', '')
     .replaceAll('```', '')
     .trim();

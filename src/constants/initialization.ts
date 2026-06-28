@@ -90,7 +90,15 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 
-export const init = async () => {
+export interface InitOptions {
+  /**
+   * Attach the console.info logging subscribers. Defaults to true.
+   * The TUI sets this to false so log output doesn't fight Ink for the screen.
+   */
+  readonly attachConsoleLogging?: boolean;
+}
+
+export const init = async (options?: InitOptions) => {
   const settings: LegionSettings = rawSettings;
   const openAiTimeout = settings.openAiTimeout ?? DEFAULT_OPENAI_TIMEOUT_MS;
 
@@ -117,7 +125,9 @@ export const init = async () => {
   const eventStream = new ConcreteEventStream();
 
   // Setup logging subscribers to see what's happening
-  setupLoggingSubscribers(eventStream);
+  if (options?.attachConsoleLogging ?? true) {
+    setupLoggingSubscribers(eventStream);
+  }
 
   // Try to load a session if saveLocation is configured
   let loadedSession: LoadedSession | undefined;
@@ -261,5 +271,6 @@ export const init = async () => {
   return {
     orchestrator,
     mcpClients,
+    eventStream,
   };
 };

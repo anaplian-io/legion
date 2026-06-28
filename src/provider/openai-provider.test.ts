@@ -1,19 +1,41 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { OpenaiProvider } from './openai-provider.js';
 import { OpenAI } from 'openai';
+import { ChatCompletion } from 'openai/resources/chat/completions';
+
+/** Build a minimal ChatCompletion with a single choice. */
+const completion = (
+  content: string | null,
+  toolCalls?: unknown[],
+): ChatCompletion =>
+  ({
+    choices: [
+      {
+        message: {
+          content,
+          ...(toolCalls !== undefined ? { tool_calls: toolCalls } : {}),
+        },
+      },
+    ],
+  }) as unknown as ChatCompletion;
+
+const noChoices = (): ChatCompletion =>
+  ({ choices: [] }) as unknown as ChatCompletion;
 
 describe('OpenaiProvider', () => {
-  let mockClient: { responses: { create: Mock } };
+  let mockClient: { chat: { completions: { create: Mock } } };
 
   beforeEach(() => {
     mockClient = {
-      responses: {
-        create: vi.fn(),
+      chat: {
+        completions: {
+          create: vi.fn(),
+        },
       },
     };
   });
 
-  it('should create a provider with the given props', async () => {
+  it('should create a provider with the given props', () => {
     const provider = new OpenaiProvider({
       model: 'test-model',
       client: mockClient as unknown as OpenAI,
@@ -22,177 +44,151 @@ describe('OpenaiProvider', () => {
     expect(typeof provider.generate).toBe('function');
   });
 
-  it('should call responses.create with correct input including system prompt', async () => {
-    const props = {
-      systemPrompt: 'You are a helpful assistant.',
-      messages: [
-        { content: 'Hello, how are you?' },
-        { content: 'I am doing well, thanks!' },
-      ],
-    };
+  describe('generate', () => {
+    it('should send system + user messages and return content', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('Hi there! I am a test response.'),
+      );
 
-    const responseText = 'Hi there! I am a test response.';
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
 
-    vi.mocked(mockClient.responses.create).mockResolvedValue({
-      output_text: responseText,
+      const result = await provider.generate({
+        systemPrompt: 'You are a helpful assistant.',
+        messages: [
+          { content: 'Hello, how are you?' },
+          { content: 'I am doing well, thanks!' },
+        ],
+      });
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
+        model: 'test-model',
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'user', content: 'Hello, how are you?' },
+          { role: 'user', content: 'I am doing well, thanks!' },
+        ],
+      });
+      expect(result).toBe('Hi there! I am a test response.');
     });
 
-    const provider = new OpenaiProvider({
-      model: 'test-model',
-      client: mockClient as unknown as OpenAI,
+    it('should synthesize a user turn when no messages are provided', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('Distilled output'),
+      );
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      const result = await provider.generate({
+        systemPrompt: 'Everything is in the system prompt.',
+        messages: [],
+      });
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
+        model: 'test-model',
+        messages: [
+          { role: 'system', content: 'Everything is in the system prompt.' },
+          {
+            role: 'user',
+            content:
+              'Produce the output now, following the instructions above.',
+          },
+        ],
+      });
+      expect(result).toBe('Distilled output');
     });
 
-    const result = await provider.generate(props);
+    it('should return empty string when there are no choices', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        noChoices(),
+      );
 
-    expect(mockClient.responses.create).toHaveBeenCalledWith({
-      model: 'test-model',
-      input: [
-        { role: 'system', content: 'You are a helpful assistant.' },
-        { role: 'user', content: 'Hello, how are you?' },
-        { role: 'user', content: 'I am doing well, thanks!' },
-      ],
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      const result = await provider.generate({
+        systemPrompt: 'test',
+        messages: [{ content: 'test' }],
+      });
+
+      expect(result).toBe('');
     });
 
-    expect(result).toBe(responseText);
-  });
+    it('should return empty string when message content is null', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(null),
+      );
 
-  it('should return empty string when response has no output_text', async () => {
-    vi.mocked(mockClient.responses.create).mockResolvedValue({
-      output_text: null,
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      const result = await provider.generate({
+        systemPrompt: 'test',
+        messages: [{ content: 'test' }],
+      });
+
+      expect(result).toBe('');
     });
-
-    const provider = new OpenaiProvider({
-      model: 'test-model',
-      client: mockClient as unknown as OpenAI,
-    });
-
-    const result = await provider.generate({
-      systemPrompt: 'test',
-      messages: [{ content: 'test' }],
-    });
-
-    expect(result).toBe('');
-  });
-
-  it('should handle single message input', async () => {
-    vi.mocked(mockClient.responses.create).mockResolvedValue({
-      output_text: 'Single message response',
-    });
-
-    const provider = new OpenaiProvider({
-      model: 'test-model',
-      client: mockClient as unknown as OpenAI,
-    });
-
-    const result = await provider.generate({
-      systemPrompt: 'System prompt',
-      messages: [{ content: 'Only one message' }],
-    });
-
-    expect(mockClient.responses.create).toHaveBeenCalledWith({
-      model: 'test-model',
-      input: [
-        { role: 'system', content: 'System prompt' },
-        { role: 'user', content: 'Only one message' },
-      ],
-    });
-
-    expect(result).toBe('Single message response');
   });
 
   describe('rankByRelevance', () => {
     it('should rank items by relevance and return indices', async () => {
-      const concept = 'fruit';
-      const items = ['apple', 'carrot', 'banana'];
-
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ rankedIndices: [0, 2, 1] }),
-      });
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(JSON.stringify({ rankedIndices: [0, 2, 1] })),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
         client: mockClient as unknown as OpenAI,
       });
 
-      const result = await provider.rankByRelevance(concept, items);
+      const result = await provider.rankByRelevance('fruit', [
+        'apple',
+        'carrot',
+        'banana',
+      ]);
 
-      expect(mockClient.responses.create).toHaveBeenCalledWith({
-        model: 'test-model',
-        temperature: 0,
-        input: [
-          { role: 'system', content: expect.any(String) },
-          { role: 'user', content: expect.stringContaining('fruit') },
-        ],
-        text: {
-          format: {
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'test-model',
+          temperature: 0,
+          messages: [
+            expect.objectContaining({ role: 'system' }),
+            expect.objectContaining({
+              role: 'user',
+              content: expect.stringContaining('fruit'),
+            }),
+          ],
+          response_format: {
             type: 'json_schema',
-            name: 'ranking',
-            schema: expect.objectContaining({
-              properties: { rankedIndices: expect.any(Object) },
-              required: ['rankedIndices'],
+            json_schema: expect.objectContaining({
+              name: 'ranking',
+              strict: true,
+              schema: expect.objectContaining({
+                required: ['rankedIndices'],
+              }),
             }),
           },
-        },
-      });
-
-      expect(result).toEqual([0, 2, 1]);
-    });
-
-    it('should handle empty items array', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ rankedIndices: [] }),
-      });
-
-      const provider = new OpenaiProvider({
-        model: 'test-model',
-        client: mockClient as unknown as OpenAI,
-      });
-
-      const result = await provider.rankByRelevance('concept', []);
-
-      expect(result).toEqual([]);
-    });
-
-    it('should handle single item array', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ rankedIndices: [0] }),
-      });
-
-      const provider = new OpenaiProvider({
-        model: 'test-model',
-        client: mockClient as unknown as OpenAI,
-      });
-
-      const result = await provider.rankByRelevance('concept', ['only item']);
-
-      expect(result).toEqual([0]);
-    });
-
-    it('should use correct temperature (0) for deterministic ranking', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ rankedIndices: [1, 0] }),
-      });
-
-      const provider = new OpenaiProvider({
-        model: 'test-model',
-        client: mockClient as unknown as OpenAI,
-      });
-
-      await provider.rankByRelevance('test', ['a', 'b']);
-
-      expect(mockClient.responses.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          temperature: 0,
         }),
       );
+      expect(result).toEqual([0, 2, 1]);
     });
   });
 
   describe('askYesNoQuestion', () => {
-    it('should return true for yes answers', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ answer: true }),
-      });
+    it('should return true and include the cacheable prefix, messages, and question', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(JSON.stringify({ answer: true })),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
@@ -200,38 +196,35 @@ describe('OpenaiProvider', () => {
       });
 
       const result = await provider.askYesNoQuestion({
-        systemPrompt: 'You are a node.',
-        messages: [{ content: 'Some working memory' }],
-        question: 'Is this a test?',
+        systemPrompt: 'You are node 42.',
+        messages: [{ content: 'Working memory snapshot' }],
+        question: 'Is this relevant?',
       });
 
-      expect(mockClient.responses.create).toHaveBeenCalledWith({
-        model: 'test-model',
-        temperature: 0,
-        input: [
-          { role: 'system', content: 'You are a node.' },
-          { role: 'user', content: 'Some working memory' },
-          { role: 'user', content: expect.stringContaining('Is this a test?') },
-        ],
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'yes_no_answer',
-            schema: expect.objectContaining({
-              properties: { answer: expect.any(Object) },
-              required: ['answer'],
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          temperature: 0,
+          messages: [
+            { role: 'system', content: 'You are node 42.' },
+            { role: 'user', content: 'Working memory snapshot' },
+            expect.objectContaining({
+              role: 'user',
+              content: expect.stringContaining('Is this relevant?'),
             }),
+          ],
+          response_format: {
+            type: 'json_schema',
+            json_schema: expect.objectContaining({ name: 'yes_no_answer' }),
           },
-        },
-      });
-
+        }),
+      );
       expect(result).toBe(true);
     });
 
     it('should return false for no answers', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ answer: false }),
-      });
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(JSON.stringify({ answer: false })),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
@@ -239,7 +232,7 @@ describe('OpenaiProvider', () => {
       });
 
       const result = await provider.askYesNoQuestion({
-        systemPrompt: 'You are a node.',
+        systemPrompt: 'sys',
         messages: [],
         question: 'Is this a test?',
       });
@@ -248,9 +241,9 @@ describe('OpenaiProvider', () => {
     });
 
     it('throws a descriptive error when the model returns no output', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: undefined,
-      });
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(null),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
@@ -259,7 +252,7 @@ describe('OpenaiProvider', () => {
 
       await expect(
         provider.askYesNoQuestion({
-          systemPrompt: 'You are a node.',
+          systemPrompt: 'sys',
           messages: [],
           question: 'Is this a test?',
         }),
@@ -267,9 +260,9 @@ describe('OpenaiProvider', () => {
     });
 
     it('throws a descriptive error when the output is not valid JSON', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: 'not json at all',
-      });
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('not json at all'),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
@@ -278,338 +271,184 @@ describe('OpenaiProvider', () => {
 
       await expect(
         provider.askYesNoQuestion({
-          systemPrompt: 'You are a node.',
+          systemPrompt: 'sys',
           messages: [],
           question: 'Is this a test?',
         }),
       ).rejects.toThrow('failed to parse structured output');
     });
+  });
 
-    describe('generateWithTools', () => {
-      it('should call responses.create with tools and return tool calls when present', async () => {
-        const props = {
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'What is the weather?' }],
-          tools: [
-            {
-              name: 'get_weather',
-              description: 'Get current weather',
-              parameters: {
-                type: 'object',
-                properties: { location: { type: 'string' } },
-              },
-            },
-          ],
-        };
+  describe('splitString', () => {
+    it('should split content into two parts', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(JSON.stringify({ left: 'A', right: 'B' })),
+      );
 
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: null,
-          output: [
-            {
-              type: 'function_call',
-              call_id: 'call_123',
-              name: 'get_weather',
-              // The Responses API returns arguments as a JSON string.
-              arguments: '{"location":"San Francisco"}',
-            },
-          ],
-        });
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
 
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
+      const result = await provider.splitString('test content');
 
-        const result = await provider.generateWithTools(props);
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          temperature: 0,
+          response_format: {
+            type: 'json_schema',
+            json_schema: expect.objectContaining({ name: 'split_output' }),
+          },
+        }),
+      );
+      expect(result).toEqual(['A', 'B']);
+    });
+  });
 
-        // The schema lacks additionalProperties:false and required, so strict
-        // mode must be disabled to avoid the API rejecting the tool.
-        expect(mockClient.responses.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            tools: [
-              {
-                type: 'function',
-                name: 'get_weather',
-                description: 'Get current weather',
-                parameters: expect.any(Object),
-                strict: false,
-              },
-            ],
-          }),
-        );
-
-        expect(result.content).toBe('');
-        expect(result.toolCalls).toEqual([
+  describe('generateWithTools', () => {
+    it('should map tools (strict when eligible) and return function tool calls', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(null, [
           {
             id: 'call_123',
             type: 'function',
             function: {
-              // Passed through unchanged; not re-stringified.
               name: 'get_weather',
               arguments: '{"location":"San Francisco"}',
             },
           },
-        ]);
+        ]),
+      );
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
       });
 
-      it('should enable strict mode for a fully compliant tool schema', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: '',
-          output: [],
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'What is the weather?' }],
-          tools: [
-            {
-              name: 'get_weather',
-              description: 'Get current weather',
-              parameters: {
-                type: 'object',
-                additionalProperties: false,
-                properties: { location: { type: 'string' } },
-                required: ['location'],
-              },
+      const result = await provider.generateWithTools({
+        systemPrompt: 'You are a helpful assistant.',
+        messages: [{ content: 'What is the weather?' }],
+        tools: [
+          {
+            name: 'get_weather',
+            description: 'Get current weather',
+            // Strict-eligible: additionalProperties:false + all props required.
+            parameters: {
+              type: 'object',
+              properties: { location: { type: 'string' } },
+              required: ['location'],
+              additionalProperties: false,
             },
-          ],
-        });
-
-        expect(mockClient.responses.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            tools: [expect.objectContaining({ strict: true })],
-          }),
-        );
+          },
+        ],
       });
 
-      it('should handle empty tools array', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: 'Response without tools',
-          output: [],
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        const result = await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'Hello!' }],
-          tools: [],
-        });
-
-        // Empty array should be passed to API (tools is now required in interface)
-        expect(mockClient.responses.create).toHaveBeenCalledWith(
-          expect.objectContaining({ tools: [] }),
-        );
-        expect(result.content).toBe('Response without tools');
-      });
-
-      it('should handle tool without description or parameters', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: 'Response with minimal tool',
-          output: [],
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'Hello!' }],
-          tools: [
-            {
-              name: 'minimal_tool',
-              parameters: {
-                type: 'object',
-                properties: {},
-              },
-            },
-          ],
-        });
-
-        // Verify the tool was mapped with null description
-        expect(mockClient.responses.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            tools: [
-              expect.objectContaining({
-                name: 'minimal_tool',
-                description: null,
-              }),
-            ],
-          }),
-        );
-      });
-
-      it('should handle multiple tool calls in response', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: null,
-          output: [
-            {
-              type: 'function_call',
-              call_id: 'call_1',
-              name: 'tool_a',
-              arguments: '{"param":"value_a"}',
-            },
-            {
-              type: 'function_call',
-              call_id: 'call_2',
-              name: 'tool_b',
-              arguments: '{"param":"value_b"}',
-            },
-          ],
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        const result = await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'Use multiple tools' }],
-          tools: [],
-        });
-
-        expect(result.toolCalls).toHaveLength(2);
-        expect(result.toolCalls?.[0]).toEqual(
-          expect.objectContaining({
-            id: 'call_1',
-            function: expect.objectContaining({ name: 'tool_a' }),
-          }),
-        );
-        expect(result.toolCalls?.[1]).toEqual(
-          expect.objectContaining({
-            id: 'call_2',
-            function: expect.objectContaining({ name: 'tool_b' }),
-          }),
-        );
-      });
-
-      it('should handle messages with originatingNodeId as tool role', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: 'Response after tool call',
-          output: [],
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool_choice: 'required',
           messages: [
-            { content: 'What is the weather?' },
+            expect.objectContaining({ role: 'system' }),
+            expect.objectContaining({ role: 'user' }),
+          ],
+          tools: [
             {
-              originatingNodeId: 'node-123',
-              content: 'The weather is sunny',
+              type: 'function',
+              function: {
+                name: 'get_weather',
+                description: 'Get current weather',
+                parameters: expect.any(Object),
+                strict: true,
+              },
             },
           ],
-          tools: [],
-        });
-
-        expect(mockClient.responses.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            input: expect.arrayContaining([
-              expect.objectContaining({ role: 'system' }),
-              expect.objectContaining({ role: 'user' }),
-            ]),
-          }),
-        );
-      });
-
-      it('should handle non-array response output', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: 'Response with non-array output',
-          output: null,
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        const result = await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'Hello!' }],
-          tools: [],
-        });
-
-        expect(result.content).toBe('Response with non-array output');
-        expect(result.toolCalls).toBeUndefined();
-      });
-
-      it('should handle array response without tool calls', async () => {
-        vi.mocked(mockClient.responses.create).mockResolvedValue({
-          output_text: 'Response with empty tools',
-          output: [{}], // Array but no tool call items
-        });
-
-        const provider = new OpenaiProvider({
-          model: 'test-model',
-          client: mockClient as unknown as OpenAI,
-        });
-
-        const result = await provider.generateWithTools({
-          systemPrompt: 'You are a helpful assistant.',
-          messages: [{ content: 'Hello!' }],
-          tools: [],
-        });
-
-        expect(result.content).toBe('Response with empty tools');
-        expect(result.toolCalls).toBeUndefined();
-      });
+        }),
+      );
+      expect(result.content).toBe('');
+      expect(result.toolCalls).toEqual([
+        {
+          id: 'call_123',
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            arguments: '{"location":"San Francisco"}',
+          },
+        },
+      ]);
     });
 
-    it('should use correct temperature (0) for deterministic yes/no answers', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ answer: true }),
-      });
+    it('should omit description and disable strict for a non-compliant tool, and return no tool calls', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('Response without tools'),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
         client: mockClient as unknown as OpenAI,
       });
 
-      await provider.askYesNoQuestion({
-        systemPrompt: 'You are a node.',
-        messages: [],
-        question: 'Test question',
+      const result = await provider.generateWithTools({
+        systemPrompt: 'You are a helpful assistant.',
+        messages: [{ content: 'Hello!' }],
+        tools: [
+          {
+            name: 'minimal_tool',
+            parameters: { type: 'object', properties: {} },
+          },
+        ],
       });
 
-      expect(mockClient.responses.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          temperature: 0,
-        }),
-      );
+      const sentTool =
+        mockClient.chat.completions.create.mock.calls[0]![0].tools[0];
+      expect(sentTool.function.name).toBe('minimal_tool');
+      expect(sentTool.function).not.toHaveProperty('description');
+      expect(sentTool.function.strict).toBe(false);
+      expect(result.content).toBe('Response without tools');
+      expect(result.toolCalls).toBeUndefined();
     });
 
-    it('should use correct temperature (0) for deterministic string splitting', async () => {
-      vi.mocked(mockClient.responses.create).mockResolvedValue({
-        output_text: JSON.stringify({ left: 'A', right: 'B' }),
-      });
+    it('should return undefined tool calls when there are no choices', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        noChoices(),
+      );
 
       const provider = new OpenaiProvider({
         model: 'test-model',
         client: mockClient as unknown as OpenAI,
       });
 
-      await provider.splitString('test');
+      const result = await provider.generateWithTools({
+        systemPrompt: 'You are a helpful assistant.',
+        messages: [{ content: 'Hello!' }],
+        tools: [],
+      });
 
-      expect(mockClient.responses.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          temperature: 0,
-        }),
+      expect(result.content).toBe('');
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('should ignore non-function (custom) tool calls', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('', [
+          {
+            id: 'call_custom',
+            type: 'custom',
+            custom: { name: 'do_thing', input: 'payload' },
+          },
+        ]),
       );
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      const result = await provider.generateWithTools({
+        systemPrompt: 'You are a helpful assistant.',
+        messages: [{ content: 'Hello!' }],
+        tools: [],
+      });
+
+      expect(result.toolCalls).toBeUndefined();
     });
   });
 });

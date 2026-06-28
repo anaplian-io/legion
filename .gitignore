@@ -143,3 +143,6 @@ vite.config.ts.timestamp-*
 
 # User settings (created from settings.example.ts)
 settings.ts
+
+# Node Data
+/data

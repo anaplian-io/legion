@@ -43,6 +43,7 @@ interface EpochCandidates {
 
 export class EpochOrchestrator {
   private _currentBroadcast: Message;
+  private _pendingInjection: string | undefined = undefined;
   private readonly _registry: NodeRegistry;
   private readonly _workingMemory: WorkingMemoryBuffer;
 
@@ -84,7 +85,28 @@ export class EpochOrchestrator {
     return this._currentBroadcast;
   }
 
+  /**
+   * Inject an external message into the global workspace. It becomes the
+   * spotlight broadcast for the next epoch. Queued via `_pendingInjection` so
+   * it survives an in-flight epoch's end-of-epoch distillation overwrite.
+   */
+  public readonly injectBroadcast = (content: string): void => {
+    this._pendingInjection = content;
+    this._currentBroadcast = { content };
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/working-memory-updated',
+      data: {
+        workingMemory: this.workingMemory,
+        broadcast: this.currentBroadcast,
+      },
+    });
+  };
+
   public readonly runEpoch = async (): Promise<void> => {
+    if (this._pendingInjection !== undefined) {
+      this._currentBroadcast = { content: this._pendingInjection };
+      this._pendingInjection = undefined;
+    }
     // Afferent wave: tools and sensors perceive first. Their output is context
     // for the cognitive wave, never a broadcast candidate, so it bypasses the
     // relevance filter entirely (no upstream bottleneck on perception).
