@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteMemoryNodeFactory } from './concrete-memory-node-factory.js';
 import type { Provider } from '../types/provider.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import type { CuriosityGate } from '../types/curiosity-gate.js';
 
 describe('ConcreteMemoryNodeFactory', () => {
   let mockProvider: Provider;
   let eventStream: ConcreteEventStream;
+  let mockCuriosityGate: CuriosityGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -16,11 +18,15 @@ describe('ConcreteMemoryNodeFactory', () => {
       generateWithTools: vi.fn(),
     };
     eventStream = new ConcreteEventStream();
+    mockCuriosityGate = {
+      isCurious: vi.fn().mockResolvedValue(false),
+    };
   });
 
   it('should create a factory with the given provider', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
+      curiosityGate: mockCuriosityGate,
     });
 
     expect(typeof factory.create).toBe('function');
@@ -29,6 +35,7 @@ describe('ConcreteMemoryNodeFactory', () => {
   it('should create a memory node with the given context', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
+      curiosityGate: mockCuriosityGate,
     });
 
     const node = factory.create({
@@ -45,6 +52,7 @@ describe('ConcreteMemoryNodeFactory', () => {
   it('should use the provided provider for created nodes', async () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
+      curiosityGate: mockCuriosityGate,
     });
 
     vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
@@ -66,6 +74,7 @@ describe('ConcreteMemoryNodeFactory', () => {
   it('should generate unique IDs for each created node', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
+      curiosityGate: mockCuriosityGate,
     });
 
     const node1 = factory.create({

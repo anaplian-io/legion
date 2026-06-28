@@ -21,6 +21,7 @@ import { LoadedSession, SessionLoader } from '../utilities/session-loader.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
+import { GeometricScheduleCuriosityGate } from '../service/geometric-schedule-curiosity-gate.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -130,12 +131,16 @@ export const init = async (options?: InitOptions) => {
   }
 
   // Try to load a session if saveLocation is configured
+  const curiosityGate = new GeometricScheduleCuriosityGate();
   let loadedSession: LoadedSession | undefined;
   try {
     console.info(
       `[Init] Attempting to load session from ${settings.saveLocation}`,
     );
-    const memoryNodeFactory = new ConcreteMemoryNodeFactory({ provider });
+    const memoryNodeFactory = new ConcreteMemoryNodeFactory({
+      provider,
+      curiosityGate,
+    });
     loadedSession = SessionLoader.load({
       directory: settings.saveLocation,
       eventStream,
@@ -179,7 +184,12 @@ export const init = async (options?: InitOptions) => {
 
   // Create ToolNode factories for each MCP client
   const toolNodeFactories = mcpClients.map(
-    (client) => new ConcreteToolNodeFactory({ provider, mcpClient: client }),
+    (client) =>
+      new ConcreteToolNodeFactory({
+        provider,
+        curiosityGate,
+        mcpClient: client,
+      }),
   );
 
   // Create sensory node with Wikipedia sensor
@@ -202,7 +212,10 @@ export const init = async (options?: InitOptions) => {
 
   const distiller = new LlmDistiller({ provider });
 
-  const memoryNodeFactory = new ConcreteMemoryNodeFactory({ provider });
+  const memoryNodeFactory = new ConcreteMemoryNodeFactory({
+    provider,
+    curiosityGate: new GeometricScheduleCuriosityGate(),
+  });
 
   const nodeSplitter = new MemoryNodeSplitter({
     splittingProvider: provider,

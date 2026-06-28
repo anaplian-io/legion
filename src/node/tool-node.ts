@@ -8,12 +8,14 @@ import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
 import { ToolDefinition } from '../types/tool.js';
 import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
+import { CuriosityGate } from '../types/curiosity-gate.js';
 
 export interface ToolNodeProps {
   readonly id: string;
   readonly provider: Provider;
   readonly eventStream: EventStream;
   readonly mcpClient: MCPClient;
+  readonly curiosityGate: CuriosityGate;
 }
 
 export class ToolNode implements Node<'tool'> {
@@ -63,7 +65,10 @@ export class ToolNode implements Node<'tool'> {
       messages,
       question: `Given your tools above and the broadcast below, will one or more of them help resolve it? Answer yes only if a tool call would make concrete progress.`,
     });
-    if (!relevant) {
+    const curious = await this.props.curiosityGate.isCurious({
+      broadcastMessage,
+    });
+    if (!relevant && !curious) {
       this.setStatus('idle');
       return undefined;
     }
