@@ -111,9 +111,12 @@ export class EpochOrchestrator {
     // for the cognitive wave, never a broadcast candidate, so it bypasses the
     // relevance filter entirely (no upstream bottleneck on perception).
     const afferent = await this.pollNodes(this._registry.afferentNodes());
-    const afferentContext = afferent.candidates.map((c) => ({
-      content: c.content,
-    }));
+    const afferentContext = [
+      ...this.afferentCapabilityContext(),
+      ...afferent.candidates.map((c) => ({
+        content: c.content,
+      })),
+    ];
 
     // Cognitive wave: memory nodes reason with the afferent context in hand.
     const cognitive = await this.pollNodes(
@@ -172,6 +175,23 @@ export class EpochOrchestrator {
         )
         .filter(isDefined),
     };
+  };
+
+  private readonly afferentCapabilityContext = (): readonly Message[] => {
+    const capabilities = this._registry
+      .afferentNodes()
+      .filter((node) => node.capabilityDescription !== undefined)
+      .map((node) => `- ${node.id}: ${node.capabilityDescription}`);
+
+    if (capabilities.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        content: `Available afferent capabilities:\n${capabilities.join('\n')}`,
+      },
+    ];
   };
 
   private readonly recordEpochStats = (

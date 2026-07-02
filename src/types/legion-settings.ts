@@ -1,5 +1,6 @@
 export interface McpServerStdIo {
   readonly command: string;
+  readonly capabilityDescription?: string;
   readonly allowedTools?: string[];
   readonly args?: string[];
   readonly env?: Record<string, string>;
@@ -20,6 +21,8 @@ export interface LegionSettings {
   readonly attentionGateN?: number | 'all';
   readonly maxWorkingMemoryMessages?: number;
   readonly contextLengthThreshold?: number;
+  /** Fixed per-epoch curiosity probability used by tool nodes. */
+  readonly toolCuriosityProbability?: number;
   /** Epochs a node must survive before it becomes eligible for pruning. */
   readonly pruneMinEpochsAlive?: number;
   /** Minimum epochs an eligible node must have spoken in to be retained. */

@@ -214,6 +214,83 @@ describe('MemoryNode', () => {
     ]);
   });
 
+  it('should frame afferent capabilities as available system capabilities', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: {
+        messages: [
+          {
+            content:
+              'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
+          },
+          {
+            content:
+              'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+          },
+        ],
+      },
+      afferentContext: [
+        {
+          content:
+            'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
+        },
+      ],
+      broadcast: {
+        content:
+          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+      },
+    };
+
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
+    vi.mocked(mockProvider.generate).mockResolvedValue(
+      'Search the web for Brooklyn NY weather next few days and nearby events.',
+    );
+
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      curiosityGate: mockCuriosityGate,
+    });
+
+    await node.sendMessage(broadcastMessage);
+
+    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
+    expect(askCall?.systemPrompt).toContain('available afferent capabilities');
+    expect(askCall?.systemPrompt).toContain('concrete next actions');
+    expect(askCall?.systemPrompt).toContain(
+      'Leave exact tool selection and execution details to afferent nodes',
+    );
+    expect(askCall?.messages).toEqual([
+      {
+        content:
+          'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
+      },
+      {
+        content:
+          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+      },
+      {
+        content:
+          'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
+      },
+      {
+        content:
+          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+      },
+    ]);
+
+    expect(mockProvider.generate).toHaveBeenCalledWith({
+      systemPrompt: expect.stringContaining('available afferent capabilities'),
+      messages: expect.arrayContaining([
+        {
+          content:
+            'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
+        },
+      ]),
+    });
+  });
+
   it('should handle empty working memory', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },

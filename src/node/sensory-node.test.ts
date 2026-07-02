@@ -25,6 +25,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -33,6 +34,7 @@ describe('SensoryNode', () => {
 
     expect(node.id).toBe('sensory-1');
     expect(node.kind).toBe('sensory');
+    expect(node.capabilityDescription).toBe('can sense test signals.');
     expect(node.context).toBe('');
     expect(node.status).toBe('idle');
   });
@@ -43,6 +45,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -69,6 +72,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -105,6 +109,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -128,6 +133,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'test-id',
       provider: mockProvider,
       eventStream,
@@ -153,6 +159,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -177,6 +184,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -197,6 +205,7 @@ describe('SensoryNode', () => {
     };
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream,
@@ -225,6 +234,7 @@ describe('SensoryNode', () => {
     } as unknown as ConcreteEventStream;
 
     const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
       id: 'sensory-1',
       provider: mockProvider,
       eventStream: throwingEventStream,
