@@ -35,6 +35,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should create a factory with the given props', () => {
     const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
@@ -46,6 +47,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should create a tool node with provided id', async () => {
     const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
@@ -59,10 +61,12 @@ describe('ConcreteToolNodeFactory', () => {
 
     expect(node.id).toBe('test-node');
     expect(node.kind).toBe('tool');
+    expect(node.capabilityDescription).toBe('can use factory test tools.');
   });
 
   it('should generate a random id if none provided', async () => {
     const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
@@ -79,6 +83,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should use the same provider instance', async () => {
     const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
@@ -95,6 +100,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should create nodes with the shared stateless curiosity gate', async () => {
     const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,

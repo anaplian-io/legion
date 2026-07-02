@@ -13,17 +13,20 @@ export interface ConcreteToolNodeFactoryProps {
   readonly provider: Provider;
   readonly mcpClient: Client;
   readonly curiosityGate: CuriosityGate;
+  readonly capabilityDescription: string;
 }
 
 export class ConcreteToolNodeFactory implements ToolNodeFactory {
   private readonly _provider: Provider;
   private readonly _mcpClient: MCPClient;
   private readonly _curiosityGate: CuriosityGate;
+  private readonly _capabilityDescription: string;
 
   constructor(props: ConcreteToolNodeFactoryProps) {
     this._provider = props.provider;
     this._mcpClient = new MCPClient({ client: props.mcpClient });
     this._curiosityGate = props.curiosityGate;
+    this._capabilityDescription = props.capabilityDescription;
   }
 
   public readonly create = (props: CreateToolNodeProps): Node<'tool'> => {
@@ -34,6 +37,7 @@ export class ConcreteToolNodeFactory implements ToolNodeFactory {
       eventStream: props.eventStream,
       mcpClient: this._mcpClient,
       curiosityGate: this._curiosityGate,
+      capabilityDescription: this._capabilityDescription,
     });
   };
 }

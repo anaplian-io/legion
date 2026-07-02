@@ -22,6 +22,7 @@ import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
 import { GeometricScheduleCuriosityGate } from '../service/geometric-schedule-curiosity-gate.js';
+import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curiosity-gate.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -90,6 +91,9 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
 };
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
+const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.15;
+const WIKIPEDIA_SENSOR_CAPABILITY =
+  'can surface random Wikipedia article knowledge as external background context.';
 
 export interface InitOptions {
   /**
@@ -132,6 +136,10 @@ export const init = async (options?: InitOptions) => {
 
   // Try to load a session if saveLocation is configured
   const curiosityGate = new GeometricScheduleCuriosityGate();
+  const toolCuriosityGate = new FixedProbabilityCuriosityGate({
+    probability:
+      settings.toolCuriosityProbability ?? DEFAULT_TOOL_CURIOSITY_PROBABILITY,
+  });
   let loadedSession: LoadedSession | undefined;
   try {
     console.info(
@@ -157,7 +165,11 @@ export const init = async (options?: InitOptions) => {
     );
   }
 
-  const mcpClients: Client[] = settings.mcpServers
+  const mcpClients: Array<{
+    readonly name: string;
+    readonly client: Client;
+    readonly capabilityDescription: string;
+  }> = settings.mcpServers
     ? (
         await Promise.all(
           Object.entries(settings.mcpServers).map(
@@ -175,7 +187,13 @@ export const init = async (options?: InitOptions) => {
                 console.warn(`[Init] Failed to load MCP client ${name}: ${e}`);
                 return undefined;
               }
-              return client;
+              return {
+                name,
+                client,
+                capabilityDescription:
+                  definition.capabilityDescription ??
+                  `can use the ${name} MCP server for external actions or information retrieval.`,
+              };
             },
           ),
         )
@@ -184,11 +202,12 @@ export const init = async (options?: InitOptions) => {
 
   // Create ToolNode factories for each MCP client
   const toolNodeFactories = mcpClients.map(
-    (client) =>
+    ({ client, capabilityDescription }) =>
       new ConcreteToolNodeFactory({
         provider,
-        curiosityGate,
+        curiosityGate: toolCuriosityGate,
         mcpClient: client,
+        capabilityDescription,
       }),
   );
 
@@ -199,6 +218,7 @@ export const init = async (options?: InitOptions) => {
     provider,
     eventStream,
     sensor: wikipediaSensor,
+    capabilityDescription: WIKIPEDIA_SENSOR_CAPABILITY,
   });
 
   // Create supporting services for EpochOrchestrator
@@ -283,7 +303,7 @@ export const init = async (options?: InitOptions) => {
 
   return {
     orchestrator,
-    mcpClients,
+    mcpClients: mcpClients.map(({ client }) => client),
     eventStream,
   };
 };

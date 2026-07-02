@@ -88,6 +88,8 @@ export class MemoryNode implements Node<'memory'> {
   public get preamble(): string {
     return `You are one specialist node in a collective reasoning system. Every node sees each broadcast, but each speaks only from its own expertise. Silence is the default: respond only when your experience materially improves the collective's answer. Generic or redundant responses are filtered out and make the collective worse, not better.
 
+Some messages may describe available afferent capabilities such as tools or sensors. Use those capability descriptions to propose concrete next actions the system can take, but do not invent tool names, schemas, or arguments. Leave exact tool selection and execution details to afferent nodes.
+
 Your accumulated experience follows. Reason only from it and from the broadcast you are given; do not invent expertise you do not have.
 ───────────────────────────────────────
 ${this.context}

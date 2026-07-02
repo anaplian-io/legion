@@ -906,6 +906,7 @@ describe('EpochOrchestrator', () => {
       kind: 'tool' as const,
       status: 'idle',
       context: 'Tool context',
+      capabilityDescription: 'can search the web for current information.',
       sendMessage: vi.fn().mockResolvedValue({
         originatingNodeId: 'tool-node',
         content: 'Tool response',
@@ -928,7 +929,13 @@ describe('EpochOrchestrator', () => {
     // The memory node receives the tool output as afferentContext.
     expect(memorySend).toHaveBeenCalledWith(
       expect.objectContaining({
-        afferentContext: [{ content: 'Tool response' }],
+        afferentContext: [
+          {
+            content:
+              'Available afferent capabilities:\n- tool-node: can search the web for current information.',
+          },
+          { content: 'Tool response' },
+        ],
       }),
     );
     // Only the memory output reaches the relevance filter; the tool output is
@@ -938,6 +945,60 @@ describe('EpochOrchestrator', () => {
     ]);
     // A memory node responded, so no spawn is needed.
     expect(mockMemoryNodeFactory.create).not.toHaveBeenCalled();
+  });
+
+  it('should feed afferent capabilities to memory nodes even when afferent nodes are silent', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    const toolNode: Node<'tool'> = {
+      id: 'ddg-search',
+      kind: 'tool' as const,
+      status: 'idle',
+      context: '',
+      capabilityDescription:
+        'can search the web for current/local information, forecasts, events, and linked sources.',
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const memorySend = vi.fn().mockResolvedValue({
+      originatingNodeId: 'mem',
+      content:
+        'Search the web for Brooklyn NY weather next few days and nearby events.',
+    });
+    orchestrator.addNode(toolNode);
+    orchestrator.addNode(createMockNode('mem', memorySend));
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      {
+        content:
+          'Search the web for Brooklyn NY weather next few days and nearby events.',
+        originatingNodeId: 'mem',
+      },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('search request');
+
+    await orchestrator.runEpoch();
+
+    expect(memorySend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        afferentContext: [
+          {
+            content:
+              'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
+          },
+        ],
+      }),
+    );
   });
 
   it('should spawn a new node when no memory node responds, even if afferent nodes did', async () => {

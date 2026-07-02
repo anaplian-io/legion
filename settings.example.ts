@@ -12,6 +12,8 @@ export default {
   baseUrl: 'http://127.0.0.1:1234/v1',
   apiKey: 'lm-studio',
   maxParallelism: 4,
+  // Tool nodes use fixed-probability curiosity so exploration does not decay.
+  toolCuriosityProbability: 0.15,
   // Node pruning (all optional; defaults shown).
   pruneMinEpochsAlive: 5,
   pruneMinBroadcasts: 1,
@@ -21,6 +23,8 @@ export default {
     'ddg-search': {
       command: 'uvx',
       args: ['duckduckgo-mcp-server'],
+      capabilityDescription:
+        'can search the web for current/local information, forecasts, events, and linked sources. can also fetch web pages.',
     },
   },
 } satisfies LegionSettings;

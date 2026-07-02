@@ -23,7 +23,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "eslint . --fix && prettier --write .",
     "prepare": "husky",
-    "release": "npm ci && npm run lint && npm run build && npm run test"
+    "release": "npm ci && npm run lint && npm run build && npm run test",
+    "start": "npm run tui"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.0",

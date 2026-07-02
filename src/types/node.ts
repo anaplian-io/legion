@@ -23,6 +23,7 @@ export interface Node<T extends string> {
   readonly status: NodeStatus;
   readonly kind: T;
   readonly context: string;
+  readonly capabilityDescription?: string;
   readonly sendMessage: (
     broadcastMessage: BroadcastMessage,
   ) => Promise<NodeResponse>;

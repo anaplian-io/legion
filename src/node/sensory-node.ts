@@ -13,14 +13,17 @@ export interface SensoryNodeProps {
   readonly provider: Provider;
   readonly eventStream: EventStream;
   readonly sensor: Sensor;
+  readonly capabilityDescription: string;
 }
 export class SensoryNode implements Node<'sensory'> {
   public readonly kind = 'sensory' as const;
   public readonly id: string;
+  public readonly capabilityDescription: string;
   private _nodeStatus: NodeStatus = 'idle';
 
   constructor(private readonly props: SensoryNodeProps) {
     this.id = props.id;
+    this.capabilityDescription = props.capabilityDescription;
   }
 
   public get context(): string {

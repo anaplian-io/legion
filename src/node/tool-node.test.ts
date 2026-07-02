@@ -55,6 +55,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -67,6 +68,7 @@ describe('ToolNode', () => {
 
     expect(node.id).toBe('test-node');
     expect(node.kind).toBe('tool');
+    expect(node.capabilityDescription).toBe('can use test tools.');
     expect(typeof node.sendMessage).toBe('function');
   });
 
@@ -75,6 +77,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -93,6 +96,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -121,6 +125,7 @@ describe('ToolNode', () => {
     });
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -143,6 +148,7 @@ describe('ToolNode', () => {
     vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -165,6 +171,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -192,6 +199,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -227,6 +235,7 @@ describe('ToolNode', () => {
     });
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -298,6 +307,7 @@ describe('ToolNode', () => {
     });
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -332,6 +342,7 @@ describe('ToolNode', () => {
     vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -357,11 +368,164 @@ describe('ToolNode', () => {
     ]);
   });
 
+  it('should ask relevance to consider the full message list', async () => {
+    const tools: ToolDefinition[] = [
+      {
+        name: 'search',
+        description: 'Search the web for current information',
+        parameters: {},
+      },
+    ];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+
+    const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
+      id: 'search-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+      curiosityGate: mockCuriosityGate,
+    });
+
+    await node.initialize();
+    await node.sendMessage({
+      workingMemory: {
+        messages: [
+          {
+            content:
+              'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
+          },
+          {
+            content:
+              'Need user input/action on weather links for Brooklyn, NY.',
+          },
+          {
+            content:
+              'Need specific dates for weather/clothing advice; no event info found yet.',
+          },
+        ],
+      },
+      broadcast: {
+        content:
+          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+      },
+    });
+
+    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
+    expect(askCall?.question).toContain('full message list');
+    expect(askCall?.question).toContain('working memory');
+    expect(askCall?.question).toContain('current broadcast');
+    expect(askCall?.question).toContain('concrete progress');
+    expect(askCall?.messages).toEqual([
+      {
+        content:
+          'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
+      },
+      {
+        content: 'Need user input/action on weather links for Brooklyn, NY.',
+      },
+      {
+        content:
+          'Need specific dates for weather/clothing advice; no event info found yet.',
+      },
+      {
+        content:
+          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+      },
+    ]);
+  });
+
+  it('should keep exact tool execution decisions inside the tool node', async () => {
+    const tools: ToolDefinition[] = [
+      {
+        name: 'search',
+        description: 'Search the web for current information',
+        parameters: {},
+      },
+    ];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+
+    const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
+      id: 'search-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+      curiosityGate: mockCuriosityGate,
+    });
+
+    await node.initialize();
+    await node.sendMessage({
+      workingMemory: {
+        messages: [
+          {
+            content:
+              'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
+          },
+          {
+            content:
+              'Need specific dates for weather/clothing advice; no event info found yet.',
+          },
+        ],
+      },
+      broadcast: {
+        content:
+          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
+      },
+    });
+
+    const generateCall = vi.mocked(mockProvider.generateWithTools).mock
+      .calls[0]?.[0];
+    expect(generateCall?.systemPrompt).toContain('tool invocation node');
+    expect(generateCall?.systemPrompt).toContain('available tools');
+    expect(generateCall?.systemPrompt).toContain('You MUST make a tool call');
+  });
+
+  it('should skip relevance when curiosity already selects the tool node', async () => {
+    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(true);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+
+    const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
+      id: 'search-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+      curiosityGate: mockCuriosityGate,
+    });
+
+    await node.initialize();
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Search for a current forecast.' },
+    });
+
+    expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();
+    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(1);
+  });
+
   it('should set status to evaluating-relevance during sendMessage', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -392,6 +556,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -422,6 +587,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -464,6 +630,7 @@ describe('ToolNode', () => {
     });
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -515,6 +682,7 @@ describe('ToolNode', () => {
     );
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -577,6 +745,7 @@ describe('ToolNode', () => {
       });
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -622,6 +791,7 @@ describe('ToolNode', () => {
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -659,6 +829,7 @@ describe('ToolNode', () => {
     };
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: throwingEventStream,
@@ -691,6 +862,7 @@ describe('ToolNode', () => {
     });
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,
@@ -717,6 +889,7 @@ describe('ToolNode', () => {
     vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
 
     const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
       id: 'test-node',
       provider: mockProvider,
       eventStream: mockEventStream,

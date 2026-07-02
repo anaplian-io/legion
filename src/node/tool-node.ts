@@ -16,17 +16,20 @@ export interface ToolNodeProps {
   readonly eventStream: EventStream;
   readonly mcpClient: MCPClient;
   readonly curiosityGate: CuriosityGate;
+  readonly capabilityDescription: string;
 }
 
 export class ToolNode implements Node<'tool'> {
   public readonly kind = 'tool' as const;
   public readonly id: string;
+  public readonly capabilityDescription: string;
   private _nodeStatus: NodeStatus = 'idle';
   private readonly mcpClient: MCPClient;
   private tools: ToolDefinition[] = [];
 
   constructor(private readonly props: ToolNodeProps) {
     this.id = props.id;
+    this.capabilityDescription = props.capabilityDescription;
     this.mcpClient = props.mcpClient;
   }
 
@@ -64,7 +67,7 @@ export class ToolNode implements Node<'tool'> {
       provider.askYesNoQuestion({
         systemPrompt: this.preamble,
         messages,
-        question: `Given your tools above and the broadcast below, will one or more of them help resolve it? Answer yes only if a tool call would make concrete progress.`,
+        question: `Given your tools above and the full message list below, will one or more tools make concrete progress on any unresolved need? Treat earlier messages as working memory and the final message as the current broadcast. Answer yes only if a tool call would make concrete progress.`,
       });
     const curious = () =>
       this.props.curiosityGate.isCurious({
