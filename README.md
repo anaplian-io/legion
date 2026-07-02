@@ -1,18 +1,18 @@
 # Legion
 
-> _"We are Geth. There are currently 1,183 programs active within this platform."_
+> _"Every point of view is useful, even those that are wrong - if we can judge why a wrong view was accepted."_
 >
 > — Legion, _Mass Effect 2_
 
 A group-intelligence agent. Legion is named for the Geth companion in _Mass
-Effect_ — a single mobile platform housing over a thousand individual programs
+Effect_ — a single mobile platform housing 1,183 programs
 that reach decisions by consensus. No one program is "Legion"; Legion is what
 emerges when they run together. _"I am Legion, for we are many."_
 
-This project takes that idea literally. Many small, specialized language-model
+This project was inspired by that idea. Many small, specialized language-model
 nodes each hold a sliver of context. They perceive, deliberate, and compete for
 a shared spotlight; the winning thought is broadcast back to all of them and
-consolidated into collective memory. Intelligence is the emergent behaviour of
+consolidated into collective memory. Intelligence is the emergent behavior of
 the swarm, not any single node.
 
 ## Global Workspace Theory
