@@ -92,4 +92,24 @@ describe('ConcreteToolNodeFactory', () => {
 
     expect(node.kind).toBe('tool');
   });
+
+  it('should create nodes with the shared stateless curiosity gate', async () => {
+    const factory = new ConcreteToolNodeFactory({
+      provider: mockProvider,
+      mcpClient:
+        mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      curiosityGate: mockCuriosityGate,
+    });
+    const firstNode = factory.create({
+      nodeId: 'tool-1',
+      eventStream: mockEventStream,
+    });
+    const secondNode = factory.create({
+      nodeId: 'tool-2',
+      eventStream: mockEventStream,
+    });
+
+    expect(firstNode.kind).toBe('tool');
+    expect(secondNode.kind).toBe('tool');
+  });
 });

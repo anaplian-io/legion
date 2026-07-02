@@ -7,41 +7,71 @@ const broadcastMessage = (content: string): BroadcastMessage => ({
   broadcast: { content },
 });
 
-const curiosityProps = (content: string) => ({
+const curiosityProps = (content: string, epochsAlive: number) => ({
   broadcastMessage: broadcastMessage(content),
+  nodeId: 'node-1',
+  epochsAlive,
 });
 
 describe('GeometricScheduleCuriosityGate', () => {
-  it('uses the initial curiosity for the first observed epoch', async () => {
-    const randomFn = vi.fn<() => number>().mockReturnValue(0.49);
+  it('starts at full curiosity for a new node', async () => {
+    const randomFn = vi.fn<() => number>().mockReturnValue(0.99);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
 
-    await expect(gate.isCurious(curiosityProps('first'))).resolves.toBe(true);
+    await expect(gate.isCurious(curiosityProps('first', 0))).resolves.toBe(
+      true,
+    );
     expect(randomFn).toHaveBeenCalledTimes(1);
-    expect(gate.lastEpochHash).toBeDefined();
   });
 
-  it('does not decay curiosity for repeated checks in the same epoch', async () => {
-    const randomFn = vi.fn<() => number>().mockReturnValue(0.49);
+  it('applies the default geometric decay by node age', async () => {
+    const randomFn = vi.fn<() => number>().mockReturnValue(0.7);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
-    const message = curiosityProps('same epoch');
 
-    await expect(gate.isCurious(message)).resolves.toBe(true);
-    await expect(gate.isCurious(message)).resolves.toBe(true);
+    await expect(gate.isCurious(curiosityProps('first', 1))).resolves.toBe(
+      true,
+    );
+    await expect(gate.isCurious(curiosityProps('second', 2))).resolves.toBe(
+      false,
+    );
   });
 
-  it('decays curiosity geometrically when the epoch changes', async () => {
-    const randomFn = vi.fn<() => number>().mockReturnValue(0.49);
+  it('is stateless for repeated checks with the same props', async () => {
+    const randomFn = vi
+      .fn<() => number>()
+      .mockReturnValueOnce(0.7)
+      .mockReturnValueOnce(0.7);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
+    const props = curiosityProps('same epoch', 1);
 
-    await expect(gate.isCurious(curiosityProps('first'))).resolves.toBe(true);
-    await expect(gate.isCurious(curiosityProps('second'))).resolves.toBe(false);
+    await expect(gate.isCurious(props)).resolves.toBe(true);
+    await expect(gate.isCurious(props)).resolves.toBe(true);
   });
 
-  it('returns false when the random value is above current curiosity', async () => {
-    const randomFn = vi.fn<() => number>().mockReturnValue(0.5);
+  it('allows custom schedule parameters', async () => {
+    const randomFn = vi.fn<() => number>().mockReturnValue(0.3);
+    const gate = new GeometricScheduleCuriosityGate(randomFn, {
+      initialCuriosity: 0.5,
+      decayFactor: 0.5,
+    });
+
+    await expect(gate.isCurious(curiosityProps('first', 0))).resolves.toBe(
+      true,
+    );
+    await expect(gate.isCurious(curiosityProps('second', 1))).resolves.toBe(
+      false,
+    );
+  });
+
+  it('uses node-specific age with a shared stateless gate instance', async () => {
+    const randomFn = vi.fn<() => number>().mockReturnValue(0.8);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
 
-    await expect(gate.isCurious(curiosityProps('first'))).resolves.toBe(false);
+    await expect(gate.isCurious(curiosityProps('first', 0))).resolves.toBe(
+      true,
+    );
+    await expect(gate.isCurious(curiosityProps('second', 1))).resolves.toBe(
+      false,
+    );
   });
 });

@@ -55,6 +55,8 @@ export class MemoryNode implements Node<'memory'> {
     const curious = () =>
       this.props.curiosityGate.isCurious({
         broadcastMessage,
+        nodeId: this.id,
+        epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
         nodeContext: this.context,
       });
     if (!(await curious()) && !(await relevant())) {

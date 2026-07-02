@@ -1,4 +1,5 @@
 import { Message } from './message.js';
+import { NodeStats } from './node-stats.js';
 import { WorkingMemory } from './working-memory.js';
 
 export type NodeResponse = Message | undefined;
@@ -6,6 +7,7 @@ export type NodeResponse = Message | undefined;
 export interface BroadcastMessage {
   readonly workingMemory: WorkingMemory;
   readonly broadcast: Message;
+  readonly recipientNodeStats?: NodeStats;
   /**
    * Outputs produced by afferent nodes (tools, sensors) earlier in the same
    * epoch, supplied to cognitive (memory) nodes as additional context. Afferent

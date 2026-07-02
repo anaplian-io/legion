@@ -214,7 +214,7 @@ export const init = async (options?: InitOptions) => {
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
     provider,
-    curiosityGate: new GeometricScheduleCuriosityGate(),
+    curiosityGate,
   });
 
   const nodeSplitter = new MemoryNodeSplitter({

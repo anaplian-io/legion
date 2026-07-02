@@ -141,6 +141,7 @@ export class EpochOrchestrator {
     nodes: Node<string>[],
     afferentContext?: readonly Message[],
   ): Promise<EpochCandidates> => {
+    const nodeStats = this._registry.stats();
     const responses = await Promise.all(
       nodes.map(async (node) => {
         try {
@@ -149,6 +150,7 @@ export class EpochOrchestrator {
             response: await node.sendMessage({
               workingMemory: this.workingMemory,
               broadcast: this._currentBroadcast,
+              recipientNodeStats: nodeStats.get(node.id)!,
               afferentContext,
             }),
           };
