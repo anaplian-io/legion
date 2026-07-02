@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { EventStream } from '../types/event-stream.js';
 import type { NodeStatus } from '../types/node.js';
@@ -27,7 +27,8 @@ interface LogLine {
 }
 
 /** The Global Workspace Theory epoch cycle, as the user sees it unfold. */
-type Phase = 'idle' | 'broadcast' | 'compete' | 'attention' | 'consolidate';
+type Phase =
+  'idle' | 'broadcast' | 'afferent' | 'cognitive' | 'attention' | 'consolidate';
 
 const PHASE_STEPS: ReadonlyArray<{
   readonly phase: Exclude<Phase, 'idle'>;
@@ -37,14 +38,23 @@ const PHASE_STEPS: ReadonlyArray<{
   {
     phase: 'broadcast',
     label: 'Broadcast',
-    desc: 'workspace → all processors',
+    desc: 'workspace spotlight enters the epoch',
   },
   {
-    phase: 'compete',
-    label: 'Compete',
-    desc: 'processors generate candidates',
+    phase: 'afferent',
+    label: 'Afferent',
+    desc: 'tools/sensors perceive upstream context',
   },
-  { phase: 'attention', label: 'Attention', desc: 'filter ranks by relevance' },
+  {
+    phase: 'cognitive',
+    label: 'Cognitive',
+    desc: 'memory nodes reason with afferent context',
+  },
+  {
+    phase: 'attention',
+    label: 'Attention',
+    desc: 'filter ranks memory-node candidates',
+  },
   {
     phase: 'consolidate',
     label: 'Consolidate',
@@ -88,6 +98,7 @@ export const App: React.FC<AppProps> = ({
         ]),
       ),
   );
+  const nodesRef = useRef(nodes);
   const [workingMemory, setWorkingMemory] = useState<string[]>(() =>
     orchestrator.workingMemory.messages.map((m) => m.content),
   );
@@ -132,17 +143,16 @@ export const App: React.FC<AppProps> = ({
     eventStream.subscribe({
       topicName: 'orchestrator/nodes-changed',
       receiver: ({ allNodes }) => {
-        setNodes((prev) => {
-          const next = new Map<string, NodeView>();
-          for (const node of allNodes) {
-            next.set(node.id, {
-              id: node.id,
-              kind: node.kind,
-              status: prev.get(node.id)?.status ?? node.status,
-            });
-          }
-          return next;
-        });
+        const next = new Map<string, NodeView>();
+        for (const node of allNodes) {
+          next.set(node.id, {
+            id: node.id,
+            kind: node.kind,
+            status: nodesRef.current.get(node.id)?.status ?? node.status,
+          });
+        }
+        nodesRef.current = next;
+        setNodes(next);
       },
     });
 
@@ -167,16 +177,22 @@ export const App: React.FC<AppProps> = ({
     eventStream.subscribe({
       topicName: 'node/status-change',
       receiver: ({ nodeId, status }) => {
-        setNodes((prev) => {
-          const existing = prev.get(nodeId);
-          if (!existing) return prev;
-          const next = new Map(prev);
+        const existing = nodesRef.current.get(nodeId);
+        if (existing) {
+          const next = new Map(nodesRef.current);
           next.set(nodeId, { ...existing, status });
-          return next;
-        });
+          nodesRef.current = next;
+          setNodes(next);
+        }
         if (status === 'generating') {
           /* v8 ignore next -- the consolidate-preserving arm depends on React update ordering and can't be hit deterministically */
-          setPhase((p) => (p === 'consolidate' ? p : 'compete'));
+          setPhase((p) =>
+            p === 'consolidate'
+              ? p
+              : existing?.kind === 'memory'
+                ? 'cognitive'
+                : 'afferent',
+          );
         } else if (status === 'evaluating-relevance') {
           setPhase('attention');
         }
@@ -204,7 +220,7 @@ export const App: React.FC<AppProps> = ({
       /* v8 ignore next 1 */
       if (cancelled) return;
       setPhase('broadcast');
-      appendLog(`▶ epoch ${epoch}: broadcasting to all processors`, 'cyan');
+      appendLog(`▶ epoch ${epoch}: broadcasting into afferent wave`, 'cyan');
       try {
         await orchestrator.runEpoch();
         if (!cancelled) {
@@ -291,7 +307,9 @@ export const App: React.FC<AppProps> = ({
   // defined (the assertion satisfies noUncheckedIndexedAccess without a branch).
   const spin = SPINNER[frame]!;
   const nodeList = Array.from(nodes.values());
-  const competing = nodeList.filter((n) => n.status !== 'idle').length;
+  const afferentNodes = nodeList.filter((n) => n.kind !== 'memory');
+  const memoryNodes = nodeList.filter((n) => n.kind === 'memory');
+  const activeNodes = nodeList.filter((n) => n.status !== 'idle').length;
   const activeStep = PHASE_STEPS.findIndex((s) => s.phase === phase);
   const activeStepDesc = PHASE_STEPS.find((s) => s.phase === phase)?.desc ?? '';
   const visibleLogs = logs.slice(-10);
@@ -441,29 +459,54 @@ export const App: React.FC<AppProps> = ({
             >
               <Box>
                 <Text bold color="cyan">
-                  UNCONSCIOUS PROCESSORS{' '}
+                  NODES{' '}
                 </Text>
-                <Text color="gray">({nodeList.length} nodes · </Text>
-                <Text color="yellowBright">{competing} active</Text>
+                <Text color="gray">
+                  ({afferentNodes.length} afferent · {memoryNodes.length} memory
+                  ·{' '}
+                </Text>
+                <Text color="yellowBright">{activeNodes} active</Text>
                 <Text color="gray">)</Text>
               </Box>
               {nodeList.length === 0 ? (
                 <Text color="gray">(none yet — bootstrapping)</Text>
-              ) : (
-                nodeList.map((node) => {
-                  const glyph = node.status === 'idle' ? '○' : spin;
-                  return (
-                    <Box key={node.id}>
-                      <Text color={STATUS_COLOR[node.status]}>{glyph} </Text>
-                      <Text color="whiteBright">{shortId(node.id)} </Text>
-                      <Text color="gray">{node.kind} </Text>
-                      <Text color={STATUS_COLOR[node.status]}>
-                        {STATUS_LABEL[node.status]}
-                      </Text>
-                    </Box>
-                  );
-                })
-              )}
+              ) : null}
+              {afferentNodes.length > 0 ? (
+                <Box flexDirection="column">
+                  <Text color="gray">upstream afferent</Text>
+                  {afferentNodes.map((node) => {
+                    const glyph = node.status === 'idle' ? '○' : spin;
+                    return (
+                      <Box key={node.id}>
+                        <Text color={STATUS_COLOR[node.status]}>{glyph} </Text>
+                        <Text color="whiteBright">{shortId(node.id)} </Text>
+                        <Text color="gray">{node.kind} </Text>
+                        <Text color={STATUS_COLOR[node.status]}>
+                          {STATUS_LABEL[node.status]}
+                        </Text>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ) : null}
+              {memoryNodes.length > 0 ? (
+                <Box flexDirection="column">
+                  <Text color="gray">memory wave</Text>
+                  {memoryNodes.map((node) => {
+                    const glyph = node.status === 'idle' ? '○' : spin;
+                    return (
+                      <Box key={node.id}>
+                        <Text color={STATUS_COLOR[node.status]}>{glyph} </Text>
+                        <Text color="whiteBright">{shortId(node.id)} </Text>
+                        <Text color="gray">{node.kind} </Text>
+                        <Text color={STATUS_COLOR[node.status]}>
+                          {STATUS_LABEL[node.status]}
+                        </Text>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ) : null}
             </Box>
 
             <Box

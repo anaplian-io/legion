@@ -40,12 +40,10 @@ export class OpenaiProvider implements Provider {
   ): ChatCompletionMessageParam[] => {
     const items: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
-      ...messages.map(
-        (m): ChatCompletionMessageParam => ({
-          role: 'user',
-          content: m.content,
-        }),
-      ),
+      ...messages.map((m): ChatCompletionMessageParam => ({
+        role: 'user',
+        content: m.content,
+      })),
     ];
     if (messages.length === 0) {
       items.push({
@@ -123,12 +121,10 @@ ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
       temperature: 0,
       messages: [
         { role: 'system', content: props.systemPrompt },
-        ...props.messages.map(
-          (m): ChatCompletionMessageParam => ({
-            role: 'user',
-            content: m.content,
-          }),
-        ),
+        ...props.messages.map((m): ChatCompletionMessageParam => ({
+          role: 'user',
+          content: m.content,
+        })),
         {
           role: 'user',
           content: `${props.question}
@@ -231,12 +227,10 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
   ): Promise<{ content: string; toolCalls: ToolCall[] | undefined }> => {
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: props.systemPrompt },
-      ...props.messages.map(
-        (m): ChatCompletionMessageParam => ({
-          role: 'user',
-          content: m.content,
-        }),
-      ),
+      ...props.messages.map((m): ChatCompletionMessageParam => ({
+        role: 'user',
+        content: m.content,
+      })),
     ];
 
     const tools = props.tools.map((tool) => this.mapToolToOpenAITool(tool));
