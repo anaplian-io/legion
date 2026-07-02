@@ -88,4 +88,35 @@ describe('ConcreteMemoryNodeFactory', () => {
 
     expect(node1.id).not.toBe(node2.id);
   });
+
+  it('should share the stateless curiosity gate between nodes', async () => {
+    const factory = new ConcreteMemoryNodeFactory({
+      provider: mockProvider,
+      curiosityGate: mockCuriosityGate,
+    });
+    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+
+    const firstNode = factory.create({
+      initialContext: 'Context 1',
+      eventStream,
+      nodeId: 'node-1',
+    });
+    const secondNode = factory.create({
+      initialContext: 'Context 2',
+      eventStream,
+      nodeId: 'node-2',
+    });
+
+    await firstNode.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Broadcast' },
+    });
+    await secondNode.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { content: 'Broadcast' },
+    });
+
+    expect(mockCuriosityGate.isCurious).toHaveBeenCalledTimes(2);
+  });
 });

@@ -143,6 +143,8 @@ describe('MemoryNode', () => {
 
     expect(mockCuriosityGate.isCurious).toHaveBeenCalledWith({
       broadcastMessage,
+      nodeId: 'memory-1',
+      epochsAlive: 0,
       nodeContext: 'Initial context',
     });
     expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();

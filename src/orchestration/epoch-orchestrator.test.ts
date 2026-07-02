@@ -509,6 +509,45 @@ describe('EpochOrchestrator', () => {
     ]);
   });
 
+  it('should pass restored node stats into each polled node', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({
+      originatingNodeId: 'node-a',
+      content: 'Response',
+    });
+    const node = createMockNode('node-a', sendMessage);
+    const restoredStats = {
+      epochsAlive: 3,
+      epochsSpoken: 2,
+      epochsFiltered: 1,
+    };
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [node],
+      initialNodeStats: new Map([['node-a', restoredStats]]),
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      { content: 'Response', originatingNodeId: 'node-a' },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+
+    await orchestrator.runEpoch();
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientNodeStats: restoredStats,
+      }),
+    );
+  });
+
   it('should prune nodes selected by the pruner and drop their stats', async () => {
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,

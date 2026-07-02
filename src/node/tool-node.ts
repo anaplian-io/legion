@@ -69,6 +69,8 @@ export class ToolNode implements Node<'tool'> {
     const curious = () =>
       this.props.curiosityGate.isCurious({
         broadcastMessage,
+        nodeId: this.id,
+        epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
       });
     if (!(await curious()) && !(await relevant())) {
       this.setStatus('idle');
