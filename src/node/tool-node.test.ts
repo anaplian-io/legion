@@ -640,8 +640,8 @@ describe('ToolNode', () => {
       broadcast: { content: 'Test' },
     });
 
-    // Should publish 3 events: evaluating-relevance, generating, and idle
-    expect(mockEventStream.publish).toHaveBeenCalledTimes(3);
+    // Should publish 3 events: evaluating-relevance, idle, generating, and idle
+    expect(mockEventStream.publish).toHaveBeenCalledTimes(4);
   });
 
   it('should not throw if event publish throws during status change', async () => {

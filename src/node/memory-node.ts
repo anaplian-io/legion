@@ -46,19 +46,22 @@ export class MemoryNode implements Node<'memory'> {
       broadcastMessage.broadcast,
     ];
     await this.setStatus('evaluating-relevance');
-    const relevant = await provider.askYesNoQuestion({
-      systemPrompt: this.preamble,
-      messages,
-      question: `Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.`,
-    });
-    const curious = await this.props.curiosityGate.isCurious({
-      broadcastMessage,
-      nodeContext: this.context,
-    });
-    await this.setStatus('idle');
-    if (!relevant && !curious) {
+    const relevant = () =>
+      provider.askYesNoQuestion({
+        systemPrompt: this.preamble,
+        messages,
+        question: `Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.`,
+      });
+    const curious = () =>
+      this.props.curiosityGate.isCurious({
+        broadcastMessage,
+        nodeContext: this.context,
+      });
+    if (!(await curious()) && !(await relevant())) {
+      await this.setStatus('idle');
       return undefined;
     }
+    await this.setStatus('idle');
     await this.setStatus('generating');
     const response: NodeResponse = {
       originatingNodeId: this.id,
