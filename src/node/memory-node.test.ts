@@ -145,6 +145,7 @@ describe('MemoryNode', () => {
       broadcastMessage,
       nodeContext: 'Initial context',
     });
+    expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();
     expect(result).toEqual({
       originatingNodeId: 'memory-1',
       content: 'Curious response',

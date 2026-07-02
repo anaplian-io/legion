@@ -60,18 +60,21 @@ export class ToolNode implements Node<'tool'> {
       broadcastMessage.broadcast,
     ];
     this.setStatus('evaluating-relevance');
-    const relevant = await provider.askYesNoQuestion({
-      systemPrompt: this.preamble,
-      messages,
-      question: `Given your tools above and the broadcast below, will one or more of them help resolve it? Answer yes only if a tool call would make concrete progress.`,
-    });
-    const curious = await this.props.curiosityGate.isCurious({
-      broadcastMessage,
-    });
-    if (!relevant && !curious) {
+    const relevant = () =>
+      provider.askYesNoQuestion({
+        systemPrompt: this.preamble,
+        messages,
+        question: `Given your tools above and the broadcast below, will one or more of them help resolve it? Answer yes only if a tool call would make concrete progress.`,
+      });
+    const curious = () =>
+      this.props.curiosityGate.isCurious({
+        broadcastMessage,
+      });
+    if (!(await curious()) && !(await relevant())) {
       this.setStatus('idle');
       return undefined;
     }
+    this.setStatus('idle');
     this.setStatus('generating');
     const response = await provider.generateWithTools({
       messages,
