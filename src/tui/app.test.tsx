@@ -17,6 +17,14 @@ const memoryNode = (id: string): Node<'memory'> => ({
   sendMessage: vi.fn(),
 });
 
+const toolNode = (id: string): Node<'tool'> => ({
+  id,
+  kind: 'tool',
+  status: 'idle',
+  context: '',
+  sendMessage: vi.fn(),
+});
+
 interface FakeOrchestrator {
   nodes: Node<string>[];
   workingMemory: { messages: { content: string }[] };
@@ -279,7 +287,7 @@ describe('App', () => {
       (f) => !f.includes('oldest → newest'),
     );
     expect(collapsed).not.toContain('oldest → newest');
-    expect(collapsed).toContain('UNCONSCIOUS PROCESSORS');
+    expect(collapsed).toContain('NODES');
   });
 
   it('pauses and resumes with [space]', async () => {
@@ -311,7 +319,7 @@ describe('App', () => {
     ).toContain('RUNNING');
   });
 
-  it('also pauses with the [p] alias and shows the active phase description', async () => {
+  it('also pauses with the [p] alias and shows the memory phase description', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin, lastFrame } = render(
       <App
@@ -331,8 +339,8 @@ describe('App', () => {
       data: { nodeId: 'n', status: 'generating' },
     });
     expect(
-      await waitForFrame(lastFrame, (f) => f.includes('↳ processors generate')),
-    ).toContain('↳ processors generate');
+      await waitForFrame(lastFrame, (f) => f.includes('↳ memory nodes reason')),
+    ).toContain('↳ memory nodes reason');
 
     // Start, then pause via the 'p' alias.
     stdin.write('i');
@@ -348,6 +356,32 @@ describe('App', () => {
     expect(
       await waitForFrame(lastFrame, (f) => f.includes('PAUSED')),
     ).toContain('PAUSED');
+  });
+
+  it('shows afferent nodes upstream of the memory wave', async () => {
+    const orchestrator = makeOrchestrator({
+      nodes: [toolNode('tool-a'), memoryNode('memory-a')],
+    });
+    const { lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    eventStream.publish({
+      topicName: 'node/status-change',
+      data: { nodeId: 'tool-a', status: 'generating' },
+    });
+
+    const out = await waitForFrame(lastFrame, (f) =>
+      f.includes('↳ tools/sensors perceive upstream context'),
+    );
+    expect(out).toContain('upstream afferent');
+    expect(out).toContain('memory wave');
+    expect(out).toContain('tool-a');
+    expect(out).toContain('memory-a');
   });
 
   it('quits with [q], calling onExit', async () => {
@@ -502,7 +536,7 @@ describe('App', () => {
       },
     });
     await waitForFrame(lastFrame, (f) => f.includes('Consolidate'));
-    // A late generating status must NOT knock us back to the compete phase.
+    // A late generating status must NOT knock us back to an earlier phase.
     eventStream.publish({
       topicName: 'node/status-change',
       data: { nodeId: 'n', status: 'generating' },

@@ -147,3 +147,4 @@ settings.ts
 # Node Data
 /data
 config.toml
+/.DS_Store
