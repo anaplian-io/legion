@@ -3,7 +3,7 @@ import { ToolNode } from './tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { ToolDefinition } from '../types/tool.js';
-import type { CuriosityGate } from '../types/curiosity-gate.js';
+import type { RelevanceGate } from '../types/relevance-gate.js';
 
 // Mock MCPClient interface matching the actual implementation
 interface MockMCPClient {
@@ -25,7 +25,7 @@ describe('ToolNode', () => {
   let mockProvider: Provider;
   let mockEventStream: EventStream;
   let mockMCPClient: MockMCPClient;
-  let mockCuriosityGate: CuriosityGate;
+  let mockRelevanceGate: RelevanceGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -43,8 +43,8 @@ describe('ToolNode', () => {
       getAvailableTools: vi.fn().mockResolvedValue([]),
       invokeTool: vi.fn(),
     };
-    mockCuriosityGate = {
-      isCurious: vi.fn().mockResolvedValue(true),
+    mockRelevanceGate = {
+      isRelevant: vi.fn().mockResolvedValue(true),
     };
   });
 
@@ -61,7 +61,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -83,7 +83,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -102,7 +102,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -131,7 +131,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     // Don't call initialize - should auto-initialize on first sendMessage
@@ -143,9 +143,7 @@ describe('ToolNode', () => {
   it('should return undefined when tools are not relevant to broadcast', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    // Set curiosity gate to return false so both checks fail
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const node = new ToolNode({
       capabilityDescription: 'can use test tools.',
@@ -154,7 +152,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -177,7 +175,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -205,7 +203,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -241,7 +239,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -313,7 +311,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -334,12 +332,10 @@ describe('ToolNode', () => {
     expect(callArgs.systemPrompt).not.toContain('Previous message 1');
   });
 
-  it('should pass working memory and broadcast as discrete messages in relevance check', async () => {
+  it('should pass broadcast and tool preamble to relevance gate', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    // Set curiosity gate to return false so both checks fail
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const node = new ToolNode({
       capabilityDescription: 'can use test tools.',
@@ -348,27 +344,27 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
-    await node.sendMessage({
+    const broadcastMessage = {
       workingMemory: {
         messages: [{ content: 'First WM' }, { content: 'Second WM' }],
       },
       broadcast: { content: 'New broadcast' },
-    });
+    };
+    await node.sendMessage(broadcastMessage);
 
-    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
-    expect(askCall).toBeDefined();
-    expect(askCall?.messages).toEqual([
-      { content: 'First WM' },
-      { content: 'Second WM' },
-      { content: 'New broadcast' },
-    ]);
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
+      broadcastMessage,
+      nodeId: 'test-node',
+      epochsAlive: 0,
+      nodeContext: expect.stringContaining('Your available tools:'),
+    });
   });
 
-  it('should ask relevance to consider the full message list', async () => {
+  it('should pass full broadcast message to relevance gate', async () => {
     const tools: ToolDefinition[] = [
       {
         name: 'search',
@@ -377,8 +373,7 @@ describe('ToolNode', () => {
       },
     ];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const node = new ToolNode({
       capabilityDescription: 'can use test tools.',
@@ -387,11 +382,11 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
-    await node.sendMessage({
+    const broadcastMessage = {
       workingMemory: {
         messages: [
           {
@@ -412,30 +407,15 @@ describe('ToolNode', () => {
         content:
           'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
       },
-    });
+    };
+    await node.sendMessage(broadcastMessage);
 
-    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
-    expect(askCall?.question).toContain('full message list');
-    expect(askCall?.question).toContain('working memory');
-    expect(askCall?.question).toContain('current broadcast');
-    expect(askCall?.question).toContain('concrete progress');
-    expect(askCall?.messages).toEqual([
-      {
-        content:
-          'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
-      },
-      {
-        content: 'Need user input/action on weather links for Brooklyn, NY.',
-      },
-      {
-        content:
-          'Need specific dates for weather/clothing advice; no event info found yet.',
-      },
-      {
-        content:
-          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
-      },
-    ]);
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
+      broadcastMessage,
+      nodeId: 'search-node',
+      epochsAlive: 0,
+      nodeContext: expect.stringContaining('Search the web'),
+    });
   });
 
   it('should keep exact tool execution decisions inside the tool node', async () => {
@@ -447,8 +427,7 @@ describe('ToolNode', () => {
       },
     ];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
       content: '',
       toolCalls: [],
@@ -461,7 +440,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -491,10 +470,10 @@ describe('ToolNode', () => {
     expect(generateCall?.systemPrompt).toContain('You MUST make a tool call');
   });
 
-  it('should skip relevance when curiosity already selects the tool node', async () => {
+  it('should generate when relevance gate selects the tool node', async () => {
     const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(true);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
       content: '',
       toolCalls: [],
@@ -507,7 +486,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -531,7 +510,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -562,7 +541,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -593,7 +572,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -636,7 +615,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -688,7 +667,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -751,7 +730,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -797,7 +776,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -817,9 +796,7 @@ describe('ToolNode', () => {
   it('should not throw if event publish throws during status change', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    // Set curiosity gate to return false so both checks fail and generateWithTools is not called
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const throwingEventStream: EventStream = {
       publish: vi.fn().mockImplementation(() => {
@@ -835,7 +812,7 @@ describe('ToolNode', () => {
       eventStream: throwingEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -848,14 +825,10 @@ describe('ToolNode', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('should proceed when curiosity gate returns true but relevance check is false', async () => {
+  it('should proceed when relevance gate returns true', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    // Relevance check returns false
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    // Curiosity gate returns true (node is curious about this broadcast)
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(true);
-    // Tool calls will be generated due to curiosity override
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
       content: '',
       toolCalls: [],
@@ -868,7 +841,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();
@@ -877,16 +850,13 @@ describe('ToolNode', () => {
       broadcast: { content: 'Test' },
     });
 
-    // Should proceed to generateWithTools because curiosity overrides low relevance
     expect(mockProvider.generateWithTools).toHaveBeenCalled();
   });
 
-  it('should return undefined when both relevance check and curiosity gate return false', async () => {
+  it('should return undefined when relevance gate returns false', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    // Curiosity gate returns false
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const node = new ToolNode({
       capabilityDescription: 'can use test tools.',
@@ -895,7 +865,7 @@ describe('ToolNode', () => {
       eventStream: mockEventStream,
       mcpClient:
         mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.initialize();

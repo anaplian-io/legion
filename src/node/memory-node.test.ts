@@ -3,12 +3,12 @@ import { MemoryNode } from './memory-node.js';
 import type { Provider } from '../types/provider.js';
 import type { BroadcastMessage } from '../types/node.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
-import type { CuriosityGate } from '../types/curiosity-gate.js';
+import type { RelevanceGate } from '../types/relevance-gate.js';
 
 describe('MemoryNode', () => {
   let mockProvider: Provider;
   let eventStream: ConcreteEventStream;
-  let mockCuriosityGate: CuriosityGate;
+  let mockRelevanceGate: RelevanceGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -19,8 +19,8 @@ describe('MemoryNode', () => {
       generateWithTools: vi.fn(),
     };
     eventStream = new ConcreteEventStream();
-    mockCuriosityGate = {
-      isCurious: vi.fn().mockResolvedValue(false),
+    mockRelevanceGate = {
+      isRelevant: vi.fn().mockResolvedValue(true),
     };
   });
 
@@ -30,7 +30,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(node.id).toBe('memory-1');
@@ -47,23 +47,26 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    // Set curiosity gate to false so both checks fail
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const node = new MemoryNode({
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(node.status).toBe('idle');
 
     const result = await node.sendMessage(broadcastMessage);
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalled();
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
+      broadcastMessage,
+      nodeId: 'memory-1',
+      epochsAlive: 0,
+      nodeContext: expect.stringContaining('Initial context'),
+    });
     expect(mockProvider.generate).not.toHaveBeenCalled();
     expect(result).toBeUndefined();
     expect(node.status).toBe('idle');
@@ -80,7 +83,6 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue('Generated response');
 
     const node = new MemoryNode({
@@ -88,21 +90,18 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(node.status).toBe('idle');
 
     const result = await node.sendMessage(broadcastMessage);
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('Initial context'),
-      messages: [
-        { content: 'Previous message 1' },
-        { content: 'Previous message 2' },
-        { content: 'New broadcast' },
-      ],
-      question: expect.stringContaining('non-redundant'),
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
+      broadcastMessage,
+      nodeId: 'memory-1',
+      epochsAlive: 0,
+      nodeContext: expect.stringContaining('Initial context'),
     });
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
@@ -121,14 +120,13 @@ describe('MemoryNode', () => {
     expect(node.status).toBe('idle');
   });
 
-  it('should generate response when curiosity overrides low relevance', async () => {
+  it('should generate response when relevance gate returns true', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-    vi.mocked(mockCuriosityGate.isCurious).mockResolvedValue(true);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue('Curious response');
 
     const node = new MemoryNode({
@@ -136,16 +134,16 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     const result = await node.sendMessage(broadcastMessage);
 
-    expect(mockCuriosityGate.isCurious).toHaveBeenCalledWith({
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
       broadcastMessage,
       nodeId: 'memory-1',
       epochsAlive: 0,
-      nodeContext: 'Initial context',
+      nodeContext: expect.stringContaining('Initial context'),
     });
     expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -154,34 +152,34 @@ describe('MemoryNode', () => {
     });
   });
 
-  it('should use preamble in askYesNoQuestion', async () => {
+  it('should pass preamble to relevance gate', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
       broadcast: { content: 'New broadcast' },
     };
-
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
 
     const node = new MemoryNode({
       id: 'memory-1',
       initialContext: 'Specialized in test scenarios',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
 
-    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
-    expect(askCall).toBeDefined();
-    expect(askCall?.systemPrompt).toContain(
+    const relevanceCall = vi.mocked(mockRelevanceGate.isRelevant).mock
+      .calls[0]?.[0];
+    expect(relevanceCall).toBeDefined();
+    expect(relevanceCall?.nodeContext).toContain(
       'You are one specialist node in a collective reasoning system',
     );
-    expect(askCall?.systemPrompt).toContain('Specialized in test scenarios');
-    expect(askCall?.messages).toEqual([{ content: 'New broadcast' }]);
+    expect(relevanceCall?.nodeContext).toContain(
+      'Specialized in test scenarios',
+    );
   });
 
-  it('should pass working memory and broadcast as discrete messages', async () => {
+  it('should pass broadcast message to relevance gate', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: {
         messages: [{ content: 'First WM' }, { content: 'Second WM' }],
@@ -189,29 +187,22 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
-
     const node = new MemoryNode({
       id: 'memory-1',
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
 
-    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
-    expect(askCall).toBeDefined();
-    // Working memory and the broadcast are now discrete messages rather than a
-    // concatenated string, so the provider can place the volatile suffix after
-    // the cacheable identity+context prefix (and there is no separator bug to
-    // reintroduce).
-    expect(askCall?.messages).toEqual([
-      { content: 'First WM' },
-      { content: 'Second WM' },
-      { content: 'New broadcast' },
-    ]);
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
+      broadcastMessage,
+      nodeId: 'memory-1',
+      epochsAlive: 0,
+      nodeContext: expect.stringContaining('Initial context'),
+    });
   });
 
   it('should frame afferent capabilities as available system capabilities', async () => {
@@ -240,7 +231,6 @@ describe('MemoryNode', () => {
       },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue(
       'Search the web for Brooklyn NY weather next few days and nearby events.',
     );
@@ -250,35 +240,21 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
 
-    const askCall = vi.mocked(mockProvider.askYesNoQuestion).mock.calls[0]?.[0];
-    expect(askCall?.systemPrompt).toContain('available afferent capabilities');
-    expect(askCall?.systemPrompt).toContain('concrete next actions');
-    expect(askCall?.systemPrompt).toContain(
+    const relevanceCall = vi.mocked(mockRelevanceGate.isRelevant).mock
+      .calls[0]?.[0];
+    expect(relevanceCall?.nodeContext).toContain(
+      'available afferent capabilities',
+    );
+    expect(relevanceCall?.nodeContext).toContain('concrete next actions');
+    expect(relevanceCall?.nodeContext).toContain(
       'Leave exact tool selection and execution details to afferent nodes',
     );
-    expect(askCall?.messages).toEqual([
-      {
-        content:
-          'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
-      },
-      {
-        content:
-          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
-      },
-      {
-        content:
-          'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
-      },
-      {
-        content:
-          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
-      },
-    ]);
+    expect(relevanceCall?.broadcastMessage).toEqual(broadcastMessage);
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('available afferent capabilities'),
@@ -297,7 +273,6 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
 
     const node = new MemoryNode({
@@ -305,7 +280,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -322,7 +297,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(node.id).toBe('test-id');
@@ -336,7 +311,7 @@ describe('MemoryNode', () => {
       broadcast: { content: 'new' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
     vi.mocked(mockProvider.generate).mockResolvedValue('Should not be called');
 
     const node = new MemoryNode({
@@ -344,7 +319,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(node.status).toBe('idle');
@@ -362,7 +337,6 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
 
     const statusEvents: Array<{ nodeId: string; status: string }> = [];
@@ -378,7 +352,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -402,7 +376,7 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const asyncSubscriber = vi.fn().mockResolvedValue(undefined);
     eventStream.subscribe({
@@ -415,7 +389,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -436,7 +410,7 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
 
     const errorSubscriber = vi.fn().mockImplementation(() => {
       throw new Error('Subscriber failed');
@@ -451,7 +425,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
@@ -471,7 +445,7 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
 
     // Replace eventStream with one that throws on publish
@@ -487,7 +461,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream: throwingEventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
@@ -499,7 +473,6 @@ describe('MemoryNode', () => {
       broadcast: { content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue('Node response');
 
     const node = new MemoryNode({
@@ -507,7 +480,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -529,7 +502,6 @@ describe('MemoryNode', () => {
       broadcast: { content: 'Second broadcast' },
     };
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate)
       .mockResolvedValueOnce('First response')
       .mockResolvedValueOnce('Second response');
@@ -539,7 +511,7 @@ describe('MemoryNode', () => {
       initialContext: 'Initial context',
       provider: mockProvider,
       eventStream,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     await node.sendMessage(broadcastMessage1);

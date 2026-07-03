@@ -5,20 +5,20 @@ import {
   CreateProps,
   MemoryNodeFactory,
 } from '../types/memory-node-factory.js';
-import { CuriosityGate } from '../types/curiosity-gate.js';
+import { RelevanceGate } from '../types/relevance-gate.js';
 
 export interface ConcreteMemoryNodeFactoryProps {
   readonly provider: Provider;
-  readonly curiosityGate: CuriosityGate;
+  readonly relevanceGate: RelevanceGate;
 }
 
 export class ConcreteMemoryNodeFactory implements MemoryNodeFactory {
   private readonly _provider: Provider;
-  private readonly _curiosityGate: CuriosityGate;
+  private readonly _relevanceGate: RelevanceGate;
 
   constructor(props: ConcreteMemoryNodeFactoryProps) {
     this._provider = props.provider;
-    this._curiosityGate = props.curiosityGate;
+    this._relevanceGate = props.relevanceGate;
   }
 
   public readonly create = (props: CreateProps): Node<'memory'> => {
@@ -28,7 +28,7 @@ export class ConcreteMemoryNodeFactory implements MemoryNodeFactory {
       initialContext: props.initialContext,
       provider: this._provider,
       eventStream: props.eventStream,
-      curiosityGate: this._curiosityGate,
+      relevanceGate: this._relevanceGate,
     });
   };
 }

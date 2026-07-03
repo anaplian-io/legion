@@ -1,11 +1,11 @@
-import { CuriosityGate, CuriosityGateProps } from '../types/curiosity-gate.js';
+import { RelevanceGate, RelevanceGateProps } from '../types/relevance-gate.js';
 
 export interface GeometricScheduleCuriosityGateProps {
   readonly initialCuriosity?: number;
   readonly decayFactor?: number;
 }
 
-export class GeometricScheduleCuriosityGate implements CuriosityGate {
+export class GeometricScheduleCuriosityGate implements RelevanceGate {
   private readonly initialCuriosity: number;
   private readonly decayFactor: number;
 
@@ -17,8 +17,8 @@ export class GeometricScheduleCuriosityGate implements CuriosityGate {
     this.decayFactor = props.decayFactor ?? 0.75;
   }
 
-  public readonly isCurious = async (
-    props: CuriosityGateProps,
+  public readonly isRelevant = async (
+    props: RelevanceGateProps,
   ): Promise<boolean> => {
     const curiosity =
       this.initialCuriosity * this.decayFactor ** props.epochsAlive;

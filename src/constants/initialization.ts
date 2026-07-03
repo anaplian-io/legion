@@ -25,6 +25,8 @@ import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
 import { GeometricScheduleCuriosityGate } from '../service/geometric-schedule-curiosity-gate.js';
 import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curiosity-gate.js';
+import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
+import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
 import { Provider } from '../types/provider.js';
 
 // Set up console logging subscribers for all event types
@@ -95,6 +97,10 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.15;
+const MEMORY_RELEVANCE_QUESTION =
+  'Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.';
+const TOOL_RELEVANCE_QUESTION =
+  'Given your tools above and the full message list below, will one or more tools make concrete progress on any unresolved need? Treat earlier messages as working memory and the final message as the current broadcast. Answer yes only if a tool call would make concrete progress.';
 
 export interface InitOptions {
   /**
@@ -153,10 +159,27 @@ export const init = async (options?: InitOptions) => {
   }
 
   // Try to load a session if saveLocation is configured
-  const curiosityGate = new GeometricScheduleCuriosityGate();
-  const toolCuriosityGate = new FixedProbabilityCuriosityGate({
-    probability:
-      settings.toolCuriosityProbability ?? DEFAULT_TOOL_CURIOSITY_PROBABILITY,
+  const memoryRelevanceGate = new SequencedCompositeRelevanceGate({
+    gates: [
+      new GeometricScheduleCuriosityGate(),
+      new AskYesNoQuestionRelevanceGate({
+        provider,
+        question: MEMORY_RELEVANCE_QUESTION,
+      }),
+    ],
+  });
+  const toolRelevanceGate = new SequencedCompositeRelevanceGate({
+    gates: [
+      new FixedProbabilityCuriosityGate({
+        probability:
+          settings.toolCuriosityProbability ??
+          DEFAULT_TOOL_CURIOSITY_PROBABILITY,
+      }),
+      new AskYesNoQuestionRelevanceGate({
+        provider,
+        question: TOOL_RELEVANCE_QUESTION,
+      }),
+    ],
   });
   let loadedSession: LoadedSession | undefined;
   try {
@@ -165,7 +188,7 @@ export const init = async (options?: InitOptions) => {
     );
     const memoryNodeFactory = new ConcreteMemoryNodeFactory({
       provider,
-      curiosityGate,
+      relevanceGate: memoryRelevanceGate,
     });
     loadedSession = SessionLoader.load({
       directory: settings.saveLocation,
@@ -223,7 +246,7 @@ export const init = async (options?: InitOptions) => {
     ({ client, capabilityDescription }) =>
       new ConcreteToolNodeFactory({
         provider,
-        curiosityGate: toolCuriosityGate,
+        relevanceGate: toolRelevanceGate,
         mcpClient: client,
         capabilityDescription,
       }),
@@ -253,7 +276,7 @@ export const init = async (options?: InitOptions) => {
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
     provider,
-    curiosityGate,
+    relevanceGate: memoryRelevanceGate,
   });
 
   const nodeSplitter = new MemoryNodeSplitter({
