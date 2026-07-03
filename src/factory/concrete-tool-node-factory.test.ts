@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteToolNodeFactory } from './concrete-tool-node-factory.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
-import type { CuriosityGate } from '../types/curiosity-gate.js';
+import type { RelevanceGate } from '../types/relevance-gate.js';
 
 // Mock MCP Client
 interface MockMcpClient {
@@ -13,7 +13,7 @@ describe('ConcreteToolNodeFactory', () => {
   let mockProvider: Provider;
   let mockEventStream: EventStream;
   let mockMcpClient: MockMcpClient;
-  let mockCuriosityGate: CuriosityGate;
+  let mockRelevanceGate: RelevanceGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -28,8 +28,8 @@ describe('ConcreteToolNodeFactory', () => {
       subscribe: vi.fn(),
     };
     mockMcpClient = {};
-    mockCuriosityGate = {
-      isCurious: vi.fn().mockResolvedValue(false),
+    mockRelevanceGate = {
+      isRelevant: vi.fn().mockResolvedValue(false),
     };
   });
 
@@ -39,7 +39,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(typeof factory.create).toBe('function');
@@ -51,7 +51,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -70,7 +70,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -87,7 +87,7 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -98,13 +98,13 @@ describe('ConcreteToolNodeFactory', () => {
     expect(node.kind).toBe('tool');
   });
 
-  it('should create nodes with the shared stateless curiosity gate', async () => {
+  it('should create nodes with the shared stateless relevance gate', async () => {
     const factory = new ConcreteToolNodeFactory({
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
     const firstNode = factory.create({
       nodeId: 'tool-1',

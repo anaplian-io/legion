@@ -1,10 +1,10 @@
-import { CuriosityGate } from '../types/curiosity-gate.js';
+import { RelevanceGate } from '../types/relevance-gate.js';
 
 export interface FixedProbabilityCuriosityGateProps {
   readonly probability: number;
 }
 
-export class FixedProbabilityCuriosityGate implements CuriosityGate {
+export class FixedProbabilityCuriosityGate implements RelevanceGate {
   private readonly probability: number;
 
   constructor(
@@ -14,6 +14,6 @@ export class FixedProbabilityCuriosityGate implements CuriosityGate {
     this.probability = props.probability;
   }
 
-  public readonly isCurious: CuriosityGate['isCurious'] = async () =>
+  public readonly isRelevant: RelevanceGate['isRelevant'] = async () =>
     this.randomFn() < this.probability;
 }

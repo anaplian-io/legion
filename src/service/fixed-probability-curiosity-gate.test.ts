@@ -22,8 +22,8 @@ describe('FixedProbabilityCuriosityGate', () => {
       randomFn,
     );
 
-    await expect(gate.isCurious(curiosityProps(0))).resolves.toBe(true);
-    await expect(gate.isCurious(curiosityProps(100))).resolves.toBe(true);
+    await expect(gate.isRelevant(curiosityProps(0))).resolves.toBe(true);
+    await expect(gate.isRelevant(curiosityProps(100))).resolves.toBe(true);
   });
 
   it('returns false when the random value is outside the fixed probability', async () => {
@@ -33,7 +33,7 @@ describe('FixedProbabilityCuriosityGate', () => {
       randomFn,
     );
 
-    await expect(gate.isCurious(curiosityProps(0))).resolves.toBe(false);
+    await expect(gate.isRelevant(curiosityProps(0))).resolves.toBe(false);
   });
 
   it('allows custom fixed probabilities', async () => {
@@ -45,6 +45,6 @@ describe('FixedProbabilityCuriosityGate', () => {
       randomFn,
     );
 
-    await expect(gate.isCurious(curiosityProps(20))).resolves.toBe(true);
+    await expect(gate.isRelevant(curiosityProps(20))).resolves.toBe(true);
   });
 });

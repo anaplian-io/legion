@@ -18,7 +18,7 @@ describe('GeometricScheduleCuriosityGate', () => {
     const randomFn = vi.fn<() => number>().mockReturnValue(0.99);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
 
-    await expect(gate.isCurious(curiosityProps('first', 0))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('first', 0))).resolves.toBe(
       true,
     );
     expect(randomFn).toHaveBeenCalledTimes(1);
@@ -28,10 +28,10 @@ describe('GeometricScheduleCuriosityGate', () => {
     const randomFn = vi.fn<() => number>().mockReturnValue(0.7);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
 
-    await expect(gate.isCurious(curiosityProps('first', 1))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('first', 1))).resolves.toBe(
       true,
     );
-    await expect(gate.isCurious(curiosityProps('second', 2))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('second', 2))).resolves.toBe(
       false,
     );
   });
@@ -44,8 +44,8 @@ describe('GeometricScheduleCuriosityGate', () => {
     const gate = new GeometricScheduleCuriosityGate(randomFn);
     const props = curiosityProps('same epoch', 1);
 
-    await expect(gate.isCurious(props)).resolves.toBe(true);
-    await expect(gate.isCurious(props)).resolves.toBe(true);
+    await expect(gate.isRelevant(props)).resolves.toBe(true);
+    await expect(gate.isRelevant(props)).resolves.toBe(true);
   });
 
   it('allows custom schedule parameters', async () => {
@@ -55,10 +55,10 @@ describe('GeometricScheduleCuriosityGate', () => {
       decayFactor: 0.5,
     });
 
-    await expect(gate.isCurious(curiosityProps('first', 0))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('first', 0))).resolves.toBe(
       true,
     );
-    await expect(gate.isCurious(curiosityProps('second', 1))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('second', 1))).resolves.toBe(
       false,
     );
   });
@@ -67,10 +67,10 @@ describe('GeometricScheduleCuriosityGate', () => {
     const randomFn = vi.fn<() => number>().mockReturnValue(0.8);
     const gate = new GeometricScheduleCuriosityGate(randomFn);
 
-    await expect(gate.isCurious(curiosityProps('first', 0))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('first', 0))).resolves.toBe(
       true,
     );
-    await expect(gate.isCurious(curiosityProps('second', 1))).resolves.toBe(
+    await expect(gate.isRelevant(curiosityProps('second', 1))).resolves.toBe(
       false,
     );
   });
