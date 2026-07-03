@@ -6,14 +6,14 @@ import {
 } from '../types/node.js';
 import { Provider } from '../types/provider.js';
 import { EventStream } from '../types/event-stream.js';
-import { CuriosityGate } from '../types/curiosity-gate.js';
+import { RelevanceGate } from '../types/relevance-gate.js';
 
 export interface MemoryNodeProps {
   readonly id: string;
   readonly initialContext: string;
   readonly provider: Provider;
   readonly eventStream: EventStream;
-  readonly curiosityGate: CuriosityGate;
+  readonly relevanceGate: RelevanceGate;
 }
 
 export class MemoryNode implements Node<'memory'> {
@@ -46,20 +46,13 @@ export class MemoryNode implements Node<'memory'> {
       broadcastMessage.broadcast,
     ];
     await this.setStatus('evaluating-relevance');
-    const relevant = () =>
-      provider.askYesNoQuestion({
-        systemPrompt: this.preamble,
-        messages,
-        question: `Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.`,
-      });
-    const curious = () =>
-      this.props.curiosityGate.isCurious({
-        broadcastMessage,
-        nodeId: this.id,
-        epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
-        nodeContext: this.context,
-      });
-    if (!(await curious()) && !(await relevant())) {
+    const relevant = await this.props.relevanceGate.isRelevant({
+      broadcastMessage,
+      nodeId: this.id,
+      epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
+      nodeContext: this.preamble,
+    });
+    if (!relevant) {
       await this.setStatus('idle');
       return undefined;
     }

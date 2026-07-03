@@ -8,14 +8,14 @@ import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
 import { ToolDefinition } from '../types/tool.js';
 import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
-import { CuriosityGate } from '../types/curiosity-gate.js';
+import { RelevanceGate } from '../types/relevance-gate.js';
 
 export interface ToolNodeProps {
   readonly id: string;
   readonly provider: Provider;
   readonly eventStream: EventStream;
   readonly mcpClient: MCPClient;
-  readonly curiosityGate: CuriosityGate;
+  readonly relevanceGate: RelevanceGate;
   readonly capabilityDescription: string;
 }
 
@@ -63,19 +63,13 @@ export class ToolNode implements Node<'tool'> {
       broadcastMessage.broadcast,
     ];
     this.setStatus('evaluating-relevance');
-    const relevant = () =>
-      provider.askYesNoQuestion({
-        systemPrompt: this.preamble,
-        messages,
-        question: `Given your tools above and the full message list below, will one or more tools make concrete progress on any unresolved need? Treat earlier messages as working memory and the final message as the current broadcast. Answer yes only if a tool call would make concrete progress.`,
-      });
-    const curious = () =>
-      this.props.curiosityGate.isCurious({
-        broadcastMessage,
-        nodeId: this.id,
-        epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
-      });
-    if (!(await curious()) && !(await relevant())) {
+    const relevant = this.props.relevanceGate.isRelevant({
+      broadcastMessage,
+      nodeId: this.id,
+      epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
+      nodeContext: this.preamble,
+    });
+    if (!(await relevant)) {
       this.setStatus('idle');
       return undefined;
     }

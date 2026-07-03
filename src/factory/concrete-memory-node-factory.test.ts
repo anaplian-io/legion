@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteMemoryNodeFactory } from './concrete-memory-node-factory.js';
 import type { Provider } from '../types/provider.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
-import type { CuriosityGate } from '../types/curiosity-gate.js';
+import type { RelevanceGate } from '../types/relevance-gate.js';
 
 describe('ConcreteMemoryNodeFactory', () => {
   let mockProvider: Provider;
   let eventStream: ConcreteEventStream;
-  let mockCuriosityGate: CuriosityGate;
+  let mockRelevanceGate: RelevanceGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -18,15 +18,15 @@ describe('ConcreteMemoryNodeFactory', () => {
       generateWithTools: vi.fn(),
     };
     eventStream = new ConcreteEventStream();
-    mockCuriosityGate = {
-      isCurious: vi.fn().mockResolvedValue(false),
+    mockRelevanceGate = {
+      isRelevant: vi.fn().mockResolvedValue(true),
     };
   });
 
   it('should create a factory with the given provider', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     expect(typeof factory.create).toBe('function');
@@ -35,7 +35,7 @@ describe('ConcreteMemoryNodeFactory', () => {
   it('should create a memory node with the given context', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -52,10 +52,9 @@ describe('ConcreteMemoryNodeFactory', () => {
   it('should use the provided provider for created nodes', async () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(true);
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
 
     const node = factory.create({
@@ -67,14 +66,14 @@ describe('ConcreteMemoryNodeFactory', () => {
       broadcast: { content: 'Broadcast' },
     });
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalled();
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalled();
     expect(mockProvider.generate).toHaveBeenCalled();
   });
 
   it('should generate unique IDs for each created node', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
 
     const node1 = factory.create({
@@ -89,12 +88,12 @@ describe('ConcreteMemoryNodeFactory', () => {
     expect(node1.id).not.toBe(node2.id);
   });
 
-  it('should share the stateless curiosity gate between nodes', async () => {
+  it('should share the stateless relevance gate between nodes', async () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
-      curiosityGate: mockCuriosityGate,
+      relevanceGate: mockRelevanceGate,
     });
-    vi.mocked(mockProvider.askYesNoQuestion).mockResolvedValue(false);
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
 
     const firstNode = factory.create({
@@ -117,6 +116,6 @@ describe('ConcreteMemoryNodeFactory', () => {
       broadcast: { content: 'Broadcast' },
     });
 
-    expect(mockCuriosityGate.isCurious).toHaveBeenCalledTimes(2);
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledTimes(2);
   });
 });
