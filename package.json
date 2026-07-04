@@ -19,7 +19,7 @@
     "tui": "node dist/src/constants/tui-runner.js",
     "test": "vitest --run --coverage",
     "test:watch": "vitest",
-    "clean": "rm -rf dist node_modules coverage settings.ts",
+    "clean": "rm -rf dist node_modules coverage",
     "lint": "eslint . && prettier --check .",
     "format": "eslint . --fix && prettier --write .",
     "prepare": "husky",

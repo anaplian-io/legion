@@ -26,6 +26,12 @@ interface LogLine {
   readonly color: string;
 }
 
+interface UserInputView {
+  readonly id: number;
+  readonly content: string;
+  readonly status: 'pending' | 'consumed';
+}
+
 /** The Global Workspace Theory epoch cycle, as the user sees it unfold. */
 type Phase =
   'idle' | 'broadcast' | 'afferent' | 'cognitive' | 'attention' | 'consolidate';
@@ -63,6 +69,7 @@ const PHASE_STEPS: ReadonlyArray<{
 ];
 
 const MAX_LOG_LINES = 100;
+const MAX_CONSUMED_USER_INPUTS = 1;
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 const STATUS_COLOR: Record<NodeStatus, string> = {
@@ -78,6 +85,16 @@ const STATUS_LABEL: Record<NodeStatus, string> = {
 };
 
 const shortId = (id: string): string => (id.length > 16 ? id.slice(0, 16) : id);
+
+const trimUserInputHistory = (
+  inputs: readonly UserInputView[],
+): UserInputView[] => {
+  const pending = inputs.filter((input) => input.status === 'pending');
+  const consumed = inputs
+    .filter((input) => input.status === 'consumed')
+    .slice(-MAX_CONSUMED_USER_INPUTS);
+  return [...consumed, ...pending].sort((a, b) => a.id - b.id);
+};
 
 export const App: React.FC<AppProps> = ({
   orchestrator,
@@ -107,13 +124,13 @@ export const App: React.FC<AppProps> = ({
   );
   const [epoch, setEpoch] = useState<number>(0);
   const [logs, setLogs] = useState<LogLine[]>([]);
-  const [paused, setPaused] = useState<boolean>(false);
+  const [paused, setPaused] = useState<boolean>(true);
   const [phase, setPhase] = useState<Phase>('idle');
   const [frame, setFrame] = useState<number>(0);
   const [inputMode, setInputMode] = useState<boolean>(false);
   const [inputValue, setInputValue] = useState<string>('');
-  // The epoch loop stays dormant until the first broadcast is injected.
-  const [started, setStarted] = useState<boolean>(false);
+  const [userInputs, setUserInputs] = useState<UserInputView[]>([]);
+  const [userInputExpanded, setUserInputExpanded] = useState<boolean>(false);
   // Expanded, full-width, fully-readable working-memory view.
   const [wmExpanded, setWmExpanded] = useState<boolean>(false);
 
@@ -208,11 +225,44 @@ export const App: React.FC<AppProps> = ({
         appendLog('✦ distilled new broadcast into working memory', 'magenta');
       },
     });
+
+    eventStream.subscribe({
+      topicName: 'orchestrator/user-input-received',
+      receiver: ({ content }) => {
+        setUserInputs((prev) => [
+          ...trimUserInputHistory(prev),
+          {
+            id: (prev[prev.length - 1]?.id ?? 0) + 1,
+            content,
+            status: 'pending',
+          },
+        ]);
+      },
+    });
+
+    eventStream.subscribe({
+      topicName: 'orchestrator/user-input-consumed',
+      receiver: ({ content }) => {
+        setUserInputs((prev) => {
+          const index = prev.findIndex(
+            (input) => input.status === 'pending' && input.content === content,
+          );
+          if (index < 0) {
+            return prev;
+          }
+          return trimUserInputHistory(
+            prev.map((input, i) =>
+              i === index ? { ...input, status: 'consumed' } : input,
+            ),
+          );
+        });
+      },
+    });
   }, [eventStream]);
 
-  // Drive the epoch loop. Dormant until the first broadcast is injected.
+  // Drive the epoch loop. The TUI boots paused; unpausing starts epochs.
   useEffect(() => {
-    if (!started || paused) return;
+    if (paused) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       // Guards the race where the timer fires during effect teardown. The
@@ -240,20 +290,16 @@ export const App: React.FC<AppProps> = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [epoch, paused, started, orchestrator, epochDelayMs]);
+  }, [epoch, paused, orchestrator, epochDelayMs]);
 
   useInput((input, key) => {
-    // Input mode: capture typed text for an injected broadcast.
+    // Input mode: capture typed text for user input.
     if (inputMode) {
       if (key.return) {
         const text = inputValue.trim();
         if (text.length > 0) {
-          orchestrator.injectBroadcast(text);
-          appendLog(`☢ injected broadcast: ${text}`, 'magentaBright');
-          if (!started) {
-            setStarted(true);
-            appendLog('▶ first broadcast received — starting epochs', 'green');
-          }
+          orchestrator.receiveUserInput(text);
+          appendLog(`↯ received user input: ${text}`, 'magentaBright');
         }
         setInputValue('');
         setInputMode(false);
@@ -298,6 +344,10 @@ export const App: React.FC<AppProps> = ({
       setWmExpanded((e) => !e);
       return;
     }
+    if (input === 'u') {
+      setUserInputExpanded((e) => !e);
+      return;
+    }
     if (input === ' ' || input === 'p') {
       setPaused((p) => !p);
     }
@@ -313,6 +363,13 @@ export const App: React.FC<AppProps> = ({
   const activeStep = PHASE_STEPS.findIndex((s) => s.phase === phase);
   const activeStepDesc = PHASE_STEPS.find((s) => s.phase === phase)?.desc ?? '';
   const visibleLogs = logs.slice(-10);
+  const hasBroadcast = broadcast.trim().length > 0;
+  const visibleUserInput =
+    userInputs.find((input) => input.status === 'pending') ??
+    userInputs[userInputs.length - 1];
+  const pendingUserInputs = userInputs.filter(
+    (input) => input.status === 'pending',
+  ).length;
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -327,17 +384,8 @@ export const App: React.FC<AppProps> = ({
           {epoch}
         </Text>
         <Text color="gray"> · </Text>
-        <Text
-          bold
-          color={
-            !started ? 'yellowBright' : paused ? 'redBright' : 'greenBright'
-          }
-        >
-          {!started
-            ? '◌ AWAITING FIRST BROADCAST'
-            : paused
-              ? '❚❚ PAUSED'
-              : `${spin} RUNNING`}
+        <Text bold color={paused ? 'redBright' : 'greenBright'}>
+          {paused ? '❚❚ PAUSED' : `${spin} RUNNING`}
         </Text>
       </Box>
 
@@ -389,15 +437,63 @@ export const App: React.FC<AppProps> = ({
         </Text>
         <Text color="gray">the single broadcast all processors receive</Text>
         <Box marginTop={1}>
-          {started ? (
+          {hasBroadcast ? (
             <Text color="whiteBright" wrap="truncate-end">
               « {stripMarkdown(broadcast)} »
             </Text>
           ) : (
             <Text color="yellow">
-              awaiting your first broadcast — press [i], type a message, then
+              awaiting your first input — press [i], type a message, then
               [enter] to begin
             </Text>
+          )}
+        </Box>
+      </Box>
+
+      <Box
+        borderStyle="round"
+        borderColor="green"
+        flexDirection="column"
+        paddingX={1}
+        marginTop={1}
+      >
+        <Text bold color="green">
+          USER INPUT{' '}
+        </Text>
+        <Text color="gray">
+          ({pendingUserInputs} pending · [u]{' '}
+          {userInputExpanded ? 'collapse' : 'expand'})
+        </Text>
+        <Box marginTop={1}>
+          {userInputs.length > 0 ? (
+            userInputExpanded ? (
+              <Box flexDirection="column">
+                {userInputs.map((input) => (
+                  <Text
+                    key={input.id}
+                    color={input.status === 'pending' ? 'greenBright' : 'gray'}
+                    wrap="truncate-end"
+                  >
+                    {input.status === 'pending' ? '▸ ' : '✓ '}
+                    {stripMarkdown(input.content)}
+                  </Text>
+                ))}
+              </Box>
+            ) : (
+              <Text
+                color={
+                  visibleUserInput!.status === 'pending'
+                    ? 'greenBright'
+                    : 'gray'
+                }
+                wrap="truncate-end"
+              >
+                {visibleUserInput!.status === 'pending' ? '▸ ' : '✓ '}
+                {stripMarkdown(visibleUserInput!.content)}
+              </Text>
+            )
+          ) : (
+            <Text color="gray">(none received yet)</Text>
           )}
         </Box>
       </Box>
@@ -572,7 +668,7 @@ export const App: React.FC<AppProps> = ({
         {inputMode ? (
           <Text>
             <Text bold color="greenBright">
-              ☀ broadcast›{' '}
+              ↯ user›{' '}
             </Text>
             <Text color="whiteBright">{inputValue}</Text>
             <Text color="green">▏</Text>
@@ -580,9 +676,10 @@ export const App: React.FC<AppProps> = ({
           </Text>
         ) : (
           <Text color="gray">
-            [i] inject · [space] pause/resume ·{' '}
-            {wmExpanded ? '[m] collapse memory' : '[m] expand memory'} · [q]
-            quit
+            [i] input · [space] pause/resume ·{' '}
+            {wmExpanded ? '[m] collapse memory' : '[m] expand memory'} ·{' '}
+            {userInputExpanded ? '[u] collapse input' : '[u] expand input'} ·
+            [q] quit
           </Text>
         )}
       </Box>

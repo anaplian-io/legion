@@ -1,6 +1,7 @@
 export type MessageRole =
   | 'working-memory'
   | 'broadcast'
+  | 'user-input'
   | 'afferent'
   | 'afferent-capability'
   | 'node-response';

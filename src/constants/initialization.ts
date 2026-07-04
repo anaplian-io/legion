@@ -28,6 +28,7 @@ import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curi
 import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
 import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
 import { Provider } from '../types/provider.js';
+import { UserInputSensor } from '../sensor/user-input-sensor.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -84,6 +85,24 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
   });
 
   eventStream.subscribe({
+    topicName: 'orchestrator/user-input-received',
+    receiver: (data) => {
+      console.info(
+        `[Orchestrator] user input received: "${data.content.slice(0, 50)}..."`,
+      );
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'orchestrator/user-input-consumed',
+    receiver: (data) => {
+      console.info(
+        `[Orchestrator] user input consumed: "${data.content.slice(0, 50)}..."`,
+      );
+    },
+  });
+
+  eventStream.subscribe({
     topicName: 'orchestrator/node-stats-updated',
     receiver: (data) => {
       data.nodeStats.forEach(({ nodeId, stats }) => {
@@ -125,6 +144,9 @@ const createSensoryNode = ({
     eventStream,
     sensor: definition.sensor,
     capabilityDescription: definition.capabilityDescription,
+    ...(definition.responseRole === undefined
+      ? {}
+      : { responseRole: definition.responseRole }),
   });
 
 export const init = async (options?: InitOptions) => {
@@ -279,6 +301,19 @@ export const init = async (options?: InitOptions) => {
     relevanceGate: memoryRelevanceGate,
   });
 
+  const userInputSensor = new UserInputSensor();
+  const userInputNode = createSensoryNode({
+    definition: {
+      id: 'sensor-user-input',
+      sensor: userInputSensor,
+      responseRole: 'user-input',
+      capabilityDescription:
+        'can provide queued external user input submitted through the interface.',
+    },
+    provider,
+    eventStream,
+  });
+
   const nodeSplitter = new MemoryNodeSplitter({
     splittingProvider: provider,
     newNodeProvider: provider,
@@ -311,6 +346,7 @@ export const init = async (options?: InitOptions) => {
   }
 
   initialNodes.push(...sensoryNodes);
+  initialNodes.push(userInputNode);
 
   // Use loaded working memory and broadcast if available, otherwise use defaults
   const initialWorkingMemory = loadedSession?.workingMemory ?? { messages: [] };
@@ -341,6 +377,7 @@ export const init = async (options?: InitOptions) => {
     eventStream,
     initialNodes,
     initialNodeStats: loadedSession?.nodeStats,
+    userInputSensor,
   });
 
   return {

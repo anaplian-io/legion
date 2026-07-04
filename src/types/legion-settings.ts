@@ -1,5 +1,6 @@
 import { Provider } from './provider.js';
 import { Sensor } from './sensor.js';
+import { MessageRole } from './message.js';
 
 export interface McpServerStdIo {
   readonly command: string;
@@ -18,6 +19,7 @@ export interface SensorProviderDefinition {
   readonly sensor: Sensor;
   readonly capabilityDescription: string;
   readonly id?: string;
+  readonly responseRole?: MessageRole;
 }
 
 export type SensorProvider = (

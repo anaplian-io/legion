@@ -127,6 +127,7 @@ describe('OpenaiProvider', () => {
             role: 'afferent-capability',
             content: 'Available capability',
           },
+          { role: 'user-input', content: 'User instruction' },
           { role: 'node-response', content: 'Memory node response' },
         ],
       });
@@ -140,6 +141,7 @@ describe('OpenaiProvider', () => {
             role: 'user',
             content: '[AFFERENT CAPABILITY]\nAvailable capability',
           },
+          { role: 'user', content: '[USER INPUT]\nUser instruction' },
           {
             role: 'user',
             content: '[NODE RESPONSE]\nMemory node response',
@@ -247,6 +249,10 @@ describe('OpenaiProvider', () => {
             role: 'working-memory' as const,
             content: 'Working memory snapshot',
           },
+          {
+            role: 'user-input' as const,
+            content: 'User asked about this',
+          },
         ],
         question: 'Is this relevant?',
       });
@@ -259,6 +265,10 @@ describe('OpenaiProvider', () => {
             {
               role: 'user',
               content: '[WORKING MEMORY]\nWorking memory snapshot',
+            },
+            {
+              role: 'user',
+              content: '[USER INPUT]\nUser asked about this',
             },
             expect.objectContaining({
               role: 'user',

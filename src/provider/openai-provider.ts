@@ -65,6 +65,8 @@ export class OpenaiProvider implements Provider {
         return '[WORKING MEMORY]';
       case 'broadcast':
         return '[BROADCAST]';
+      case 'user-input':
+        return '[USER INPUT]';
       case 'afferent':
         return '[AFFERENT]';
       case 'afferent-capability':

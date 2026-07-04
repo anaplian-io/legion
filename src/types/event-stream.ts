@@ -89,6 +89,34 @@ export interface SubscribeOrchestratorWorkingMemoryUpdated {
   readonly receiver: (data: WorkingMemoryUpdatedData) => void | Promise<void>;
 }
 
+export interface UserInputReceivedData {
+  readonly content: string;
+}
+
+export interface PublishOrchestratorUserInputReceived {
+  readonly topicName: 'orchestrator/user-input-received';
+  readonly data: UserInputReceivedData;
+}
+
+export interface SubscribeOrchestratorUserInputReceived {
+  readonly topicName: PublishOrchestratorUserInputReceived['topicName'];
+  readonly receiver: (data: UserInputReceivedData) => void | Promise<void>;
+}
+
+export interface UserInputConsumedData {
+  readonly content: string;
+}
+
+export interface PublishOrchestratorUserInputConsumed {
+  readonly topicName: 'orchestrator/user-input-consumed';
+  readonly data: UserInputConsumedData;
+}
+
+export interface SubscribeOrchestratorUserInputConsumed {
+  readonly topicName: PublishOrchestratorUserInputConsumed['topicName'];
+  readonly receiver: (data: UserInputConsumedData) => void | Promise<void>;
+}
+
 export interface NodeStatsEntry {
   readonly nodeId: string;
   readonly stats: NodeStats;
@@ -114,6 +142,8 @@ export type PublishProps =
   | PublishOrchestratorNodeRemoved
   | PublishOrchestratorNodeUpdated
   | PublishOrchestratorWorkingMemoryUpdated
+  | PublishOrchestratorUserInputReceived
+  | PublishOrchestratorUserInputConsumed
   | PublishOrchestratorNodeStatsUpdated
   | PublishNodeStatusChange;
 
@@ -123,6 +153,8 @@ export type SubscribeProps =
   | SubscribeOrchestratorNodeRemoved
   | SubscribeOrchestratorNodeUpdated
   | SubscribeOrchestratorWorkingMemoryUpdated
+  | SubscribeOrchestratorUserInputReceived
+  | SubscribeOrchestratorUserInputConsumed
   | SubscribeOrchestratorNodeStatsUpdated
   | SubscribeNodeStatusChange;
 
