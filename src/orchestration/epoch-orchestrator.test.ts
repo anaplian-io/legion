@@ -1027,7 +1027,11 @@ describe('EpochOrchestrator', () => {
       kind: 'memory' as const,
       status: 'idle',
       context: longContext,
-      sendMessage: vi.fn(),
+      sendMessage: vi.fn().mockResolvedValue({
+        role: 'node-response' as const,
+        originatingNodeId: 'node-a',
+        content: 'Response',
+      }),
     };
 
     orchestrator.addNode(nodeA);
@@ -1238,6 +1242,79 @@ describe('EpochOrchestrator', () => {
     await orchestrator.runEpoch();
 
     expect(mockMemoryNodeFactory.create).toHaveBeenCalled();
+  });
+
+  it('should evaluate a spawned fallback memory node with the current afferent context', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    const toolNode: Node<'tool'> = {
+      id: 'tool-node',
+      kind: 'tool' as const,
+      status: 'idle',
+      context: 'Tool context',
+      sendMessage: vi.fn().mockResolvedValue({
+        role: 'node-response' as const,
+        originatingNodeId: 'tool-node',
+        content: 'Tool response',
+      }),
+    };
+    const fallbackSend = vi.fn().mockResolvedValue({
+      role: 'node-response' as const,
+      originatingNodeId: 'new-memory-node',
+      content: 'Fallback memory response',
+    });
+    const mockNewNode = createMockNode('new-memory-node', fallbackSend);
+    orchestrator.addNode(toolNode);
+    vi.mocked(mockMemoryNodeFactory.create).mockReturnValue(mockNewNode);
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      {
+        role: 'node-response',
+        originatingNodeId: 'new-memory-node',
+        content: 'Fallback memory response',
+      },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('fallback insight');
+
+    await orchestrator.runEpoch();
+
+    expect(fallbackSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        afferentContext: [
+          {
+            role: 'afferent',
+            content: 'Tool response',
+            originatingNodeId: 'tool-node',
+          },
+        ],
+      }),
+    );
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
+      {
+        role: 'node-response',
+        originatingNodeId: 'new-memory-node',
+        content: 'Fallback memory response',
+      },
+    ]);
+    expect(mockDistiller.distill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        broadcasts: ['Fallback memory response'],
+      }),
+    );
+    expect(orchestrator.currentBroadcast.content).toBe('fallback insight');
   });
 
   it('should handle node throwing an error during sendMessage', async () => {

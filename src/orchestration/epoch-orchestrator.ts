@@ -34,10 +34,13 @@ interface CandidateMessage extends Message {
 }
 
 interface EpochCandidates {
-  // Ids of every node polled this epoch (split/spawned nodes added later begin
-  // next epoch).
+  // Ids of every node polled this epoch.
   readonly aliveNodeIds: string[];
   readonly candidates: CandidateMessage[];
+}
+
+interface CognitiveWave extends EpochCandidates {
+  readonly fallbackSpawned: boolean;
 }
 
 export class EpochOrchestrator {
@@ -120,10 +123,7 @@ export class EpochOrchestrator {
     ];
 
     // Cognitive wave: memory nodes reason with the afferent context in hand.
-    const cognitive = await this.pollNodes(
-      this._registry.memoryNodes(),
-      afferentContext,
-    );
+    const cognitive = await this.pollCognitiveNodes(afferentContext);
     const survivors = await this.props.relevanceFilter.filter(
       this.workingMemory,
       cognitive.candidates,
@@ -132,7 +132,9 @@ export class EpochOrchestrator {
     this.recordEpochStats(afferent, cognitive, survivors);
 
     if (survivors.length === 0) {
-      this.spawnNewNode();
+      if (!cognitive.fallbackSpawned) {
+        this.spawnNewNode();
+      }
       return;
     }
 
@@ -179,6 +181,28 @@ export class EpochOrchestrator {
             : undefined,
         )
         .filter(isDefined),
+    };
+  };
+
+  private readonly pollCognitiveNodes = async (
+    afferentContext: readonly Message[],
+  ): Promise<CognitiveWave> => {
+    const cognitive = await this.pollNodes(
+      this._registry.memoryNodes(),
+      afferentContext,
+    );
+
+    if (cognitive.candidates.length > 0) {
+      return { ...cognitive, fallbackSpawned: false };
+    }
+
+    const fallbackNode = this.spawnNewNode();
+    const fallback = await this.pollNodes([fallbackNode], afferentContext);
+
+    return {
+      aliveNodeIds: [...cognitive.aliveNodeIds, ...fallback.aliveNodeIds],
+      candidates: fallback.candidates,
+      fallbackSpawned: true,
     };
   };
 
@@ -259,16 +283,16 @@ export class EpochOrchestrator {
       .forEach((node) => this.removeNode(node.id));
   };
 
-  private readonly spawnNewNode = (): void => {
+  private readonly spawnNewNode = (): Node<'memory'> => {
     const initialContext =
       this.workingMemory.messages.length > 0
         ? this.workingMemory.messages.map((m) => m.content).join('\n')
         : this._currentBroadcast.content;
-    this.addNode(
-      this.props.memoryNodeFactory.create({
-        initialContext,
-        eventStream: this.props.eventStream,
-      }),
-    );
+    const node = this.props.memoryNodeFactory.create({
+      initialContext,
+      eventStream: this.props.eventStream,
+    });
+    this.addNode(node);
+    return node;
   };
 }
