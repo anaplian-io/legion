@@ -33,11 +33,13 @@ describe('LlmRelevanceFilter', () => {
 
   it('should return all candidate messages when attentionGate returns "all"', async () => {
     const workingMemory: WorkingMemory = {
-      messages: [{ content: 'Previous message' }],
+      messages: [
+        { role: 'working-memory' as const, content: 'Previous message' },
+      ],
     };
     const candidateMessages: Message[] = [
-      { content: 'Candidate 1' },
-      { content: 'Candidate 2' },
+      { role: 'node-response' as const, content: 'Candidate 1' },
+      { role: 'node-response' as const, content: 'Candidate 2' },
     ];
 
     vi.mocked(mockAttentionGate.getTopN).mockResolvedValue('all');
@@ -55,12 +57,14 @@ describe('LlmRelevanceFilter', () => {
 
   it('should filter candidate messages by relevance and apply attention gate', async () => {
     const workingMemory: WorkingMemory = {
-      messages: [{ content: 'Context message' }],
+      messages: [
+        { role: 'working-memory' as const, content: 'Context message' },
+      ],
     };
     const candidateMessages: Message[] = [
-      { content: 'Most relevant message' },
-      { content: 'Least relevant message' },
-      { content: 'Medium relevant message' },
+      { role: 'node-response' as const, content: 'Most relevant message' },
+      { role: 'node-response' as const, content: 'Least relevant message' },
+      { role: 'node-response' as const, content: 'Medium relevant message' },
     ];
 
     vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(2);
@@ -83,19 +87,22 @@ describe('LlmRelevanceFilter', () => {
     );
 
     expect(result).toEqual([
-      { content: 'Most relevant message' },
-      { content: 'Medium relevant message' },
+      { role: 'node-response' as const, content: 'Most relevant message' },
+      { role: 'node-response' as const, content: 'Medium relevant message' },
     ]);
   });
 
   it('should concatenate multi-message working memory without stray separators', async () => {
     const workingMemory: WorkingMemory = {
-      messages: [{ content: 'First context' }, { content: 'Second context' }],
+      messages: [
+        { role: 'working-memory', content: 'First context' },
+        { role: 'working-memory', content: 'Second context' },
+      ],
     };
     const candidateMessages: Message[] = [
-      { content: 'Candidate 1' },
-      { content: 'Candidate 2' },
-      { content: 'Candidate 3' },
+      { role: 'node-response' as const, content: 'Candidate 1' },
+      { role: 'node-response' as const, content: 'Candidate 2' },
+      { role: 'node-response' as const, content: 'Candidate 3' },
     ];
 
     vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(1);
@@ -118,7 +125,7 @@ describe('LlmRelevanceFilter', () => {
 
   it('should handle empty candidate messages', async () => {
     const workingMemory: WorkingMemory = {
-      messages: [{ content: 'Context' }],
+      messages: [{ role: 'working-memory' as const, content: 'Context' }],
     };
     const candidateMessages: Message[] = [];
 
@@ -140,8 +147,8 @@ describe('LlmRelevanceFilter', () => {
       messages: [],
     };
     const candidateMessages: Message[] = [
-      { content: 'Candidate 1' },
-      { content: 'Candidate 2' },
+      { role: 'node-response' as const, content: 'Candidate 1' },
+      { role: 'node-response' as const, content: 'Candidate 2' },
     ];
 
     vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(1);
@@ -159,19 +166,21 @@ describe('LlmRelevanceFilter', () => {
       'Candidate 2',
     ]);
 
-    expect(result).toEqual([{ content: 'Candidate 1' }]);
+    expect(result).toEqual([
+      { role: 'node-response' as const, content: 'Candidate 1' },
+    ]);
   });
 
   it('should apply attention gate limit after relevance ranking', async () => {
     const workingMemory: WorkingMemory = {
-      messages: [{ content: 'Context' }],
+      messages: [{ role: 'working-memory' as const, content: 'Context' }],
     };
     const candidateMessages: Message[] = [
-      { content: 'A' },
-      { content: 'B' },
-      { content: 'C' },
-      { content: 'D' },
-      { content: 'E' },
+      { role: 'node-response' as const, content: 'A' },
+      { role: 'node-response' as const, content: 'B' },
+      { role: 'node-response' as const, content: 'C' },
+      { role: 'node-response' as const, content: 'D' },
+      { role: 'node-response' as const, content: 'E' },
     ];
 
     vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(3);
@@ -186,17 +195,19 @@ describe('LlmRelevanceFilter', () => {
 
     expect(result).toHaveLength(3);
     expect(result).toEqual([
-      { content: 'A' },
-      { content: 'B' },
-      { content: 'C' },
+      { role: 'node-response' as const, content: 'A' },
+      { role: 'node-response' as const, content: 'B' },
+      { role: 'node-response' as const, content: 'C' },
     ]);
   });
 
   it('should handle case where relevance ranking returns indices beyond candidate array', async () => {
     const workingMemory: WorkingMemory = {
-      messages: [{ content: 'Context' }],
+      messages: [{ role: 'working-memory' as const, content: 'Context' }],
     };
-    const candidateMessages: Message[] = [{ content: 'Only one' }];
+    const candidateMessages: Message[] = [
+      { role: 'node-response' as const, content: 'Only one' },
+    ];
 
     vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(10);
     vi.mocked(mockProvider.rankByRelevance).mockResolvedValue([0, 0, 1, 2]);
@@ -208,6 +219,8 @@ describe('LlmRelevanceFilter', () => {
 
     const result = await filter.filter(workingMemory, candidateMessages);
 
-    expect(result).toEqual([{ content: 'Only one' }]);
+    expect(result).toEqual([
+      { role: 'node-response' as const, content: 'Only one' },
+    ]);
   });
 });

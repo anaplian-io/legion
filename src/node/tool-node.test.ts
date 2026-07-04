@@ -116,7 +116,7 @@ describe('ToolNode', () => {
 
     const broadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     };
 
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
@@ -158,7 +158,7 @@ describe('ToolNode', () => {
     await node.initialize();
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     expect(result).toBeUndefined();
@@ -186,7 +186,7 @@ describe('ToolNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     expect(result).toBeUndefined();
@@ -214,7 +214,7 @@ describe('ToolNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     expect(result).toBeUndefined();
@@ -259,11 +259,15 @@ describe('ToolNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'What is the weather?' },
+      broadcast: {
+        role: 'broadcast' as const,
+        content: 'What is the weather?',
+      },
     });
 
     // Should return JSON string of tool results array
     expect(result).toEqual({
+      role: 'afferent',
       originatingNodeId: 'test-node',
       content: JSON.stringify([
         {
@@ -292,11 +296,11 @@ describe('ToolNode', () => {
     const broadcastMessage = {
       workingMemory: {
         messages: [
-          { content: 'Previous message 1' },
-          { content: 'Previous message 2' },
+          { role: 'working-memory' as const, content: 'Previous message 1' },
+          { role: 'working-memory' as const, content: 'Previous message 2' },
         ],
       },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
@@ -322,12 +326,12 @@ describe('ToolNode', () => {
     const callArgs = vi.mocked(mockProvider.generateWithTools).mock
       .calls[0]?.[0] as {
       systemPrompt: string;
-      messages: { content: string }[];
+      messages: { role: string; content: string }[];
     };
     expect(callArgs.messages).toEqual([
-      { content: 'Previous message 1' },
-      { content: 'Previous message 2' },
-      { content: 'New broadcast' },
+      { role: 'working-memory' as const, content: 'Previous message 1' },
+      { role: 'working-memory' as const, content: 'Previous message 2' },
+      { role: 'broadcast' as const, content: 'New broadcast' },
     ]);
     expect(callArgs.systemPrompt).not.toContain('Previous message 1');
   });
@@ -350,9 +354,12 @@ describe('ToolNode', () => {
     await node.initialize();
     const broadcastMessage = {
       workingMemory: {
-        messages: [{ content: 'First WM' }, { content: 'Second WM' }],
+        messages: [
+          { role: 'working-memory' as const, content: 'First WM' },
+          { role: 'working-memory' as const, content: 'Second WM' },
+        ],
       },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
     await node.sendMessage(broadcastMessage);
 
@@ -390,20 +397,24 @@ describe('ToolNode', () => {
       workingMemory: {
         messages: [
           {
+            role: 'working-memory' as const,
             content:
               'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
           },
           {
+            role: 'working-memory' as const,
             content:
               'Need user input/action on weather links for Brooklyn, NY.',
           },
           {
+            role: 'working-memory' as const,
             content:
               'Need specific dates for weather/clothing advice; no event info found yet.',
           },
         ],
       },
       broadcast: {
+        role: 'broadcast' as const,
         content:
           'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
       },
@@ -448,16 +459,19 @@ describe('ToolNode', () => {
       workingMemory: {
         messages: [
           {
+            role: 'working-memory' as const,
             content:
               'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
           },
           {
+            role: 'working-memory' as const,
             content:
               'Need specific dates for weather/clothing advice; no event info found yet.',
           },
         ],
       },
       broadcast: {
+        role: 'broadcast' as const,
         content:
           'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
       },
@@ -492,7 +506,10 @@ describe('ToolNode', () => {
     await node.initialize();
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Search for a current forecast.' },
+      broadcast: {
+        role: 'broadcast' as const,
+        content: 'Search for a current forecast.',
+      },
     });
 
     expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();
@@ -520,7 +537,7 @@ describe('ToolNode', () => {
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     expect(mockEventStream.publish).toHaveBeenCalledWith(
@@ -551,7 +568,7 @@ describe('ToolNode', () => {
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     expect(mockEventStream.publish).toHaveBeenCalledWith(
@@ -582,7 +599,7 @@ describe('ToolNode', () => {
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     const publishCalls = vi.mocked(mockEventStream.publish).mock.calls;
@@ -635,10 +652,11 @@ describe('ToolNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'What is 2+2?' },
+      broadcast: { role: 'broadcast' as const, content: 'What is 2+2?' },
     });
 
     expect(result).toEqual({
+      role: 'afferent',
       originatingNodeId: 'test-node',
       content: JSON.stringify([
         {
@@ -687,10 +705,11 @@ describe('ToolNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'What is 2+2?' },
+      broadcast: { role: 'broadcast' as const, content: 'What is 2+2?' },
     });
 
     expect(result).toEqual({
+      role: 'afferent',
       originatingNodeId: 'test-node',
       content: JSON.stringify([
         {
@@ -758,7 +777,7 @@ describe('ToolNode', () => {
 
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Use multiple tools' },
+      broadcast: { role: 'broadcast' as const, content: 'Use multiple tools' },
     });
 
     // Should have invoked both tools
@@ -786,7 +805,7 @@ describe('ToolNode', () => {
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     // Should publish 3 events: evaluating-relevance, idle, generating, and idle
@@ -820,7 +839,7 @@ describe('ToolNode', () => {
     await expect(
       node.sendMessage({
         workingMemory: { messages: [] },
-        broadcast: { content: 'Test' },
+        broadcast: { role: 'broadcast' as const, content: 'Test' },
       }),
     ).resolves.toBeUndefined();
   });
@@ -847,7 +866,7 @@ describe('ToolNode', () => {
     await node.initialize();
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     expect(mockProvider.generateWithTools).toHaveBeenCalled();
@@ -871,7 +890,7 @@ describe('ToolNode', () => {
     await node.initialize();
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Test' },
+      broadcast: { role: 'broadcast' as const, content: 'Test' },
     });
 
     // Should return undefined because neither relevance nor curiosity triggered

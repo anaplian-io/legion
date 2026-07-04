@@ -6,7 +6,7 @@ describe('SequencedCompositeRelevanceGate', () => {
   const relevanceProps = {
     broadcastMessage: {
       workingMemory: { messages: [] },
-      broadcast: { content: 'Broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     },
     nodeId: 'node-1',
     epochsAlive: 0,

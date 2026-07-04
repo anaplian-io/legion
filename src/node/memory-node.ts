@@ -59,6 +59,7 @@ export class MemoryNode implements Node<'memory'> {
     await this.setStatus('idle');
     await this.setStatus('generating');
     const response: NodeResponse = {
+      role: 'node-response',
       originatingNodeId: this.id,
       content: await provider.generate({
         messages,

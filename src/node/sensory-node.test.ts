@@ -54,13 +54,14 @@ describe('SensoryNode', () => {
 
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     const result = await node.sendMessage(broadcastMessage);
 
     expect(sensor.sense).toHaveBeenCalledWith(broadcastMessage);
     expect(result).toEqual({
+      role: 'afferent',
       originatingNodeId: 'sensory-1',
       content: 'Test sensation',
     });
@@ -89,7 +90,7 @@ describe('SensoryNode', () => {
 
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test' },
+      broadcast: { role: 'broadcast' as const, content: 'test' },
     });
 
     expect(statusEvents).toHaveLength(2);
@@ -118,10 +119,11 @@ describe('SensoryNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test' },
+      broadcast: { role: 'broadcast' as const, content: 'test' },
     });
 
     expect(result).toEqual({
+      role: 'afferent',
       originatingNodeId: 'sensory-1',
       content: 'Async sensation',
     });
@@ -142,11 +144,11 @@ describe('SensoryNode', () => {
 
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test1' },
+      broadcast: { role: 'broadcast' as const, content: 'test1' },
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test2' },
+      broadcast: { role: 'broadcast' as const, content: 'test2' },
     });
 
     expect(node.id).toBe('test-id');
@@ -168,11 +170,11 @@ describe('SensoryNode', () => {
 
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test1' },
+      broadcast: { role: 'broadcast' as const, content: 'test1' },
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test2' },
+      broadcast: { role: 'broadcast' as const, content: 'test2' },
     });
 
     expect(sensor.sense).toHaveBeenCalledTimes(2);
@@ -193,7 +195,7 @@ describe('SensoryNode', () => {
 
     const result = await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test' },
+      broadcast: { role: 'broadcast' as const, content: 'test' },
     });
 
     expect(result).toBeUndefined();
@@ -214,7 +216,7 @@ describe('SensoryNode', () => {
 
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'test' },
+      broadcast: { role: 'broadcast' as const, content: 'test' },
     });
 
     // Provider methods should not be called for sensory nodes
@@ -244,9 +246,10 @@ describe('SensoryNode', () => {
     await expect(
       node.sendMessage({
         workingMemory: { messages: [] },
-        broadcast: { content: 'test' },
+        broadcast: { role: 'broadcast' as const, content: 'test' },
       }),
     ).resolves.toEqual({
+      role: 'afferent',
       originatingNodeId: 'sensory-1',
       content: 'Sensation',
     });

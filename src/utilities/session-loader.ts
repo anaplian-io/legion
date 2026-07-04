@@ -51,7 +51,10 @@ export const SessionLoader = {
     const wmFilePath = path.join(normalizedDirectory, 'working-memory.json');
     if (fs.existsSync(wmFilePath)) {
       const content = fs.readFileSync(wmFilePath, 'utf-8');
-      const event = JSON.parse(content);
+      const event = JSON.parse(content) as {
+        readonly workingMemory: WorkingMemory;
+        readonly broadcast: Message;
+      };
       workingMemory = event.workingMemory;
       broadcast = event.broadcast;
     } else {

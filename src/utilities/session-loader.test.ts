@@ -85,7 +85,7 @@ describe('SessionLoader', () => {
       if (filePath.includes('working-memory.json')) {
         return JSON.stringify({
           workingMemory: { messages: [] },
-          broadcast: { content: '' },
+          broadcast: { role: 'broadcast' as const, content: '' },
         });
       }
       throw new Error(`ENOENT: no such file or directory, open '${filePath}'`);
@@ -129,7 +129,7 @@ describe('SessionLoader', () => {
         },
       ],
       workingMemory: { messages: [] },
-      broadcast: { content: '' },
+      broadcast: { role: 'broadcast' as const, content: '' },
       nodeStats: new Map(),
     });
 
@@ -157,11 +157,11 @@ describe('SessionLoader', () => {
       return JSON.stringify({
         workingMemory: {
           messages: [
-            { content: 'First message' },
-            { content: 'Second message' },
+            { role: 'working-memory', content: 'First message' },
+            { role: 'working-memory', content: 'Second message' },
           ],
         },
-        broadcast: { content: 'Second message' },
+        broadcast: { role: 'broadcast' as const, content: 'Second message' },
       });
     });
 
@@ -188,9 +188,12 @@ describe('SessionLoader', () => {
     expect(result).toEqual({
       nodes: [],
       workingMemory: {
-        messages: [{ content: 'First message' }, { content: 'Second message' }],
+        messages: [
+          { role: 'working-memory', content: 'First message' },
+          { role: 'working-memory', content: 'Second message' },
+        ],
       },
-      broadcast: { content: 'Second message' },
+      broadcast: { role: 'broadcast' as const, content: 'Second message' },
       nodeStats: new Map(),
     });
   });
@@ -258,7 +261,7 @@ describe('SessionLoader', () => {
     readFileSync.mockImplementation(() => {
       return JSON.stringify({
         workingMemory: { messages: [] },
-        broadcast: { content: '' },
+        broadcast: { role: 'broadcast' as const, content: '' },
       });
     });
 
@@ -279,7 +282,7 @@ describe('SessionLoader', () => {
     expect(result).toEqual({
       nodes: [],
       workingMemory: { messages: [] },
-      broadcast: { content: '' },
+      broadcast: { role: 'broadcast' as const, content: '' },
       nodeStats: new Map(),
     });
   });
@@ -359,7 +362,7 @@ describe('SessionLoader', () => {
       if (filePath.includes('working-memory.json')) {
         return JSON.stringify({
           workingMemory: { messages: [] },
-          broadcast: { content: '' },
+          broadcast: { role: 'broadcast' as const, content: '' },
         });
       }
       if (filePath.includes('stats.json')) {
@@ -435,7 +438,7 @@ describe('SessionLoader', () => {
             { content: 'Third' },
           ],
         },
-        broadcast: { content: 'Third' },
+        broadcast: { role: 'broadcast' as const, content: 'Third' },
       });
     });
 

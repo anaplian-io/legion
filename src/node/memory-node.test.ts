@@ -42,9 +42,11 @@ describe('MemoryNode', () => {
   it('should return undefined if memory is not relevant', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: {
-        messages: [{ content: 'Previous message' }],
+        messages: [
+          { role: 'working-memory' as const, content: 'Previous message' },
+        ],
       },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
@@ -76,11 +78,11 @@ describe('MemoryNode', () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: {
         messages: [
-          { content: 'Previous message 1' },
-          { content: 'Previous message 2' },
+          { role: 'working-memory', content: 'Previous message 1' },
+          { role: 'working-memory', content: 'Previous message 2' },
         ],
       },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockProvider.generate).mockResolvedValue('Generated response');
@@ -107,13 +109,14 @@ describe('MemoryNode', () => {
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('Initial context'),
       messages: [
-        { content: 'Previous message 1' },
-        { content: 'Previous message 2' },
-        { content: 'New broadcast' },
+        { role: 'working-memory', content: 'Previous message 1' },
+        { role: 'working-memory', content: 'Previous message 2' },
+        { role: 'broadcast', content: 'New broadcast' },
       ],
     });
 
     expect(result).toEqual({
+      role: 'node-response',
       originatingNodeId: 'memory-1',
       content: 'Generated response',
     });
@@ -123,7 +126,7 @@ describe('MemoryNode', () => {
   it('should generate response when relevance gate returns true', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
@@ -147,6 +150,7 @@ describe('MemoryNode', () => {
     });
     expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();
     expect(result).toEqual({
+      role: 'node-response',
       originatingNodeId: 'memory-1',
       content: 'Curious response',
     });
@@ -155,7 +159,7 @@ describe('MemoryNode', () => {
   it('should pass preamble to relevance gate', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     const node = new MemoryNode({
@@ -182,9 +186,12 @@ describe('MemoryNode', () => {
   it('should pass broadcast message to relevance gate', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: {
-        messages: [{ content: 'First WM' }, { content: 'Second WM' }],
+        messages: [
+          { role: 'working-memory', content: 'First WM' },
+          { role: 'working-memory', content: 'Second WM' },
+        ],
       },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     const node = new MemoryNode({
@@ -210,10 +217,12 @@ describe('MemoryNode', () => {
       workingMemory: {
         messages: [
           {
+            role: 'working-memory',
             content:
               'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
           },
           {
+            role: 'working-memory',
             content:
               'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
           },
@@ -221,11 +230,13 @@ describe('MemoryNode', () => {
       },
       afferentContext: [
         {
+          role: 'afferent-capability',
           content:
             'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
         },
       ],
       broadcast: {
+        role: 'broadcast',
         content:
           'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
       },
@@ -260,6 +271,7 @@ describe('MemoryNode', () => {
       systemPrompt: expect.stringContaining('available afferent capabilities'),
       messages: expect.arrayContaining([
         {
+          role: 'afferent-capability',
           content:
             'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
         },
@@ -270,7 +282,7 @@ describe('MemoryNode', () => {
   it('should handle empty working memory', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
@@ -286,7 +298,7 @@ describe('MemoryNode', () => {
     await node.sendMessage(broadcastMessage);
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
-      messages: [{ content: 'New broadcast' }],
+      messages: [{ role: 'broadcast', content: 'New broadcast' }],
       systemPrompt: expect.any(String),
     });
   });
@@ -307,8 +319,10 @@ describe('MemoryNode', () => {
 
   it('should return undefined when relevant check returns false', async () => {
     const broadcastMessage: BroadcastMessage = {
-      workingMemory: { messages: [{ content: 'test' }] },
-      broadcast: { content: 'new' },
+      workingMemory: {
+        messages: [{ role: 'working-memory' as const, content: 'test' }],
+      },
+      broadcast: { role: 'broadcast' as const, content: 'new' },
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
@@ -334,7 +348,7 @@ describe('MemoryNode', () => {
   it('should publish status change events on status change', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');
@@ -373,7 +387,7 @@ describe('MemoryNode', () => {
   it('should handle async status event subscriber', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
@@ -407,7 +421,7 @@ describe('MemoryNode', () => {
   it('should not throw if status event subscriber throws', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
@@ -442,7 +456,7 @@ describe('MemoryNode', () => {
   it('should handle publish throwing error gracefully', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
@@ -470,7 +484,7 @@ describe('MemoryNode', () => {
   it('should update context with broadcast and response when relevant', async () => {
     const broadcastMessage: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'New broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
     vi.mocked(mockProvider.generate).mockResolvedValue('Node response');
@@ -494,12 +508,12 @@ describe('MemoryNode', () => {
   it('should accumulate context across multiple sendMessage calls', async () => {
     const broadcastMessage1: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'First broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'First broadcast' },
     };
 
     const broadcastMessage2: BroadcastMessage = {
       workingMemory: { messages: [] },
-      broadcast: { content: 'Second broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'Second broadcast' },
     };
 
     vi.mocked(mockProvider.generate)

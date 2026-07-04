@@ -4,6 +4,7 @@ import { App } from './app.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import type { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import type { Node } from '../types/node.js';
+import type { Message } from '../types/message.js';
 
 const ESC = '\x1B';
 const BACKSPACE = '\x7F';
@@ -27,8 +28,8 @@ const toolNode = (id: string): Node<'tool'> => ({
 
 interface FakeOrchestrator {
   nodes: Node<string>[];
-  workingMemory: { messages: { content: string }[] };
-  currentBroadcast: { content: string };
+  workingMemory: { messages: Message[] };
+  currentBroadcast: Message;
   runEpoch: ReturnType<typeof vi.fn>;
   injectBroadcast: ReturnType<typeof vi.fn>;
 }
@@ -38,7 +39,7 @@ const makeOrchestrator = (
 ): FakeOrchestrator => ({
   nodes: [],
   workingMemory: { messages: [] },
-  currentBroadcast: { content: '' },
+  currentBroadcast: { role: 'broadcast', content: '' },
   runEpoch: vi.fn().mockResolvedValue(undefined),
   injectBroadcast: vi.fn(),
   ...overrides,
@@ -85,8 +86,12 @@ describe('App', () => {
   it('renders the awaiting-broadcast state with seeded nodes and memory', () => {
     const orchestrator = makeOrchestrator({
       nodes: [memoryNode('seed-node-1')],
-      workingMemory: { messages: [{ content: 'remembered thing' }] },
-      currentBroadcast: { content: 'seed broadcast' },
+      workingMemory: {
+        messages: [
+          { role: 'working-memory' as const, content: 'remembered thing' },
+        ],
+      },
+      currentBroadcast: { role: 'broadcast', content: 'seed broadcast' },
     });
 
     const { lastFrame } = render(
@@ -260,8 +265,8 @@ describe('App', () => {
       // compact (initial) and expanded panels.
       workingMemory: {
         messages: [
-          { content: 'older mem entry' },
-          { content: 'newest mem entry' },
+          { role: 'working-memory', content: 'older mem entry' },
+          { role: 'working-memory', content: 'newest mem entry' },
         ],
       },
     });
@@ -499,8 +504,12 @@ describe('App', () => {
     eventStream.publish({
       topicName: 'orchestrator/working-memory-updated',
       data: {
-        workingMemory: { messages: [{ content: 'distilled mem' }] },
-        broadcast: { content: 'new broadcast' },
+        workingMemory: {
+          messages: [
+            { role: 'working-memory' as const, content: 'distilled mem' },
+          ],
+        },
+        broadcast: { role: 'broadcast' as const, content: 'new broadcast' },
       },
     });
     const out = await waitForFrame(
@@ -531,8 +540,10 @@ describe('App', () => {
     eventStream.publish({
       topicName: 'orchestrator/working-memory-updated',
       data: {
-        workingMemory: { messages: [{ content: 'm' }] },
-        broadcast: { content: 'b' },
+        workingMemory: {
+          messages: [{ role: 'working-memory' as const, content: 'm' }],
+        },
+        broadcast: { role: 'broadcast' as const, content: 'b' },
       },
     });
     await waitForFrame(lastFrame, (f) => f.includes('Consolidate'));

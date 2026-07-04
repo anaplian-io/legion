@@ -58,8 +58,11 @@ describe('OpenaiProvider', () => {
       const result = await provider.generate({
         systemPrompt: 'You are a helpful assistant.',
         messages: [
-          { content: 'Hello, how are you?' },
-          { content: 'I am doing well, thanks!' },
+          { role: 'broadcast' as const, content: 'Hello, how are you?' },
+          {
+            role: 'working-memory' as const,
+            content: 'I am doing well, thanks!',
+          },
         ],
       });
 
@@ -67,8 +70,11 @@ describe('OpenaiProvider', () => {
         model: 'test-model',
         messages: [
           { role: 'system', content: 'You are a helpful assistant.' },
-          { role: 'user', content: 'Hello, how are you?' },
-          { role: 'user', content: 'I am doing well, thanks!' },
+          { role: 'user', content: '[BROADCAST]\nHello, how are you?' },
+          {
+            role: 'user',
+            content: '[WORKING MEMORY]\nI am doing well, thanks!',
+          },
         ],
       });
       expect(result).toBe('Hi there! I am a test response.');
@@ -103,6 +109,45 @@ describe('OpenaiProvider', () => {
       expect(result).toBe('Distilled output');
     });
 
+    it('should label non-broadcast Legion message roles as user context', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('ok'),
+      );
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await provider.generate({
+        systemPrompt: 'System instructions',
+        messages: [
+          { role: 'afferent', content: 'Tool output' },
+          {
+            role: 'afferent-capability',
+            content: 'Available capability',
+          },
+          { role: 'node-response', content: 'Memory node response' },
+        ],
+      });
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
+        model: 'test-model',
+        messages: [
+          { role: 'system', content: 'System instructions' },
+          { role: 'user', content: '[AFFERENT]\nTool output' },
+          {
+            role: 'user',
+            content: '[AFFERENT CAPABILITY]\nAvailable capability',
+          },
+          {
+            role: 'user',
+            content: '[NODE RESPONSE]\nMemory node response',
+          },
+        ],
+      });
+    });
+
     it('should return empty string when there are no choices', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
         noChoices(),
@@ -115,7 +160,7 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.generate({
         systemPrompt: 'test',
-        messages: [{ content: 'test' }],
+        messages: [{ role: 'broadcast' as const, content: 'test' }],
       });
 
       expect(result).toBe('');
@@ -133,7 +178,7 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.generate({
         systemPrompt: 'test',
-        messages: [{ content: 'test' }],
+        messages: [{ role: 'broadcast' as const, content: 'test' }],
       });
 
       expect(result).toBe('');
@@ -197,7 +242,12 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.askYesNoQuestion({
         systemPrompt: 'You are node 42.',
-        messages: [{ content: 'Working memory snapshot' }],
+        messages: [
+          {
+            role: 'working-memory' as const,
+            content: 'Working memory snapshot',
+          },
+        ],
         question: 'Is this relevant?',
       });
 
@@ -206,7 +256,10 @@ describe('OpenaiProvider', () => {
           temperature: 0,
           messages: [
             { role: 'system', content: 'You are node 42.' },
-            { role: 'user', content: 'Working memory snapshot' },
+            {
+              role: 'user',
+              content: '[WORKING MEMORY]\nWorking memory snapshot',
+            },
             expect.objectContaining({
               role: 'user',
               content: expect.stringContaining('Is this relevant?'),
@@ -327,7 +380,9 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.generateWithTools({
         systemPrompt: 'You are a helpful assistant.',
-        messages: [{ content: 'What is the weather?' }],
+        messages: [
+          { role: 'broadcast' as const, content: 'What is the weather?' },
+        ],
         tools: [
           {
             name: 'get_weather',
@@ -388,7 +443,7 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.generateWithTools({
         systemPrompt: 'You are a helpful assistant.',
-        messages: [{ content: 'Hello!' }],
+        messages: [{ role: 'broadcast' as const, content: 'Hello!' }],
         tools: [
           {
             name: 'minimal_tool',
@@ -418,7 +473,7 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.generateWithTools({
         systemPrompt: 'You are a helpful assistant.',
-        messages: [{ content: 'Hello!' }],
+        messages: [{ role: 'broadcast' as const, content: 'Hello!' }],
         tools: [],
       });
 
@@ -444,7 +499,7 @@ describe('OpenaiProvider', () => {
 
       const result = await provider.generateWithTools({
         systemPrompt: 'You are a helpful assistant.',
-        messages: [{ content: 'Hello!' }],
+        messages: [{ role: 'broadcast' as const, content: 'Hello!' }],
         tools: [],
       });
 

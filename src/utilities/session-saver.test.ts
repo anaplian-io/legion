@@ -529,12 +529,21 @@ describe('SessionSaver', () => {
       });
 
       const workingMemory = {
-        messages: [{ content: 'First message' }, { content: 'Second message' }],
+        messages: [
+          { role: 'working-memory' as const, content: 'First message' },
+          { role: 'working-memory' as const, content: 'Second message' },
+        ],
       };
 
       eventStream.publish({
         topicName: 'orchestrator/working-memory-updated',
-        data: { workingMemory, broadcast: { content: 'Current broadcast' } },
+        data: {
+          workingMemory,
+          broadcast: {
+            role: 'broadcast' as const,
+            content: 'Current broadcast',
+          },
+        },
       });
 
       const expectedPath = path.join(mockDirectory, 'working-memory.json');
@@ -543,7 +552,10 @@ describe('SessionSaver', () => {
       expect(callArgs[0]).toBe(expectedPath);
       const savedEvent = JSON.parse(callArgs[1]);
       expect(savedEvent.workingMemory).toEqual(workingMemory);
-      expect(savedEvent.broadcast).toEqual({ content: 'Current broadcast' });
+      expect(savedEvent.broadcast).toEqual({
+        role: 'broadcast',
+        content: 'Current broadcast',
+      });
     });
 
     it('should handle empty working memory', async () => {
@@ -558,7 +570,10 @@ describe('SessionSaver', () => {
 
       eventStream.publish({
         topicName: 'orchestrator/working-memory-updated',
-        data: { workingMemory, broadcast: { content: 'Broadcast' } },
+        data: {
+          workingMemory,
+          broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
+        },
       });
 
       const expectedPath = path.join(mockDirectory, 'working-memory.json');
@@ -567,7 +582,10 @@ describe('SessionSaver', () => {
       expect(callArgs[0]).toBe(expectedPath);
       const savedEvent = JSON.parse(callArgs[1]);
       expect(savedEvent.workingMemory).toEqual(workingMemory);
-      expect(savedEvent.broadcast).toEqual({ content: 'Broadcast' });
+      expect(savedEvent.broadcast).toEqual({
+        role: 'broadcast',
+        content: 'Broadcast',
+      });
     });
   });
 

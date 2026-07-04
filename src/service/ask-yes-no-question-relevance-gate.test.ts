@@ -22,8 +22,10 @@ describe('AskYesNoQuestionRelevanceGate', () => {
     await expect(
       gate.isRelevant({
         broadcastMessage: {
-          workingMemory: { messages: [{ content: 'Previous' }] },
-          broadcast: { content: 'Broadcast' },
+          workingMemory: {
+            messages: [{ role: 'working-memory', content: 'Previous' }],
+          },
+          broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
         },
         nodeId: 'node-1',
         epochsAlive: 2,
@@ -33,7 +35,10 @@ describe('AskYesNoQuestionRelevanceGate', () => {
 
     expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
       systemPrompt: 'Node context',
-      messages: [{ content: 'Previous' }, { content: 'Broadcast' }],
+      messages: [
+        { role: 'working-memory', content: 'Previous' },
+        { role: 'broadcast', content: 'Broadcast' },
+      ],
       question: 'Is this useful?',
     });
   });
@@ -48,9 +53,11 @@ describe('AskYesNoQuestionRelevanceGate', () => {
 
     await gate.isRelevant({
       broadcastMessage: {
-        workingMemory: { messages: [{ content: 'Previous' }] },
-        afferentContext: [{ content: 'Tool capability' }],
-        broadcast: { content: 'Broadcast' },
+        workingMemory: {
+          messages: [{ role: 'working-memory', content: 'Previous' }],
+        },
+        afferentContext: [{ role: 'afferent', content: 'Tool capability' }],
+        broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
       },
       nodeId: 'node-1',
       epochsAlive: 2,
@@ -60,9 +67,9 @@ describe('AskYesNoQuestionRelevanceGate', () => {
     expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
       systemPrompt: 'Node context',
       messages: [
-        { content: 'Previous' },
-        { content: 'Tool capability' },
-        { content: 'Broadcast' },
+        { role: 'working-memory', content: 'Previous' },
+        { role: 'afferent', content: 'Tool capability' },
+        { role: 'broadcast', content: 'Broadcast' },
       ],
       question: 'Is this useful?',
     });
@@ -79,7 +86,7 @@ describe('AskYesNoQuestionRelevanceGate', () => {
     await gate.isRelevant({
       broadcastMessage: {
         workingMemory: { messages: [] },
-        broadcast: { content: 'Broadcast' },
+        broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
       },
       nodeId: 'node-1',
       epochsAlive: 2,
@@ -87,7 +94,7 @@ describe('AskYesNoQuestionRelevanceGate', () => {
 
     expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
       systemPrompt: '',
-      messages: [{ content: 'Broadcast' }],
+      messages: [{ role: 'broadcast', content: 'Broadcast' }],
       question: 'Is this useful?',
     });
   });

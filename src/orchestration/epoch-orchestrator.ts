@@ -29,8 +29,7 @@ export interface EpochOrchestratorProps {
   readonly initialNodeStats?: Map<string, NodeStats> | undefined;
 }
 
-interface CandidateMessage {
-  readonly content: string;
+interface CandidateMessage extends Message {
   readonly originatingNodeId: string;
 }
 
@@ -43,7 +42,7 @@ interface EpochCandidates {
 
 export class EpochOrchestrator {
   private _currentBroadcast: Message;
-  private _pendingInjection: string | undefined = undefined;
+  private _pendingInjection: Message | undefined = undefined;
   private readonly _registry: NodeRegistry;
   private readonly _workingMemory: WorkingMemoryBuffer;
 
@@ -91,8 +90,8 @@ export class EpochOrchestrator {
    * it survives an in-flight epoch's end-of-epoch distillation overwrite.
    */
   public readonly injectBroadcast = (content: string): void => {
-    this._pendingInjection = content;
-    this._currentBroadcast = { content };
+    this._pendingInjection = { role: 'broadcast', content };
+    this._currentBroadcast = this._pendingInjection;
     this.props.eventStream.publish({
       topicName: 'orchestrator/working-memory-updated',
       data: {
@@ -104,7 +103,7 @@ export class EpochOrchestrator {
 
   public readonly runEpoch = async (): Promise<void> => {
     if (this._pendingInjection !== undefined) {
-      this._currentBroadcast = { content: this._pendingInjection };
+      this._currentBroadcast = this._pendingInjection;
       this._pendingInjection = undefined;
     }
     // Afferent wave: tools and sensors perceive first. Their output is context
@@ -114,7 +113,9 @@ export class EpochOrchestrator {
     const afferentContext = [
       ...this.afferentCapabilityContext(),
       ...afferent.candidates.map((c) => ({
+        role: 'afferent' as const,
         content: c.content,
+        originatingNodeId: c.originatingNodeId,
       })),
     ];
 
@@ -170,7 +171,11 @@ export class EpochOrchestrator {
       candidates: responses
         .map(({ node, response }) =>
           response
-            ? { content: response.content, originatingNodeId: node.id }
+            ? {
+                role: response.role,
+                content: response.content,
+                originatingNodeId: response.originatingNodeId ?? node.id,
+              }
             : undefined,
         )
         .filter(isDefined),
@@ -189,6 +194,7 @@ export class EpochOrchestrator {
 
     return [
       {
+        role: 'afferent-capability',
         content: `Available afferent capabilities:\n${capabilities.join('\n')}`,
       },
     ];
@@ -225,10 +231,10 @@ export class EpochOrchestrator {
       broadcasts: survivors.map((message) => message.content),
     });
     this._workingMemory.append(
-      { content: this._currentBroadcast.content },
-      { content },
+      { role: 'working-memory', content },
+      { role: 'broadcast', content },
     );
-    return { content };
+    return { role: 'broadcast', content };
   };
 
   private readonly splitOverflowingNodes = async (): Promise<void> => {

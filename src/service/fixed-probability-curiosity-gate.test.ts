@@ -5,7 +5,10 @@ import { BroadcastMessage } from '../types/node.js';
 const curiosityProps = (epochsAlive: number) => ({
   broadcastMessage: {
     workingMemory: { messages: [] },
-    broadcast: { content: 'Need a sourced forecast.' },
+    broadcast: {
+      role: 'broadcast' as const,
+      content: 'Need a sourced forecast.',
+    },
   } satisfies BroadcastMessage,
   nodeId: 'tool-node',
   epochsAlive,

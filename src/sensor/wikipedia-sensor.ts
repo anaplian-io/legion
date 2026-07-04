@@ -56,6 +56,7 @@ Requirements:
 
     const messages = [
       {
+        role: 'afferent' as const,
         content: `Please summarize the following Wikipedia article excerpt:
 
 ${content}`,

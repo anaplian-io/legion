@@ -317,6 +317,7 @@ export const init = async (options?: InitOptions) => {
   const initialBroadcast =
     loadedSession?.broadcast ??
     ({
+      role: 'broadcast',
       content: settings.initialBroadcastMessage,
     } as const);
 

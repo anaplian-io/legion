@@ -53,7 +53,9 @@ describe('EpochOrchestrator', () => {
   });
 
   it('should create an orchestrator with initial working memory', () => {
-    const initialWM: WorkingMemory = { messages: [{ content: 'Initial' }] };
+    const initialWM: WorkingMemory = {
+      messages: [{ role: 'working-memory' as const, content: 'Initial' }],
+    };
 
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
@@ -61,7 +63,10 @@ describe('EpochOrchestrator', () => {
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
       initialWorkingMemory: initialWM,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -81,7 +86,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -99,7 +107,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -118,7 +129,10 @@ describe('EpochOrchestrator', () => {
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 5,
       initialWorkingMemory: initialWM,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -135,7 +149,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -158,7 +175,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -183,7 +203,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -214,7 +237,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -245,7 +271,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -254,6 +283,7 @@ describe('EpochOrchestrator', () => {
     });
 
     const nodeA = createMockNode('node-a', async () => ({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Response',
     }));
@@ -261,21 +291,69 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(nodeA);
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
-    // First distillation produces 'New insight' (broadcast for next epoch)
-    // The previous broadcast ('Initial broadcast') goes to WM as history
+    // First distillation produces both the next broadcast and the new
+    // working-memory entry.
     vi.mocked(mockDistiller.distill).mockResolvedValue('New insight');
 
     await orchestrator.runEpoch();
 
     expect(orchestrator.workingMemory.messages).toHaveLength(1);
-    // Working memory gets the initial broadcast as history
-    expect(orchestrator.workingMemory.messages[0]?.content).toBe(
-      'Initial broadcast',
-    );
+    expect(orchestrator.workingMemory.messages[0]).toEqual({
+      role: 'working-memory',
+      content: 'New insight',
+    });
     // The next broadcast is set to the distilled content
     expect(orchestrator.currentBroadcast.content).toBe('New insight');
+  });
+
+  it('should use the sending node id when a response omits originatingNodeId', async () => {
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: {
+        role: 'broadcast',
+        content: 'Initial broadcast',
+      },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+
+    orchestrator.addNode(
+      createMockNode('node-a', async () => ({
+        role: 'node-response',
+        content: 'Response',
+      })),
+    );
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+
+    await orchestrator.runEpoch();
+
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
+    ]);
   });
 
   it('should handle adding multiple nodes with same id (overwrites)', () => {
@@ -284,7 +362,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -308,7 +389,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -317,6 +401,7 @@ describe('EpochOrchestrator', () => {
     });
 
     const nodeA = createMockNode('node-a', async () => ({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Node A response',
     }));
@@ -324,7 +409,11 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(nodeA);
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Node A response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Node A response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
 
@@ -337,10 +426,10 @@ describe('EpochOrchestrator', () => {
       }),
     );
     expect(orchestrator.workingMemory.messages).toHaveLength(1);
-    // Working memory gets the initial broadcast as history
-    expect(orchestrator.workingMemory.messages[0]?.content).toBe(
-      'Initial broadcast',
-    );
+    expect(orchestrator.workingMemory.messages[0]).toEqual({
+      role: 'working-memory',
+      content: 'Distilled insight',
+    });
   });
 
   it('should handle empty candidate messages', async () => {
@@ -349,7 +438,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -383,7 +475,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -392,6 +487,7 @@ describe('EpochOrchestrator', () => {
     });
 
     const nodeA = createMockNode('node-a', async () => ({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Response',
     }));
@@ -418,7 +514,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -428,6 +527,7 @@ describe('EpochOrchestrator', () => {
 
     orchestrator.addNode(
       createMockNode('speaker', async () => ({
+        role: 'node-response' as const,
         originatingNodeId: 'speaker',
         content: 'kept',
       })),
@@ -435,13 +535,18 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(createMockNode('silent', async () => undefined));
     orchestrator.addNode(
       createMockNode('filtered', async () => ({
+        role: 'node-response' as const,
         originatingNodeId: 'filtered',
         content: 'dropped',
       })),
     );
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'kept', originatingNodeId: 'speaker' },
+      {
+        role: 'node-response',
+        content: 'kept',
+        originatingNodeId: 'speaker',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
 
@@ -471,7 +576,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -481,13 +589,18 @@ describe('EpochOrchestrator', () => {
 
     orchestrator.addNode(
       createMockNode('node-a', async () => ({
+        role: 'node-response' as const,
         originatingNodeId: 'node-a',
         content: 'Response',
       })),
     );
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
 
@@ -511,6 +624,7 @@ describe('EpochOrchestrator', () => {
 
   it('should pass restored node stats into each polled node', async () => {
     const sendMessage = vi.fn().mockResolvedValue({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Response',
     });
@@ -525,7 +639,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -535,7 +652,11 @@ describe('EpochOrchestrator', () => {
       initialNodeStats: new Map([['node-a', restoredStats]]),
     });
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
 
@@ -554,7 +675,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -563,6 +687,7 @@ describe('EpochOrchestrator', () => {
     });
 
     const speaker = createMockNode('speaker', async () => ({
+      role: 'node-response' as const,
       originatingNodeId: 'speaker',
       content: 'kept',
     }));
@@ -571,7 +696,11 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(deadweight);
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'kept', originatingNodeId: 'speaker' },
+      {
+        role: 'node-response',
+        content: 'kept',
+        originatingNodeId: 'speaker',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
     vi.mocked(mockNodePruner.selectForPruning).mockReturnValue([
@@ -591,7 +720,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 3,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -600,6 +732,7 @@ describe('EpochOrchestrator', () => {
     });
 
     const nodeA = createMockNode('node-a', async () => ({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Response',
     }));
@@ -609,36 +742,44 @@ describe('EpochOrchestrator', () => {
     // Fill working memory to max (3 epochs)
     for (let i = 0; i < 3; i++) {
       vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-        { content: 'Response', originatingNodeId: 'node-a' },
+        {
+          role: 'node-response',
+          content: 'Response',
+          originatingNodeId: 'node-a',
+        },
       ]);
       vi.mocked(mockDistiller.distill).mockResolvedValue(`Distilled ${i}`);
       await orchestrator.runEpoch();
     }
 
-    // WM should contain: ['Initial broadcast', 'Distilled 0', 'Distilled 1']
+    // WM should contain: ['Distilled 0', 'Distilled 1', 'Distilled 2']
     expect(orchestrator.workingMemory.messages).toHaveLength(3);
-    expect(orchestrator.workingMemory.messages[0]?.content).toBe(
-      'Initial broadcast',
-    );
+    expect(orchestrator.workingMemory.messages[0]?.content).toBe('Distilled 0');
 
     // One more epoch should trigger pruning
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled 3');
     await orchestrator.runEpoch();
 
-    // WM now has 4 messages, prunes to 3
-    // Removes 'Initial broadcast', keeps ['Distilled 0', 'Distilled 1', 'Distilled 2']
+    // WM now has 4 distilled messages, prunes to the latest 3.
     expect(orchestrator.workingMemory.messages).toHaveLength(3);
-    expect(orchestrator.workingMemory.messages[0]?.content).toBe('Distilled 0');
-    expect(orchestrator.workingMemory.messages[1]?.content).toBe('Distilled 1');
-    expect(orchestrator.workingMemory.messages[2]?.content).toBe('Distilled 2');
+    expect(orchestrator.workingMemory.messages[0]?.content).toBe('Distilled 1');
+    expect(orchestrator.workingMemory.messages[1]?.content).toBe('Distilled 2');
+    expect(orchestrator.workingMemory.messages[2]?.content).toBe('Distilled 3');
   });
 
   it('should broadcast initial broadcast to nodes', async () => {
     const initialWM: WorkingMemory = {
-      messages: [{ content: 'First message' }, { content: 'Second message' }],
+      messages: [
+        { role: 'working-memory', content: 'First message' },
+        { role: 'working-memory', content: 'Second message' },
+      ],
     };
 
     const orchestrator = new EpochOrchestrator({
@@ -647,7 +788,10 @@ describe('EpochOrchestrator', () => {
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
       initialWorkingMemory: initialWM,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -657,6 +801,7 @@ describe('EpochOrchestrator', () => {
 
     const sendMessageSpy = vi.fn();
     sendMessageSpy.mockResolvedValue({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Response',
     });
@@ -672,7 +817,11 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(nodeA);
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('Insight');
 
@@ -693,7 +842,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -721,7 +873,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -731,6 +886,7 @@ describe('EpochOrchestrator', () => {
 
     const sendMessageSpy = vi.fn();
     sendMessageSpy.mockResolvedValue({
+      role: 'node-response' as const,
       originatingNodeId: 'node-a',
       content: 'Response',
     });
@@ -744,7 +900,11 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(nodeA);
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
 
@@ -763,14 +923,19 @@ describe('EpochOrchestrator', () => {
 
   it('should spawn a new node when all candidates return undefined', async () => {
     const initialWM: WorkingMemory = {
-      messages: [{ content: 'Existing message' }],
+      messages: [
+        { role: 'working-memory' as const, content: 'Existing message' },
+      ],
     };
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       initialWorkingMemory: initialWM,
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
@@ -808,7 +973,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast content' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast content',
+      },
       initialWorkingMemory: { messages: [] }, // Empty working memory
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
@@ -842,7 +1010,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 10, // Small threshold to trigger split
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -872,7 +1043,11 @@ describe('EpochOrchestrator', () => {
 
     // Set up mock responses for the epoch
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Response', originatingNodeId: 'node-a' },
+      {
+        role: 'node-response',
+        content: 'Response',
+        originatingNodeId: 'node-a',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('Insight');
 
@@ -893,7 +1068,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -908,11 +1086,13 @@ describe('EpochOrchestrator', () => {
       context: 'Tool context',
       capabilityDescription: 'can search the web for current information.',
       sendMessage: vi.fn().mockResolvedValue({
+        role: 'node-response' as const,
         originatingNodeId: 'tool-node',
         content: 'Tool response',
       }),
     };
     const memorySend = vi.fn().mockResolvedValue({
+      role: 'node-response' as const,
       originatingNodeId: 'mem',
       content: 'Memory response',
     });
@@ -920,7 +1100,11 @@ describe('EpochOrchestrator', () => {
     orchestrator.addNode(createMockNode('mem', memorySend));
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
-      { content: 'Memory response', originatingNodeId: 'mem' },
+      {
+        role: 'node-response',
+        content: 'Memory response',
+        originatingNodeId: 'mem',
+      },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
 
@@ -931,17 +1115,26 @@ describe('EpochOrchestrator', () => {
       expect.objectContaining({
         afferentContext: [
           {
+            role: 'afferent-capability',
             content:
               'Available afferent capabilities:\n- tool-node: can search the web for current information.',
           },
-          { content: 'Tool response' },
+          {
+            role: 'afferent',
+            content: 'Tool response',
+            originatingNodeId: 'tool-node',
+          },
         ],
       }),
     );
     // Only the memory output reaches the relevance filter; the tool output is
     // never a broadcast candidate.
     expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
-      { content: 'Memory response', originatingNodeId: 'mem' },
+      {
+        role: 'node-response',
+        content: 'Memory response',
+        originatingNodeId: 'mem',
+      },
     ]);
     // A memory node responded, so no spawn is needed.
     expect(mockMemoryNodeFactory.create).not.toHaveBeenCalled();
@@ -953,7 +1146,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -971,6 +1167,7 @@ describe('EpochOrchestrator', () => {
       sendMessage: vi.fn().mockResolvedValue(undefined),
     };
     const memorySend = vi.fn().mockResolvedValue({
+      role: 'node-response' as const,
       originatingNodeId: 'mem',
       content:
         'Search the web for Brooklyn NY weather next few days and nearby events.',
@@ -980,6 +1177,7 @@ describe('EpochOrchestrator', () => {
 
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
       {
+        role: 'node-response',
         content:
           'Search the web for Brooklyn NY weather next few days and nearby events.',
         originatingNodeId: 'mem',
@@ -993,6 +1191,7 @@ describe('EpochOrchestrator', () => {
       expect.objectContaining({
         afferentContext: [
           {
+            role: 'afferent-capability',
             content:
               'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
           },
@@ -1007,7 +1206,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,
@@ -1021,6 +1223,7 @@ describe('EpochOrchestrator', () => {
       status: 'idle',
       context: 'Tool context',
       sendMessage: vi.fn().mockResolvedValue({
+        role: 'node-response' as const,
         originatingNodeId: 'tool-node',
         content: 'Tool response',
       }),
@@ -1043,7 +1246,10 @@ describe('EpochOrchestrator', () => {
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
       maxWorkingMemoryMessages: 10,
-      initialBroadcast: { content: 'Initial broadcast' },
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
       memoryNodeFactory: mockMemoryNodeFactory,
       contextLengthThreshold: 1000,
       memoryNodeSplitter: mockMemoryNodeSplitter,

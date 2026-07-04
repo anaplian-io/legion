@@ -21,8 +21,8 @@ describe('LlmDistiller', () => {
 
     const workingMemory: WorkingMemory = {
       messages: [
-        { content: 'Previous insight 1' },
-        { content: 'Previous insight 2' },
+        { role: 'working-memory', content: 'Previous insight 1' },
+        { role: 'working-memory', content: 'Previous insight 2' },
       ],
     };
 
@@ -41,7 +41,9 @@ describe('LlmDistiller', () => {
       systemPrompt: expect.stringContaining(
         'consolidate a reasoning step into one line of working memory',
       ),
-      messages: [{ content: expect.stringContaining('Node A') }],
+      messages: [
+        { role: 'working-memory', content: expect.stringContaining('Node A') },
+      ],
     });
 
     expect(result).toBe('New consolidated insight');
@@ -49,14 +51,21 @@ describe('LlmDistiller', () => {
 
   it('should include working memory in the user message', async () => {
     const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = { messages: [{ content: 'Test WM' }] };
+    const workingMemory: WorkingMemory = {
+      messages: [{ role: 'working-memory', content: 'Test WM' }],
+    };
     const broadcasts = [''];
 
     await distiller.distill({ workingMemory, broadcasts });
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.any(String),
-      messages: [{ content: expect.stringContaining('Test WM') }],
+      messages: [
+        {
+          role: 'working-memory',
+          content: expect.stringContaining('Test WM'),
+        },
+      ],
     });
   });
 
@@ -97,7 +106,12 @@ describe('LlmDistiller', () => {
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.any(String),
-      messages: [{ content: expect.stringContaining('Working memory:') }],
+      messages: [
+        {
+          role: 'working-memory' as const,
+          content: expect.stringContaining('Working memory:'),
+        },
+      ],
     });
   });
 });
