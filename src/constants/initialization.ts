@@ -3,9 +3,11 @@ import { OpenAI } from 'openai';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { isDefined } from '../utilities/is-defined.js';
-import { LegionSettings } from '../types/legion-settings.js';
+import {
+  LegionSettings,
+  SensorProviderDefinition,
+} from '../types/legion-settings.js';
 import { OpenaiProvider } from '../provider/openai-provider.js';
-import { WikipediaSensor } from '../sensor/wikipedia-sensor.js';
 import { SensoryNode } from '../node/sensory-node.js';
 import { ConcreteToolNodeFactory } from '../factory/concrete-tool-node-factory.js';
 import { LlmRelevanceFilter } from '../service/llm-relevance-filter.js';
@@ -25,6 +27,7 @@ import { GeometricScheduleCuriosityGate } from '../service/geometric-schedule-cu
 import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curiosity-gate.js';
 import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
 import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
+import { Provider } from '../types/provider.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -94,8 +97,6 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.15;
-const WIKIPEDIA_SENSOR_CAPABILITY =
-  'can surface random Wikipedia article knowledge as external background context.';
 const MEMORY_RELEVANCE_QUESTION =
   'Given your experience above and the broadcast below, can you add something the collective does not already have? Answer yes only if your contribution would be specific and non-redundant.';
 const TOOL_RELEVANCE_QUESTION =
@@ -108,6 +109,23 @@ export interface InitOptions {
    */
   readonly attachConsoleLogging?: boolean;
 }
+
+const createSensoryNode = ({
+  definition,
+  provider,
+  eventStream,
+}: {
+  readonly definition: SensorProviderDefinition;
+  readonly provider: Provider;
+  readonly eventStream: EventStream;
+}): SensoryNode =>
+  new SensoryNode({
+    id: definition.id ?? `sensor-${crypto.randomUUID().slice(0, 8)}`,
+    provider,
+    eventStream,
+    sensor: definition.sensor,
+    capabilityDescription: definition.capabilityDescription,
+  });
 
 export const init = async (options?: InitOptions) => {
   const settings: LegionSettings = rawSettings;
@@ -234,15 +252,16 @@ export const init = async (options?: InitOptions) => {
       }),
   );
 
-  // Create sensory node with Wikipedia sensor
-  const wikipediaSensor = new WikipediaSensor(provider);
-  const sensoryNode = new SensoryNode({
-    id: `wiki-sensor-${crypto.randomUUID().slice(0, 8)}`,
-    provider,
-    eventStream,
-    sensor: wikipediaSensor,
-    capabilityDescription: WIKIPEDIA_SENSOR_CAPABILITY,
-  });
+  // Create sensory nodes from user-configured sensor providers
+  const sensoryNodes = await Promise.all(
+    (settings.sensorProviders ?? []).map(async (sensorProvider) =>
+      createSensoryNode({
+        definition: await sensorProvider({ provider }),
+        provider,
+        eventStream,
+      }),
+    ),
+  );
 
   // Create supporting services for EpochOrchestrator
   const attentionGate = new StaticAttentionGate({
@@ -274,7 +293,7 @@ export const init = async (options?: InitOptions) => {
     minMemoryNodes: settings.pruneMinMemoryNodes ?? 1,
   });
 
-  // Create initial nodes (tool nodes + sensory node, plus loaded nodes if any)
+  // Create initial nodes (tool nodes + sensory nodes, plus loaded nodes if any)
   const initialNodes: Node<string>[] = [];
 
   // Add loaded nodes from session
@@ -291,8 +310,7 @@ export const init = async (options?: InitOptions) => {
     initialNodes.push(toolNode);
   }
 
-  // Add sensory node
-  initialNodes.push(sensoryNode);
+  initialNodes.push(...sensoryNodes);
 
   // Use loaded working memory and broadcast if available, otherwise use defaults
   const initialWorkingMemory = loadedSession?.workingMemory ?? { messages: [] };

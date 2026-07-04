@@ -16,7 +16,7 @@
   "scripts": {
     "prebuild": "[ -f settings.ts ] && echo 'settings.ts already exists, skipping copy' || (cp settings.example.ts settings.ts && echo 'Created settings.ts from settings.example.ts')",
     "build": "tsc",
-    "tui": "node dist/src/tui/index.js",
+    "tui": "node dist/src/constants/tui-runner.js",
     "test": "vitest --run --coverage",
     "test:watch": "vitest",
     "clean": "rm -rf dist node_modules coverage settings.ts",
