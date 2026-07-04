@@ -25,7 +25,6 @@ import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
 import { GeometricScheduleCuriosityGate } from '../service/geometric-schedule-curiosity-gate.js';
 import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curiosity-gate.js';
-import { Provider } from '../types/provider.js';
 import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
 import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
 import { Provider } from '../types/provider.js';
