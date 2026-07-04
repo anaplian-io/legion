@@ -1,3 +1,6 @@
+import { Provider } from './provider.js';
+import { Sensor } from './sensor.js';
+
 export interface McpServerStdIo {
   readonly command: string;
   readonly capabilityDescription?: string;
@@ -6,6 +9,20 @@ export interface McpServerStdIo {
   readonly env?: Record<string, string>;
   readonly cwd?: string;
 }
+
+export interface SensorProviderDependencies {
+  readonly provider: Provider;
+}
+
+export interface SensorProviderDefinition {
+  readonly sensor: Sensor;
+  readonly capabilityDescription: string;
+  readonly id?: string;
+}
+
+export type SensorProvider = (
+  dependencies: SensorProviderDependencies,
+) => SensorProviderDefinition | Promise<SensorProviderDefinition>;
 
 export interface LegionSettings {
   readonly llmProvider: 'openai';
@@ -18,6 +35,7 @@ export interface LegionSettings {
   readonly openAiTimeout?: number;
   readonly openAiMaxRetries?: number;
   readonly maxParallelism?: number;
+  readonly sensorProviders?: SensorProvider[];
   readonly attentionGateN?: number | 'all';
   readonly maxWorkingMemoryMessages?: number;
   readonly contextLengthThreshold?: number;
