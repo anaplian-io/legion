@@ -31,7 +31,7 @@ interface FakeOrchestrator {
   workingMemory: { messages: Message[] };
   currentBroadcast: Message;
   runEpoch: ReturnType<typeof vi.fn>;
-  injectBroadcast: ReturnType<typeof vi.fn>;
+  receiveUserInput: ReturnType<typeof vi.fn>;
 }
 
 const makeOrchestrator = (
@@ -41,7 +41,7 @@ const makeOrchestrator = (
   workingMemory: { messages: [] },
   currentBroadcast: { role: 'broadcast', content: '' },
   runEpoch: vi.fn().mockResolvedValue(undefined),
-  injectBroadcast: vi.fn(),
+  receiveUserInput: vi.fn(),
   ...overrides,
 });
 
@@ -83,7 +83,7 @@ describe('App', () => {
     eventStream = new ConcreteEventStream();
   });
 
-  it('renders the awaiting-broadcast state with seeded nodes and memory', () => {
+  it('renders the initial paused state with seeded nodes and memory', () => {
     const orchestrator = makeOrchestrator({
       nodes: [memoryNode('seed-node-1')],
       workingMemory: {
@@ -104,12 +104,35 @@ describe('App', () => {
 
     const out = lastFrame() ?? '';
     expect(out).toContain('LEGION');
-    expect(out).toContain('AWAITING FIRST BROADCAST');
+    expect(out).toContain('PAUSED');
+    expect(out).toContain('seed broadcast');
+    expect(out).toContain('USER INPUT');
     expect(out).toContain('seed-node-1');
     expect(out).toContain('remembered thing');
   });
 
-  it('injects a broadcast: [i] then type then [enter] starts the epoch loop', async () => {
+  it('shows the initial broadcast before the loop is unpaused', () => {
+    const orchestrator = makeOrchestrator({
+      currentBroadcast: {
+        role: 'broadcast',
+        content: 'What is the 3 day forecast?',
+      },
+    });
+
+    const { lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    const out = lastFrame() ?? '';
+    expect(out).toContain('PAUSED');
+    expect(out).toContain('What is the 3 day forecast?');
+  });
+
+  it('sends user input without starting the epoch loop', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin, lastFrame } = render(
       <App
@@ -122,16 +145,30 @@ describe('App', () => {
 
     stdin.write('i'); // enter input mode
     await tick();
-    expect(lastFrame() ?? '').toContain('broadcast›');
+    expect(lastFrame() ?? '').toContain('user›');
 
     stdin.write('hello'); // type
     await tick();
     stdin.write(ENTER); // enter
     await tick();
 
-    expect(orchestrator.injectBroadcast).toHaveBeenCalledWith('hello');
+    expect(orchestrator.receiveUserInput).toHaveBeenCalledWith('hello');
+    await tick(30);
+    expect(orchestrator.runEpoch).not.toHaveBeenCalled();
+  });
 
-    // The loop is now started; after the epoch delay an epoch runs.
+  it('starts the epoch loop when unpaused', async () => {
+    const orchestrator = makeOrchestrator();
+    const { stdin, lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+        epochDelayMs={10}
+      />,
+    );
+
+    stdin.write(' ');
     await waitForFrame(
       lastFrame,
       () => orchestrator.runEpoch.mock.calls.length > 0,
@@ -139,7 +176,7 @@ describe('App', () => {
     expect(orchestrator.runEpoch).toHaveBeenCalled();
   });
 
-  it('injecting again after the loop has started does not re-log the start banner', async () => {
+  it('sending input more than once keeps the TUI paused', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin, lastFrame } = render(
       <App
@@ -150,7 +187,6 @@ describe('App', () => {
       />,
     );
 
-    // First injection starts the loop.
     stdin.write('i');
     await tick();
     stdin.write('one');
@@ -158,7 +194,6 @@ describe('App', () => {
     stdin.write(ENTER);
     await tick();
 
-    // Second injection while already started (exercises the started===true arm).
     stdin.write('i');
     await tick();
     stdin.write('two');
@@ -166,14 +201,14 @@ describe('App', () => {
     stdin.write(ENTER);
     await tick();
 
-    expect(orchestrator.injectBroadcast).toHaveBeenLastCalledWith('two');
-    // The "starting epochs" banner is only logged on the first start.
+    expect(orchestrator.receiveUserInput).toHaveBeenLastCalledWith('two');
     const out = lastFrame() ?? '';
-    const starts = out.split('starting epochs').length - 1;
-    expect(starts).toBeLessThanOrEqual(1);
+    expect(out).toContain('PAUSED');
+    expect(out).not.toContain('starting epochs');
+    expect(orchestrator.runEpoch).not.toHaveBeenCalled();
   });
 
-  it('ignores arrow keys while typing a broadcast', async () => {
+  it('ignores arrow keys while typing user input', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin } = render(
       <App
@@ -194,11 +229,11 @@ describe('App', () => {
     stdin.write(ENTER);
     await tick();
 
-    // Arrows were ignored, so only 'ab' was injected.
-    expect(orchestrator.injectBroadcast).toHaveBeenCalledWith('ab');
+    // Arrows were ignored, so only 'ab' was sent.
+    expect(orchestrator.receiveUserInput).toHaveBeenCalledWith('ab');
   });
 
-  it('cancels input mode on [esc] without injecting', async () => {
+  it('cancels input mode on [esc] without sending input', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin, lastFrame } = render(
       <App
@@ -215,11 +250,11 @@ describe('App', () => {
     stdin.write(ESC);
     await tick();
 
-    expect(orchestrator.injectBroadcast).not.toHaveBeenCalled();
-    expect(lastFrame() ?? '').not.toContain('broadcast›');
+    expect(orchestrator.receiveUserInput).not.toHaveBeenCalled();
+    expect(lastFrame() ?? '').not.toContain('user›');
   });
 
-  it('supports backspace while typing a broadcast', async () => {
+  it('supports backspace while typing user input', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin } = render(
       <App
@@ -238,10 +273,10 @@ describe('App', () => {
     stdin.write(ENTER);
     await tick();
 
-    expect(orchestrator.injectBroadcast).toHaveBeenCalledWith('h');
+    expect(orchestrator.receiveUserInput).toHaveBeenCalledWith('h');
   });
 
-  it('ignores an empty broadcast submission', async () => {
+  it('ignores an empty user input submission', async () => {
     const orchestrator = makeOrchestrator();
     const { stdin } = render(
       <App
@@ -256,7 +291,105 @@ describe('App', () => {
     stdin.write(ENTER); // submit nothing
     await tick();
 
-    expect(orchestrator.injectBroadcast).not.toHaveBeenCalled();
+    expect(orchestrator.receiveUserInput).not.toHaveBeenCalled();
+  });
+
+  it('shows the latest received user input event', async () => {
+    const orchestrator = makeOrchestrator();
+    const { lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-received',
+      data: { content: 'please inspect the sensor path' },
+    });
+
+    const out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('please inspect the sensor path'),
+    );
+    expect(out).toContain('USER INPUT');
+    expect(out).toContain('please inspect the sensor path');
+  });
+
+  it('marks compact user input as consumed', async () => {
+    const orchestrator = makeOrchestrator();
+    const { lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-received',
+      data: { content: 'compact request' },
+    });
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-consumed',
+      data: { content: 'compact request' },
+    });
+
+    const out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('✓ compact request'),
+    );
+    expect(out).toContain('0 pending');
+  });
+
+  it('expands user input to show the full queue and marks consumed messages', async () => {
+    const orchestrator = makeOrchestrator();
+    const { stdin, lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-received',
+      data: { content: 'first request' },
+    });
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-received',
+      data: { content: 'second request' },
+    });
+
+    let out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('first request'),
+    );
+    expect(out).toContain('▸ first request');
+    expect(out).not.toContain('second request');
+
+    stdin.write('u');
+    out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('second request'),
+    );
+    expect(out).toContain('▸ first request');
+    expect(out).toContain('▸ second request');
+
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-consumed',
+      data: { content: 'first request' },
+    });
+    out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('✓ first request'),
+    );
+    expect(out).toContain('✓ first request');
+    expect(out).toContain('▸ second request');
+    expect(out).toContain('1 pending');
+
+    eventStream.publish({
+      topicName: 'orchestrator/user-input-consumed',
+      data: { content: 'not in queue' },
+    });
+    await tick();
+    expect(lastFrame() ?? '').toContain('✓ first request');
   });
 
   it('toggles the expanded working-memory view with [m]', async () => {
@@ -571,11 +704,7 @@ describe('App', () => {
       />,
     );
 
-    stdin.write('i');
-    await tick();
-    stdin.write('go');
-    await tick();
-    stdin.write(ENTER);
+    stdin.write(' ');
 
     const out = await waitForFrame(lastFrame, (f) =>
       f.includes('plain string failure'),
@@ -594,13 +723,9 @@ describe('App', () => {
       />,
     );
 
-    // Start the loop, then pause before the (long) epoch delay elapses so the
+    // Unpause, then pause before the (long) epoch delay elapses so the
     // effect cleanup cancels the scheduled epoch.
-    stdin.write('i');
-    await tick();
-    stdin.write('go');
-    await tick();
-    stdin.write(ENTER);
+    stdin.write(' ');
     await tick();
     stdin.write(' '); // pause -> cleanup clears the pending timer
     await tick(40);
@@ -630,11 +755,7 @@ describe('App', () => {
       />,
     );
 
-    stdin.write('i');
-    await tick();
-    stdin.write('go');
-    await tick();
-    stdin.write(ENTER);
+    stdin.write(' ');
 
     // Let the first epoch start and block inside runEpoch.
     await waitForFrame(
@@ -706,11 +827,7 @@ describe('App', () => {
       />,
     );
 
-    stdin.write('i');
-    await tick();
-    stdin.write('start');
-    await tick();
-    stdin.write(ENTER);
+    stdin.write(' ');
 
     const out = await waitForFrame(lastFrame, (f) => f.includes('error'));
     expect(orchestrator.runEpoch).toHaveBeenCalled();

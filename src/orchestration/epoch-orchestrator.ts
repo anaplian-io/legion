@@ -12,6 +12,7 @@ import { NodeStats } from '../types/node-stats.js';
 import { isDefined } from '../utilities/is-defined.js';
 import { NodeRegistry } from '../service/node-registry.js';
 import { WorkingMemoryBuffer } from '../service/working-memory-buffer.js';
+import { UserInputSensor } from '../sensor/user-input-sensor.js';
 
 export interface EpochOrchestratorProps {
   readonly provider: Provider;
@@ -27,6 +28,7 @@ export interface EpochOrchestratorProps {
   readonly eventStream: EventStream;
   readonly initialNodes?: Node<string>[];
   readonly initialNodeStats?: Map<string, NodeStats> | undefined;
+  readonly userInputSensor?: UserInputSensor | undefined;
 }
 
 interface CandidateMessage extends Message {
@@ -45,9 +47,9 @@ interface CognitiveWave extends EpochCandidates {
 
 export class EpochOrchestrator {
   private _currentBroadcast: Message;
-  private _pendingInjection: Message | undefined = undefined;
   private readonly _registry: NodeRegistry;
   private readonly _workingMemory: WorkingMemoryBuffer;
+  private readonly _userInputSensor: UserInputSensor;
 
   constructor(private readonly props: EpochOrchestratorProps) {
     this._registry = new NodeRegistry(
@@ -60,6 +62,7 @@ export class EpochOrchestrator {
       initial: props.initialWorkingMemory,
     });
     this._currentBroadcast = props.initialBroadcast;
+    this._userInputSensor = props.userInputSensor ?? new UserInputSensor();
     props.initialNodes?.forEach((node) => this.addNode(node));
   }
 
@@ -87,36 +90,30 @@ export class EpochOrchestrator {
     return this._currentBroadcast;
   }
 
-  /**
-   * Inject an external message into the global workspace. It becomes the
-   * spotlight broadcast for the next epoch. Queued via `_pendingInjection` so
-   * it survives an in-flight epoch's end-of-epoch distillation overwrite.
-   */
-  public readonly injectBroadcast = (content: string): void => {
-    this._pendingInjection = { role: 'broadcast', content };
-    this._currentBroadcast = this._pendingInjection;
+  public readonly receiveUserInput = (content: string): void => {
+    const trimmed = content.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    this._userInputSensor.enqueue(trimmed);
     this.props.eventStream.publish({
-      topicName: 'orchestrator/working-memory-updated',
+      topicName: 'orchestrator/user-input-received',
       data: {
-        workingMemory: this.workingMemory,
-        broadcast: this.currentBroadcast,
+        content: trimmed,
       },
     });
   };
 
   public readonly runEpoch = async (): Promise<void> => {
-    if (this._pendingInjection !== undefined) {
-      this._currentBroadcast = this._pendingInjection;
-      this._pendingInjection = undefined;
-    }
     // Afferent wave: tools and sensors perceive first. Their output is context
     // for the cognitive wave, never a broadcast candidate, so it bypasses the
     // relevance filter entirely (no upstream bottleneck on perception).
     const afferent = await this.pollNodes(this._registry.afferentNodes());
+    this.publishConsumedUserInput();
     const afferentContext = [
       ...this.afferentCapabilityContext(),
       ...afferent.candidates.map((c) => ({
-        role: 'afferent' as const,
+        role: c.role === 'user-input' ? c.role : ('afferent' as const),
         content: c.content,
         originatingNodeId: c.originatingNodeId,
       })),
@@ -281,6 +278,15 @@ export class EpochOrchestrator {
     this.props.nodePruner
       .selectForPruning(this._registry.memoryNodes(), this._registry.stats())
       .forEach((node) => this.removeNode(node.id));
+  };
+
+  private readonly publishConsumedUserInput = (): void => {
+    this._userInputSensor.consumeLastSensedInputs().forEach((content) => {
+      this.props.eventStream.publish({
+        topicName: 'orchestrator/user-input-consumed',
+        data: { content },
+      });
+    });
   };
 
   private readonly spawnNewNode = (): Node<'memory'> => {

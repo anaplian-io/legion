@@ -129,6 +129,53 @@ describe('SensoryNode', () => {
     });
   });
 
+  it('should emit a configured response role', async () => {
+    const sensor = {
+      sense: vi.fn().mockResolvedValue('User typed this'),
+    };
+
+    const node = new SensoryNode({
+      capabilityDescription: 'can sense user input.',
+      id: 'sensory-1',
+      provider: mockProvider,
+      eventStream,
+      sensor,
+      responseRole: 'user-input',
+    });
+
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { role: 'broadcast' as const, content: 'test' },
+    });
+
+    expect(result).toEqual({
+      role: 'user-input',
+      originatingNodeId: 'sensory-1',
+      content: 'User typed this',
+    });
+  });
+
+  it('should return undefined when the sensor has no content', async () => {
+    const sensor = {
+      sense: vi.fn().mockResolvedValue('  '),
+    };
+
+    const node = new SensoryNode({
+      capabilityDescription: 'can sense test signals.',
+      id: 'sensory-1',
+      provider: mockProvider,
+      eventStream,
+      sensor,
+    });
+
+    const result = await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: { role: 'broadcast' as const, content: 'test' },
+    });
+
+    expect(result).toBeUndefined();
+  });
+
   it('should preserve id and kind across multiple calls', async () => {
     const sensor = {
       sense: vi.fn().mockResolvedValue('Sensation'),

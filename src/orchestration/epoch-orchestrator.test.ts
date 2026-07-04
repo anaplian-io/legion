@@ -11,6 +11,8 @@ import type { NodeSplitter } from '../types/node-splitter.js';
 import type { NodePruner } from '../types/node-pruner.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
+import { UserInputSensor } from '../sensor/user-input-sensor.js';
+import { SensoryNode } from '../node/sensory-node.js';
 
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;
@@ -836,7 +838,8 @@ describe('EpochOrchestrator', () => {
     );
   });
 
-  it('should inject a broadcast into the global workspace', () => {
+  it('should receive user input without mutating the global workspace broadcast', () => {
+    const userInputSensor = new UserInputSensor();
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
@@ -851,23 +854,24 @@ describe('EpochOrchestrator', () => {
       memoryNodeSplitter: mockMemoryNodeSplitter,
       nodePruner: mockNodePruner,
       eventStream,
+      userInputSensor,
     });
 
-    let publishedBroadcast: string | undefined;
+    let receivedInput: string | undefined;
     eventStream.subscribe({
-      topicName: 'orchestrator/working-memory-updated',
+      topicName: 'orchestrator/user-input-received',
       receiver: (data) => {
-        publishedBroadcast = data.broadcast.content;
+        receivedInput = data.content;
       },
     });
 
-    orchestrator.injectBroadcast('User typed this');
+    orchestrator.receiveUserInput('User typed this');
 
-    expect(orchestrator.currentBroadcast.content).toBe('User typed this');
-    expect(publishedBroadcast).toBe('User typed this');
+    expect(orchestrator.currentBroadcast.content).toBe('Initial broadcast');
+    expect(receivedInput).toBe('User typed this');
   });
 
-  it('should use an injected broadcast on the next epoch', async () => {
+  it('should ignore empty user input without publishing an event', () => {
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
@@ -884,6 +888,47 @@ describe('EpochOrchestrator', () => {
       eventStream,
     });
 
+    const receiver = vi.fn();
+    eventStream.subscribe({
+      topicName: 'orchestrator/user-input-received',
+      receiver,
+    });
+
+    orchestrator.receiveUserInput('  ');
+
+    expect(receiver).not.toHaveBeenCalled();
+    expect(orchestrator.currentBroadcast.content).toBe('Initial broadcast');
+  });
+
+  it('should deliver queued user input as afferent context on the next epoch', async () => {
+    const userInputSensor = new UserInputSensor();
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      userInputSensor,
+    });
+
+    orchestrator.addNode(
+      new SensoryNode({
+        id: 'sensor-user-input',
+        provider: mockProvider,
+        eventStream,
+        sensor: userInputSensor,
+        responseRole: 'user-input',
+        capabilityDescription: 'can provide queued user input.',
+      }),
+    );
     const sendMessageSpy = vi.fn();
     sendMessageSpy.mockResolvedValue({
       role: 'node-response' as const,
@@ -908,17 +953,113 @@ describe('EpochOrchestrator', () => {
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
 
-    orchestrator.injectBroadcast('Hello workspace');
+    orchestrator.receiveUserInput('Hello workspace');
     await orchestrator.runEpoch();
 
-    // The injected message is what nodes received this epoch.
+    // The global workspace remains the existing broadcast while user input is
+    // delivered through afferent context.
     expect(sendMessageSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        broadcast: expect.objectContaining({ content: 'Hello workspace' }),
+        broadcast: expect.objectContaining({ content: 'Initial broadcast' }),
+        afferentContext: [
+          {
+            role: 'afferent-capability',
+            content:
+              'Available afferent capabilities:\n- sensor-user-input: can provide queued user input.',
+          },
+          {
+            role: 'user-input',
+            content: 'Hello workspace',
+            originatingNodeId: 'sensor-user-input',
+          },
+        ],
       }),
     );
-    // The pending injection was consumed; the epoch then distilled normally.
     expect(orchestrator.currentBroadcast.content).toBe('Distilled insight');
+  });
+
+  it('should deliver multiple queued user inputs once in FIFO order', async () => {
+    const userInputSensor = new UserInputSensor();
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: {
+        role: 'broadcast' as const,
+        content: 'Initial broadcast',
+      },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      userInputSensor,
+    });
+
+    orchestrator.addNode(
+      new SensoryNode({
+        id: 'sensor-user-input',
+        provider: mockProvider,
+        eventStream,
+        sensor: userInputSensor,
+        responseRole: 'user-input',
+        capabilityDescription: 'can provide queued user input.',
+      }),
+    );
+    const memorySend = vi.fn().mockResolvedValue({
+      role: 'node-response' as const,
+      originatingNodeId: 'mem',
+      content: 'Memory response',
+    });
+    orchestrator.addNode(createMockNode('mem', memorySend));
+    const consumedInputs: string[] = [];
+    eventStream.subscribe({
+      topicName: 'orchestrator/user-input-consumed',
+      receiver: ({ content }) => {
+        consumedInputs.push(content);
+      },
+    });
+
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
+      {
+        role: 'node-response',
+        content: 'Memory response',
+        originatingNodeId: 'mem',
+      },
+    ]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
+
+    orchestrator.receiveUserInput('first');
+    orchestrator.receiveUserInput('second');
+    await orchestrator.runEpoch();
+    await orchestrator.runEpoch();
+
+    expect(consumedInputs).toEqual(['first', 'second']);
+    expect(memorySend).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        afferentContext: expect.arrayContaining([
+          {
+            role: 'user-input',
+            content: 'first',
+            originatingNodeId: 'sensor-user-input',
+          },
+        ]),
+      }),
+    );
+    expect(memorySend).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        afferentContext: expect.arrayContaining([
+          {
+            role: 'user-input',
+            content: 'second',
+            originatingNodeId: 'sensor-user-input',
+          },
+        ]),
+      }),
+    );
   });
 
   it('should spawn a new node when all candidates return undefined', async () => {

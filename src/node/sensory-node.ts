@@ -7,6 +7,7 @@ import {
 import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
 import { Sensor } from '../types/sensor.js';
+import { MessageRole } from '../types/message.js';
 
 export interface SensoryNodeProps {
   readonly id: string;
@@ -14,6 +15,7 @@ export interface SensoryNodeProps {
   readonly eventStream: EventStream;
   readonly sensor: Sensor;
   readonly capabilityDescription: string;
+  readonly responseRole?: MessageRole;
 }
 export class SensoryNode implements Node<'sensory'> {
   public readonly kind = 'sensory' as const;
@@ -47,8 +49,12 @@ export class SensoryNode implements Node<'sensory'> {
       await this.setStatus('idle');
       return undefined;
     }
+    if (content.trim().length === 0) {
+      await this.setStatus('idle');
+      return undefined;
+    }
     const response: NodeResponse = {
-      role: 'afferent',
+      role: this.props.responseRole ?? 'afferent',
       originatingNodeId: this.id,
       content,
     };
