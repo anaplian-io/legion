@@ -2,7 +2,7 @@ import { render } from 'ink';
 import { init } from '../constants/initialization.js';
 import { App } from './app.js';
 
-const main = async (): Promise<void> => {
+export const main = async (): Promise<void> => {
   if (!process.stdin.isTTY) {
     console.error(
       'The Legion TUI needs an interactive terminal (TTY). Run it directly in your terminal.',
@@ -39,8 +39,3 @@ const main = async (): Promise<void> => {
   await teardown();
   process.exit(0);
 };
-
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
