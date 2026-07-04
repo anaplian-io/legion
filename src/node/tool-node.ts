@@ -104,6 +104,7 @@ export class ToolNode implements Node<'tool'> {
     );
     this.setStatus('idle');
     return {
+      role: 'afferent',
       originatingNodeId: this.id,
       content: JSON.stringify(toolCallResponse),
     };

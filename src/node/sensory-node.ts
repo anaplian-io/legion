@@ -48,6 +48,7 @@ export class SensoryNode implements Node<'sensory'> {
       return undefined;
     }
     const response: NodeResponse = {
+      role: 'afferent',
       originatingNodeId: this.id,
       content,
     };

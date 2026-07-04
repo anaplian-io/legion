@@ -4,7 +4,7 @@ import { BroadcastMessage } from '../types/node.js';
 
 const broadcastMessage = (content: string): BroadcastMessage => ({
   workingMemory: { messages: [] },
-  broadcast: { content },
+  broadcast: { role: 'broadcast', content },
 });
 
 const curiosityProps = (content: string, epochsAlive: number) => ({

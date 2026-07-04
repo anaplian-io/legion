@@ -13,6 +13,7 @@ import {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import { isStrictEligible } from '../utilities/is-strict-eligible.js';
+import { Message, MessageRole } from '../types/message.js';
 
 export interface OpenAiProviderProps {
   readonly model: string;
@@ -36,14 +37,11 @@ export class OpenaiProvider implements Provider {
    */
   private readonly buildMessages = (
     systemPrompt: string,
-    messages: readonly { content: string }[],
+    messages: readonly Message[],
   ): ChatCompletionMessageParam[] => {
     const items: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
-      ...messages.map((m): ChatCompletionMessageParam => ({
-        role: 'user',
-        content: m.content,
-      })),
+      ...messages.map((m) => this.toOpenAiUserMessage(m)),
     ];
     if (messages.length === 0) {
       items.push({
@@ -52,6 +50,28 @@ export class OpenaiProvider implements Provider {
       });
     }
     return items;
+  };
+
+  private readonly toOpenAiUserMessage = (
+    message: Message,
+  ): ChatCompletionMessageParam => ({
+    role: 'user',
+    content: `${this.messageRoleLabel(message.role)}\n${message.content}`,
+  });
+
+  private readonly messageRoleLabel = (role: MessageRole): string => {
+    switch (role) {
+      case 'working-memory':
+        return '[WORKING MEMORY]';
+      case 'broadcast':
+        return '[BROADCAST]';
+      case 'afferent':
+        return '[AFFERENT]';
+      case 'afferent-capability':
+        return '[AFFERENT CAPABILITY]';
+      case 'node-response':
+        return '[NODE RESPONSE]';
+    }
   };
 
   public readonly generate = async (props: GenerateProps): Promise<string> => {
@@ -121,10 +141,7 @@ ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
       temperature: 0,
       messages: [
         { role: 'system', content: props.systemPrompt },
-        ...props.messages.map((m): ChatCompletionMessageParam => ({
-          role: 'user',
-          content: m.content,
-        })),
+        ...props.messages.map((m) => this.toOpenAiUserMessage(m)),
         {
           role: 'user',
           content: `${props.question}
@@ -227,10 +244,7 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
   ): Promise<{ content: string; toolCalls: ToolCall[] | undefined }> => {
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: props.systemPrompt },
-      ...props.messages.map((m): ChatCompletionMessageParam => ({
-        role: 'user',
-        content: m.content,
-      })),
+      ...props.messages.map((m) => this.toOpenAiUserMessage(m)),
     ];
 
     const tools = props.tools.map((tool) => this.mapToolToOpenAITool(tool));

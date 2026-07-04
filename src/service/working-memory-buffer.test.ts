@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WorkingMemoryBuffer } from './working-memory-buffer.js';
 import { ConcreteEventStream } from './concrete-event-stream.js';
+import type { WorkingMemoryUpdatedData } from '../types/event-stream.js';
 
 describe('WorkingMemoryBuffer', () => {
   let eventStream: ConcreteEventStream;
@@ -18,36 +19,49 @@ describe('WorkingMemoryBuffer', () => {
     const buffer = new WorkingMemoryBuffer({
       maxMessages: 3,
       eventStream,
-      initial: { messages: [{ content: 'seed' }] },
+      initial: {
+        messages: [{ role: 'working-memory', content: 'seed' }],
+      },
     });
-    expect(buffer.workingMemory.messages).toEqual([{ content: 'seed' }]);
+    expect(buffer.workingMemory.messages).toEqual([
+      { role: 'working-memory', content: 'seed' },
+    ]);
   });
 
   it('appends messages', () => {
     const buffer = new WorkingMemoryBuffer({ maxMessages: 3, eventStream });
-    buffer.append({ content: 'a' }, { content: 'next' });
-    expect(buffer.workingMemory.messages).toEqual([{ content: 'a' }]);
+    buffer.append(
+      { role: 'working-memory', content: 'a' },
+      { role: 'broadcast', content: 'next' },
+    );
+    expect(buffer.workingMemory.messages).toEqual([
+      { role: 'working-memory', content: 'a' },
+    ]);
   });
 
   it('evicts the oldest entries beyond maxMessages', () => {
     const buffer = new WorkingMemoryBuffer({ maxMessages: 2, eventStream });
-    buffer.append({ content: 'a' }, { content: 'n' });
-    buffer.append({ content: 'b' }, { content: 'n' });
-    buffer.append({ content: 'c' }, { content: 'n' });
+    buffer.append(
+      { role: 'working-memory', content: 'a' },
+      { role: 'broadcast', content: 'n' },
+    );
+    buffer.append(
+      { role: 'working-memory', content: 'b' },
+      { role: 'broadcast', content: 'n' },
+    );
+    buffer.append(
+      { role: 'working-memory', content: 'c' },
+      { role: 'broadcast', content: 'n' },
+    );
     expect(buffer.workingMemory.messages).toEqual([
-      { content: 'b' },
-      { content: 'c' },
+      { role: 'working-memory', content: 'b' },
+      { role: 'working-memory', content: 'c' },
     ]);
   });
 
   it('publishes the updated window and current broadcast on append', () => {
     const buffer = new WorkingMemoryBuffer({ maxMessages: 3, eventStream });
-    let payload:
-      | {
-          workingMemory: { messages: { content: string }[] };
-          broadcast: { content: string };
-        }
-      | undefined;
+    let payload: WorkingMemoryUpdatedData | undefined;
     eventStream.subscribe({
       topicName: 'orchestrator/working-memory-updated',
       receiver: (data) => {
@@ -55,9 +69,17 @@ describe('WorkingMemoryBuffer', () => {
       },
     });
 
-    buffer.append({ content: 'a' }, { content: 'broadcast' });
+    buffer.append(
+      { role: 'working-memory', content: 'a' },
+      { role: 'broadcast', content: 'broadcast' },
+    );
 
-    expect(payload?.workingMemory.messages).toEqual([{ content: 'a' }]);
-    expect(payload?.broadcast).toEqual({ content: 'broadcast' });
+    expect(payload?.workingMemory.messages).toEqual([
+      { role: 'working-memory', content: 'a' },
+    ]);
+    expect(payload?.broadcast).toEqual({
+      role: 'broadcast',
+      content: 'broadcast',
+    });
   });
 });

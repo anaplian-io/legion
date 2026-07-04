@@ -23,7 +23,7 @@ ${broadcasts.map((broadcast, index) => `[BROADCAST ${index}]: ${broadcast}`).joi
 
     return this.props.provider.generate({
       systemPrompt,
-      messages: [{ content: userContent }],
+      messages: [{ role: 'working-memory', content: userContent }],
     });
   };
 }

@@ -63,7 +63,7 @@ describe('ConcreteMemoryNodeFactory', () => {
     });
     await node.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     });
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalled();
@@ -109,11 +109,11 @@ describe('ConcreteMemoryNodeFactory', () => {
 
     await firstNode.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     });
     await secondNode.sendMessage({
       workingMemory: { messages: [] },
-      broadcast: { content: 'Broadcast' },
+      broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     });
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalledTimes(2);
