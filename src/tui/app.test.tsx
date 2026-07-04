@@ -308,9 +308,10 @@ describe('App', () => {
       topicName: 'orchestrator/user-input-received',
       data: { content: 'please inspect the sensor path' },
     });
-    await tick();
 
-    const out = lastFrame() ?? '';
+    const out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('please inspect the sensor path'),
+    );
     expect(out).toContain('USER INPUT');
     expect(out).toContain('please inspect the sensor path');
   });
@@ -358,9 +359,10 @@ describe('App', () => {
       topicName: 'orchestrator/user-input-received',
       data: { content: 'second request' },
     });
-    await tick();
 
-    let out = lastFrame() ?? '';
+    let out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('first request'),
+    );
     expect(out).toContain('▸ first request');
     expect(out).not.toContain('second request');
 
