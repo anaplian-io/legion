@@ -367,7 +367,9 @@ describe('ToolNode', () => {
       broadcastMessage,
       nodeId: 'test-node',
       epochsAlive: 0,
-      nodeContext: expect.stringContaining('Your available tools:'),
+      nodeContext: expect.stringMatching(
+        /Your node ID: test-node[\s\S]*Your capability: can use test tools\.[\s\S]*Your available tools:/,
+      ),
     });
   });
 

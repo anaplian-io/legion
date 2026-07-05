@@ -77,6 +77,10 @@ describe('EpochOrchestrator', () => {
     });
 
     expect(orchestrator.nodes).toEqual([]);
+    expect(orchestrator.workingMemory.messages).toEqual([
+      { role: 'working-memory', content: 'Initial' },
+    ]);
+    expect(orchestrator.currentBroadcast.content).toBe('Initial broadcast');
   });
 
   it('should create an orchestrator with initial nodes', () => {
@@ -103,7 +107,7 @@ describe('EpochOrchestrator', () => {
     expect(orchestrator.nodes).toEqual([nodeA, nodeB]);
   });
 
-  it('should create an orchestrator with empty working memory by default', () => {
+  it('should track the initial broadcast separately from working memory', () => {
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
@@ -121,6 +125,7 @@ describe('EpochOrchestrator', () => {
     });
 
     expect(orchestrator.workingMemory.messages).toEqual([]);
+    expect(orchestrator.currentBroadcast.content).toBe('Initial broadcast');
   });
 
   it('should use custom max working memory messages', () => {
@@ -305,11 +310,9 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    expect(orchestrator.workingMemory.messages).toHaveLength(1);
-    expect(orchestrator.workingMemory.messages[0]).toEqual({
-      role: 'working-memory',
-      content: 'New insight',
-    });
+    expect(orchestrator.workingMemory.messages).toEqual([
+      { role: 'working-memory', content: 'Initial broadcast' },
+    ]);
     // The next broadcast is set to the distilled content
     expect(orchestrator.currentBroadcast.content).toBe('New insight');
   });
@@ -427,11 +430,9 @@ describe('EpochOrchestrator', () => {
         broadcasts: expect.arrayContaining(['Node A response']),
       }),
     );
-    expect(orchestrator.workingMemory.messages).toHaveLength(1);
-    expect(orchestrator.workingMemory.messages[0]).toEqual({
-      role: 'working-memory',
-      content: 'Distilled insight',
-    });
+    expect(orchestrator.workingMemory.messages).toEqual([
+      { role: 'working-memory', content: 'Initial broadcast' },
+    ]);
   });
 
   it('should handle empty candidate messages', async () => {
@@ -462,7 +463,7 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    expect(orchestrator.workingMemory.messages).toHaveLength(0);
+    expect(orchestrator.workingMemory.messages).toEqual([]);
     expect(mockRelevanceFilter.filter).toHaveBeenCalled();
     // A new node should be spawned using the factory (when all filtered messages are empty)
     expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
@@ -503,7 +504,7 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    expect(orchestrator.workingMemory.messages).toHaveLength(0);
+    expect(orchestrator.workingMemory.messages).toEqual([]);
     expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
       initialContext: 'Initial broadcast',
       eventStream,
@@ -754,11 +755,16 @@ describe('EpochOrchestrator', () => {
       await orchestrator.runEpoch();
     }
 
-    // WM should contain: ['Distilled 0', 'Distilled 1', 'Distilled 2']
+    // WM contains the three broadcasts that have rolled out of the current
+    // broadcast slot. Distilled 2 is still current after the third epoch.
     expect(orchestrator.workingMemory.messages).toHaveLength(3);
-    expect(orchestrator.workingMemory.messages[0]?.content).toBe('Distilled 0');
+    expect(orchestrator.workingMemory.messages[0]?.content).toBe(
+      'Initial broadcast',
+    );
+    expect(orchestrator.workingMemory.messages[1]?.content).toBe('Distilled 0');
+    expect(orchestrator.workingMemory.messages[2]?.content).toBe('Distilled 1');
 
-    // One more epoch should trigger pruning
+    // One more epoch should roll Distilled 2 into memory and evict Initial.
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([
       {
         role: 'node-response',
@@ -769,11 +775,11 @@ describe('EpochOrchestrator', () => {
     vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled 3');
     await orchestrator.runEpoch();
 
-    // WM now has 4 distilled messages, prunes to the latest 3.
     expect(orchestrator.workingMemory.messages).toHaveLength(3);
-    expect(orchestrator.workingMemory.messages[0]?.content).toBe('Distilled 1');
-    expect(orchestrator.workingMemory.messages[1]?.content).toBe('Distilled 2');
-    expect(orchestrator.workingMemory.messages[2]?.content).toBe('Distilled 3');
+    expect(orchestrator.workingMemory.messages[0]?.content).toBe('Distilled 0');
+    expect(orchestrator.workingMemory.messages[1]?.content).toBe('Distilled 1');
+    expect(orchestrator.workingMemory.messages[2]?.content).toBe('Distilled 2');
+    expect(orchestrator.currentBroadcast.content).toBe('Distilled 3');
   });
 
   it('should broadcast initial broadcast to nodes', async () => {
@@ -975,6 +981,23 @@ describe('EpochOrchestrator', () => {
         ],
       }),
     );
+    expect(mockDistiller.distill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        broadcasts: ['Response'],
+        afferentContext: [
+          {
+            role: 'afferent-capability',
+            content:
+              'Available afferent capabilities:\n- sensor-user-input: can provide queued user input.',
+          },
+          {
+            role: 'user-input',
+            content: 'Hello workspace',
+            originatingNodeId: 'sensor-user-input',
+          },
+        ],
+      }),
+    );
     expect(orchestrator.currentBroadcast.content).toBe('Distilled insight');
   });
 
@@ -1099,9 +1122,9 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    // Should have spawned a new memory node using factory with existing WM content
+    // Should have spawned a new memory node using WM plus the current broadcast.
     expect(mockMemoryNodeFactory.create).toHaveBeenCalledWith({
-      initialContext: 'Existing message',
+      initialContext: 'Existing message\nInitial broadcast',
       eventStream,
     });
     // Now should have 2 nodes: node-a and the new one from factory
