@@ -39,7 +39,7 @@ describe('LlmDistiller', () => {
 
     expect(mockProvider.generate).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining(
-        'consolidate a reasoning step into one line of working memory',
+        'consolidate a reasoning step into the next global workspace broadcast',
       ),
       messages: [
         { role: 'working-memory', content: expect.stringContaining('Node A') },
@@ -82,6 +82,59 @@ describe('LlmDistiller', () => {
     };
     expect(callArgs.messages[0]?.content).toContain('[BROADCAST 0]: A content');
     expect(callArgs.messages[0]?.content).toContain('[BROADCAST 1]: B content');
+  });
+
+  it('should include afferent context in the user message', async () => {
+    const distiller = new LlmDistiller({ provider: mockProvider });
+    const workingMemory: WorkingMemory = { messages: [] };
+
+    await distiller.distill({
+      workingMemory,
+      broadcasts: ['Memory node can answer after acknowledging the user.'],
+      afferentContext: [
+        {
+          role: 'user-input',
+          content: 'Can you explain what you are doing?',
+          originatingNodeId: 'sensor-user-input',
+        },
+        {
+          role: 'afferent-capability',
+          content:
+            'Available afferent capabilities:\n- tool-search: can search the web.',
+        },
+      ],
+    });
+
+    const callArgs = (mockProvider.generate as Mock).mock.calls[0]![0] as {
+      systemPrompt: string;
+      messages: Array<{ content: string }>;
+    };
+    expect(callArgs.messages[0]?.content).toContain(
+      '[USER INPUT 0 from sensor-user-input]: Can you explain what you are doing?',
+    );
+    expect(callArgs.messages[0]?.content).toContain(
+      '[AFFERENT CAPABILITY 1]: Available afferent capabilities',
+    );
+  });
+
+  it('should instruct the model to preserve user acknowledgements and tool callouts', async () => {
+    const distiller = new LlmDistiller({ provider: mockProvider });
+    const workingMemory: WorkingMemory = { messages: [] };
+
+    await distiller.distill({
+      workingMemory,
+      broadcasts: [
+        'Acknowledge the user, then ask tool-search to search for current source material.',
+      ],
+    });
+
+    const callArgs = (mockProvider.generate as Mock).mock.calls[0]![0] as {
+      systemPrompt: string;
+      messages: Array<{ content: string }>;
+    };
+    expect(callArgs.systemPrompt).toContain('acknowledge and address');
+    expect(callArgs.systemPrompt).toContain('Preserve exact afferent node IDs');
+    expect(callArgs.messages[0]?.content).toContain('tool-search');
   });
 
   it('should handle empty broadcasts', async () => {

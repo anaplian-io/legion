@@ -46,7 +46,6 @@ interface CognitiveWave extends EpochCandidates {
 }
 
 export class EpochOrchestrator {
-  private _currentBroadcast: Message;
   private readonly _registry: NodeRegistry;
   private readonly _workingMemory: WorkingMemoryBuffer;
   private readonly _userInputSensor: UserInputSensor;
@@ -60,8 +59,8 @@ export class EpochOrchestrator {
       maxMessages: props.maxWorkingMemoryMessages,
       eventStream: props.eventStream,
       initial: props.initialWorkingMemory,
+      initialBroadcast: props.initialBroadcast,
     });
-    this._currentBroadcast = props.initialBroadcast;
     this._userInputSensor = props.userInputSensor ?? new UserInputSensor();
     props.initialNodes?.forEach((node) => this.addNode(node));
   }
@@ -87,7 +86,7 @@ export class EpochOrchestrator {
   }
 
   public get currentBroadcast(): Message {
-    return this._currentBroadcast;
+    return this._workingMemory.currentBroadcast;
   }
 
   public readonly receiveUserInput = (content: string): void => {
@@ -135,7 +134,7 @@ export class EpochOrchestrator {
       return;
     }
 
-    this._currentBroadcast = await this.distill(survivors);
+    await this.distill(survivors, afferentContext);
     await this.splitOverflowingNodes();
     this.pruneNodes();
   };
@@ -152,7 +151,7 @@ export class EpochOrchestrator {
             node,
             response: await node.sendMessage({
               workingMemory: this.workingMemory,
-              broadcast: this._currentBroadcast,
+              broadcast: this.currentBroadcast,
               recipientNodeStats: nodeStats.get(node.id)!,
               afferentContext,
             }),
@@ -246,16 +245,16 @@ export class EpochOrchestrator {
     });
   };
 
-  private readonly distill = async (survivors: Message[]): Promise<Message> => {
+  private readonly distill = async (
+    survivors: Message[],
+    afferentContext: readonly Message[],
+  ): Promise<void> => {
     const content = await this.props.distiller.distill({
       workingMemory: this.workingMemory,
       broadcasts: survivors.map((message) => message.content),
+      afferentContext,
     });
-    this._workingMemory.append(
-      { role: 'working-memory', content },
-      { role: 'broadcast', content },
-    );
-    return { role: 'broadcast', content };
+    this._workingMemory.append({ role: 'broadcast', content });
   };
 
   private readonly splitOverflowingNodes = async (): Promise<void> => {
@@ -290,12 +289,10 @@ export class EpochOrchestrator {
   };
 
   private readonly spawnNewNode = (): Node<'memory'> => {
-    const initialContext =
-      this.workingMemory.messages.length > 0
-        ? this.workingMemory.messages.map((m) => m.content).join('\n')
-        : this._currentBroadcast.content;
     const node = this.props.memoryNodeFactory.create({
-      initialContext,
+      initialContext: [...this.workingMemory.messages, this.currentBroadcast]
+        .map((message) => message.content)
+        .join('\n'),
       eventStream: this.props.eventStream,
     });
     this.addNode(node);

@@ -127,6 +127,9 @@ export class ToolNode implements Node<'tool'> {
   public get preamble(): string {
     return `You are a tool node in a collective reasoning system. You contribute only by invoking tools when a broadcast names a task one of your tools can resolve.
 
+Your node ID: ${this.id}
+Your capability: ${this.capabilityDescription}
+
 Your available tools:
 ${this.tools.map((tool) => JSON.stringify(tool)).join('\n')}
 `;

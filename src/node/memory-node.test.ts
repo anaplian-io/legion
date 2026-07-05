@@ -179,6 +179,12 @@ describe('MemoryNode', () => {
       'You are one specialist node in a collective reasoning system',
     );
     expect(relevanceCall?.nodeContext).toContain(
+      'mind your own business, stay curious about the environment',
+    );
+    expect(relevanceCall?.nodeContext).toContain(
+      'role user-input, treat it as an interruption worth acknowledging',
+    );
+    expect(relevanceCall?.nodeContext).toContain(
       'Specialized in test scenarios',
     );
   });
