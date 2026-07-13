@@ -10,6 +10,7 @@ describe('generateSummary', () => {
       generate: vi.fn().mockResolvedValue('can search and fetch web pages.'),
       generateWithTools: vi.fn(),
       rankByRelevance: vi.fn(),
+      selectBest: vi.fn(),
       splitString: vi.fn(),
     };
     const tools: ToolDefinition[] = [

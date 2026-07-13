@@ -12,7 +12,7 @@ import { SensoryNode } from '../node/sensory-node.js';
 import { ConcreteToolNodeFactory } from '../factory/concrete-tool-node-factory.js';
 import { LlmRelevanceFilter } from '../service/llm-relevance-filter.js';
 import { StaticAttentionGate } from '../service/static-attention-gate.js';
-import { LlmDistiller } from '../service/llm-distiller.js';
+import { BestBroadcastDistiller } from '../service/best-broadcast-distiller.js';
 import { MemoryNodeSplitter } from '../service/memory-node-splitter.js';
 import { StaticNodePruner } from '../service/static-node-pruner.js';
 import { ConcreteMemoryNodeFactory } from '../factory/concrete-memory-node-factory.js';
@@ -373,7 +373,7 @@ export const init = async (options?: InitOptions) => {
     attentionGate,
   });
 
-  const distiller = new LlmDistiller({ provider });
+  const distiller = new BestBroadcastDistiller({ provider });
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
     provider,

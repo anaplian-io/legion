@@ -32,6 +32,7 @@ describe('ToolNode', () => {
       askYesNoQuestion: vi.fn().mockResolvedValue(true),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
+      selectBest: vi.fn(),
       splitString: vi.fn(),
       generateWithTools: vi.fn(),
     };
