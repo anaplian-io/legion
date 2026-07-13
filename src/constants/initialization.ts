@@ -30,6 +30,16 @@ import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-
 import { Provider } from '../types/provider.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { ExplicitNodeMentionRelevanceGate } from '../service/explicit-node-mention-relevance-gate.js';
+import { MCPClient } from '../adapter/mcp-client.js';
+import { ToolDefinition } from '../types/tool.js';
+import {
+  PersistedMcpServerSummaries,
+  PersistedMcpServerSummary,
+} from '../types/mcp-server-summary.js';
+import {
+  defaultMcpServerCapabilityDescription,
+  resolveMcpServerCapabilityDescription,
+} from '../service/mcp-server-summary-resolver.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -230,10 +240,23 @@ export const init = async (options?: InitOptions) => {
     );
   }
 
+  let persistedMcpServerSummaries: PersistedMcpServerSummaries = {};
+  try {
+    persistedMcpServerSummaries = SessionLoader.loadMcpServerSummaries({
+      directory: settings.saveLocation,
+    });
+  } catch (e) {
+    console.warn(
+      `[Init] Failed to load MCP server summaries: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
   const mcpClients: Array<{
     readonly name: string;
     readonly client: Client;
+    readonly tools: readonly ToolDefinition[];
     readonly capabilityDescription: string;
+    readonly generatedSummary?: PersistedMcpServerSummary;
   }> = settings.mcpServers
     ? (
         await Promise.all(
@@ -244,35 +267,89 @@ export const init = async (options?: InitOptions) => {
                 version: '0.1.0',
               });
               try {
-                await client.connect(new StdioClientTransport(definition));
+                await client.connect(
+                  new StdioClientTransport({
+                    command: definition.command,
+                    ...(definition.args === undefined
+                      ? {}
+                      : { args: definition.args }),
+                    ...(definition.env === undefined
+                      ? {}
+                      : { env: definition.env }),
+                    ...(definition.cwd === undefined
+                      ? {}
+                      : { cwd: definition.cwd }),
+                  }),
+                );
                 console.info(
                   `[Init] Successfully connected MCP client ${name}`,
                 );
+                const tools = await new MCPClient({
+                  client,
+                }).getAvailableTools();
+                const resolution = await resolveMcpServerCapabilityDescription({
+                  name,
+                  configuredCapabilityDescription:
+                    definition.capabilityDescription,
+                  provider,
+                  tools,
+                  persistedSummaries: persistedMcpServerSummaries,
+                }).catch((e: unknown) => {
+                  console.warn(
+                    `[Init] Failed to generate MCP server summary for ${name}: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                  return {
+                    capabilityDescription:
+                      defaultMcpServerCapabilityDescription(name),
+                  };
+                });
+                return {
+                  name,
+                  client,
+                  tools,
+                  ...resolution,
+                };
               } catch (e) {
                 console.warn(`[Init] Failed to load MCP client ${name}: ${e}`);
                 return undefined;
               }
-              return {
-                name,
-                client,
-                capabilityDescription:
-                  definition.capabilityDescription ??
-                  `can use the ${name} MCP server for external actions or information retrieval.`,
-              };
             },
           ),
         )
       ).filter(isDefined)
     : [];
 
+  const generatedMcpServerSummaries: PersistedMcpServerSummaries = {};
+  mcpClients.forEach(({ name, generatedSummary }) => {
+    if (generatedSummary !== undefined) {
+      generatedMcpServerSummaries[name] = generatedSummary;
+    }
+  });
+  if (Object.keys(generatedMcpServerSummaries).length > 0) {
+    try {
+      SessionSaver.saveMcpServerSummaries({
+        directory: settings.saveLocation,
+        summaries: {
+          ...persistedMcpServerSummaries,
+          ...generatedMcpServerSummaries,
+        },
+      });
+    } catch (e) {
+      console.warn(
+        `[Init] Failed to save MCP server summaries: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   // Create ToolNode factories for each MCP client
   const toolNodeFactories = mcpClients.map(
-    ({ client, capabilityDescription }) =>
+    ({ client, capabilityDescription, tools }) =>
       new ConcreteToolNodeFactory({
         provider,
         relevanceGate: toolRelevanceGate,
         mcpClient: client,
         capabilityDescription,
+        initialTools: tools,
       }),
   );
 

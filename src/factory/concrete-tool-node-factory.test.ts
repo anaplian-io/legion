@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteToolNodeFactory } from './concrete-tool-node-factory.js';
+import { ToolNode } from '../node/tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
@@ -117,5 +118,23 @@ describe('ConcreteToolNodeFactory', () => {
 
     expect(firstNode.kind).toBe('tool');
     expect(secondNode.kind).toBe('tool');
+  });
+
+  it('should pass boot-fetched tools to its nodes', () => {
+    const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can use factory test tools.',
+      provider: mockProvider,
+      mcpClient:
+        mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      relevanceGate: mockRelevanceGate,
+      initialTools: [{ name: 'boot-tool', parameters: {} }],
+    });
+
+    const node = factory.create({
+      nodeId: 'test-node',
+      eventStream: mockEventStream,
+    });
+
+    expect((node as ToolNode).preamble).toContain('boot-tool');
   });
 });

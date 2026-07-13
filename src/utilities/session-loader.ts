@@ -7,6 +7,10 @@ import { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import { EventStream } from '../types/event-stream.js';
 import { NodeStats } from '../types/node-stats.js';
 import { NodeStatsEntry } from '../types/event-stream.js';
+import {
+  MCP_SERVER_SUMMARIES_FILE_NAME,
+  PersistedMcpServerSummaries,
+} from '../types/mcp-server-summary.js';
 
 export interface LoadedSession {
   readonly nodes: Node<'memory'>[];
@@ -78,5 +82,19 @@ export const SessionLoader = {
       broadcast,
       nodeStats,
     };
+  },
+  loadMcpServerSummaries: (props: {
+    readonly directory: string;
+  }): PersistedMcpServerSummaries => {
+    const filePath = path.join(
+      path.normalize(props.directory),
+      MCP_SERVER_SUMMARIES_FILE_NAME,
+    );
+    if (!fs.existsSync(filePath)) {
+      return {};
+    }
+    return JSON.parse(
+      fs.readFileSync(filePath, 'utf-8'),
+    ) as PersistedMcpServerSummaries;
   },
 };

@@ -2,6 +2,7 @@ import { LegionSettings } from './src/types/legion-settings.js';
 import { WikipediaSensor } from './src/sensor/wikipedia-sensor.js';
 import { CurrentTimeSensor } from './src/sensor/current-time-sensor.js';
 import { CoarseLocationSensor } from './src/sensor/coarse-location-sensor.js';
+import { generateSummary } from './src/utilities/generate-mcp-server-summary.js';
 
 export default {
   llmProvider: 'openai',
@@ -48,8 +49,7 @@ Begin by surveying what you can perceive and choosing one modest thing to learn 
     'ddg-search': {
       command: 'uvx',
       args: ['duckduckgo-mcp-server'],
-      capabilityDescription:
-        'can search the web for current/local information, forecasts, events, and linked sources. can also fetch web pages.',
+      capabilityDescription: generateSummary(),
     },
   },
 } satisfies LegionSettings;
