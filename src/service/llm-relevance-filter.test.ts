@@ -12,6 +12,7 @@ describe('LlmRelevanceFilter', () => {
   beforeEach(() => {
     mockProvider = {
       rankByRelevance: vi.fn(),
+      selectBest: vi.fn(),
       generate: vi.fn(),
       askYesNoQuestion: vi.fn(),
       splitString: vi.fn(),

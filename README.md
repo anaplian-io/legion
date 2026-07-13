@@ -74,8 +74,9 @@ the workspace rather than competing inside it.
    it has something non-redundant to add, and only then generates.
 3. **Competition.** The relevance filter ranks the memory outputs against
    working memory; the attention gate trims to the top-K survivors.
-4. **Consolidation.** The distiller fuses the survivors into a single new
-   broadcast — the "conscious" thought for the next epoch.
+4. **Selection.** The distiller selects the best surviving response, without
+   rewriting it, as the single new broadcast — the "conscious" thought for the
+   next epoch.
 5. **Memory & lifecycle.** Working memory rolls forward, oversized nodes split,
    and underperforming nodes are pruned.
 
@@ -137,6 +138,7 @@ All model interaction goes through the `Provider` interface
 specific API:
 
 - `generate` — chat completion from a system prompt and messages
+- `selectBest` — selects one candidate by a supplied set of criteria
 - `rankByRelevance` — orders items against a concept (the filter's engine)
 - `askYesNoQuestion` — a node's relevance gate
 - `splitString` — semantic bisection for node splitting

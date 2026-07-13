@@ -4,6 +4,7 @@ import {
   GenerateWithToolsProps,
   MinimalOpenAi,
   Provider,
+  SelectBestProps,
   ToolCall,
   ToolDefinition,
 } from '../types/provider.js';
@@ -82,6 +83,66 @@ export class OpenaiProvider implements Provider {
       messages: this.buildMessages(props.systemPrompt, props.messages),
     });
     return this.firstContent(response);
+  };
+
+  public readonly selectBest = async (
+    props: SelectBestProps,
+  ): Promise<number> => {
+    if (props.candidates.length === 0) {
+      throw new Error(
+        '[OpenaiProvider.selectBest] requires at least one candidate',
+      );
+    }
+
+    const response = await this.props.client.chat.completions.create({
+      model: this.props.model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: props.systemPrompt },
+        ...props.messages.map((message) => this.toOpenAiUserMessage(message)),
+        {
+          role: 'user',
+          content: `Candidates:\n${props.candidates
+            .map((candidate, index) => `[CANDIDATE ${index}]: ${candidate}`)
+            .join('\n')}`,
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'best_candidate_selection',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              selectedIndex: {
+                type: 'integer',
+                minimum: 0,
+                maximum: props.candidates.length - 1,
+                description: 'Index of the single selected candidate',
+              },
+            },
+            required: ['selectedIndex'],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const { selectedIndex } = parseJsonOutput<{ selectedIndex: number }>(
+      this.firstContent(response),
+      'selectBest',
+    );
+    if (
+      !Number.isInteger(selectedIndex) ||
+      selectedIndex < 0 ||
+      selectedIndex >= props.candidates.length
+    ) {
+      throw new Error(
+        `[OpenaiProvider.selectBest] model selected invalid candidate index ${selectedIndex} for ${props.candidates.length} candidates`,
+      );
+    }
+    return selectedIndex;
   };
 
   public readonly rankByRelevance = async (

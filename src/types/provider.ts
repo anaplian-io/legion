@@ -12,6 +12,15 @@ export interface GenerateProps {
   readonly messages: Message[];
 }
 
+export interface SelectBestProps {
+  /** Selection criteria and instructions for comparing candidates. */
+  readonly systemPrompt: string;
+  /** Context used to judge the candidates. */
+  readonly messages: Message[];
+  /** Candidate strings; the returned index must refer to this array. */
+  readonly candidates: string[];
+}
+
 export interface AskYesNoQuestionProps {
   /**
    * Stable, cacheable prefix (e.g. a node's identity + accumulated context).
@@ -29,6 +38,8 @@ export type { GenerateWithToolsProps, ToolCall, ToolDefinition };
 
 export interface Provider {
   readonly generate: (props: GenerateProps) => Promise<string>;
+  /** Returns the index of the single best candidate. */
+  readonly selectBest: (props: SelectBestProps) => Promise<number>;
   readonly rankByRelevance: (
     concept: string,
     items: string[],

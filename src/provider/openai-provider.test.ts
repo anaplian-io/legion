@@ -231,6 +231,101 @@ describe('OpenaiProvider', () => {
     });
   });
 
+  describe('selectBest', () => {
+    it('should select an in-range candidate index with context', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(JSON.stringify({ selectedIndex: 1 })),
+      );
+
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await expect(
+        provider.selectBest({
+          systemPrompt: 'Choose the concrete next action.',
+          messages: [
+            { role: 'working-memory', content: 'We need fresh information.' },
+            { role: 'afferent', content: 'A tool returned old information.' },
+          ],
+          candidates: ['Generic response', 'Ask tool-search for fresh sources'],
+        }),
+      ).resolves.toBe(1);
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'test-model',
+          temperature: 0,
+          messages: [
+            { role: 'system', content: 'Choose the concrete next action.' },
+            {
+              role: 'user',
+              content: '[WORKING MEMORY]\nWe need fresh information.',
+            },
+            {
+              role: 'user',
+              content: '[AFFERENT]\nA tool returned old information.',
+            },
+            {
+              role: 'user',
+              content:
+                'Candidates:\n[CANDIDATE 0]: Generic response\n[CANDIDATE 1]: Ask tool-search for fresh sources',
+            },
+          ],
+          response_format: {
+            type: 'json_schema',
+            json_schema: expect.objectContaining({
+              name: 'best_candidate_selection',
+              strict: true,
+              schema: expect.objectContaining({
+                required: ['selectedIndex'],
+              }),
+            }),
+          },
+        }),
+      );
+    });
+
+    it('should reject an empty candidate list before making a request', async () => {
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await expect(
+        provider.selectBest({
+          systemPrompt: 'Choose one.',
+          messages: [],
+          candidates: [],
+        }),
+      ).rejects.toThrow('requires at least one candidate');
+      expect(mockClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    it.each([1.5, -1, 2])(
+      'should reject an invalid selected index of %s',
+      async (selectedIndex) => {
+        vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+          completion(JSON.stringify({ selectedIndex })),
+        );
+
+        const provider = new OpenaiProvider({
+          model: 'test-model',
+          client: mockClient as unknown as OpenAI,
+        });
+
+        await expect(
+          provider.selectBest({
+            systemPrompt: 'Choose one.',
+            messages: [],
+            candidates: ['First', 'Second'],
+          }),
+        ).rejects.toThrow('model selected invalid candidate index');
+      },
+    );
+  });
+
   describe('askYesNoQuestion', () => {
     it('should return true and include the cacheable prefix, messages, and question', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(

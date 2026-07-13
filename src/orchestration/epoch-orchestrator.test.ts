@@ -31,6 +31,7 @@ describe('EpochOrchestrator', () => {
       askYesNoQuestion: vi.fn(),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
+      selectBest: vi.fn(),
       splitString: vi.fn(),
       generateWithTools: vi.fn(),
     };

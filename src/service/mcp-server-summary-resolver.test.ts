@@ -26,6 +26,7 @@ const provider: Provider = {
   generate: vi.fn(),
   generateWithTools: vi.fn(),
   rankByRelevance: vi.fn(),
+  selectBest: vi.fn(),
   splitString: vi.fn(),
 };
 
