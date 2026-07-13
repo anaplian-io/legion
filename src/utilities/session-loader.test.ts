@@ -458,4 +458,31 @@ describe('SessionLoader', () => {
 
     expect(result?.broadcast.content).toBe('Third');
   });
+
+  it('should return an empty MCP server summary cache when none is saved', () => {
+    existsSync.mockReturnValue(false);
+
+    expect(
+      SessionLoader.loadMcpServerSummaries({ directory: mockDirectory }),
+    ).toEqual({});
+  });
+
+  it('should load persisted MCP server summaries independently of a session', () => {
+    const summaries = {
+      'search-server': {
+        capabilityDescription: 'can search the web.',
+        toolSignature: 'tool-signature',
+      },
+    };
+    existsSync.mockReturnValue(true);
+    readFileSync.mockReturnValue(JSON.stringify(summaries));
+
+    expect(
+      SessionLoader.loadMcpServerSummaries({ directory: mockDirectory }),
+    ).toEqual(summaries);
+    expect(readFileSync).toHaveBeenCalledWith(
+      path.join(mockDirectory, 'mcp-server-summaries.json'),
+      'utf-8',
+    );
+  });
 });

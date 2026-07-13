@@ -613,4 +613,26 @@ describe('SessionSaver', () => {
       expect(JSON.parse(callArgs[1])).toEqual(nodeStats);
     });
   });
+
+  it('should save generated MCP server summaries independently of events', () => {
+    const summaries = {
+      'search-server': {
+        capabilityDescription: 'can search the web.',
+        toolSignature: 'tool-signature',
+      },
+    };
+
+    SessionSaver.saveMcpServerSummaries({
+      directory: mockDirectory,
+      summaries,
+    });
+
+    expect(mkdirSync).toHaveBeenCalledWith(mockDirectory, {
+      recursive: true,
+    });
+    expect(writeFileSync).toHaveBeenCalledWith(
+      path.join(mockDirectory, 'mcp-server-summaries.json'),
+      JSON.stringify(summaries, null, 2),
+    );
+  });
 });

@@ -2,8 +2,23 @@ import { EventStream } from '../types/event-stream.js';
 import { MemoryNode } from '../node/memory-node.js';
 import * as fs from 'node:fs';
 import path from 'node:path';
+import {
+  MCP_SERVER_SUMMARIES_FILE_NAME,
+  PersistedMcpServerSummaries,
+} from '../types/mcp-server-summary.js';
 
 export const SessionSaver = {
+  saveMcpServerSummaries: (props: {
+    readonly directory: string;
+    readonly summaries: PersistedMcpServerSummaries;
+  }): void => {
+    const normalizedDirectory = path.normalize(props.directory);
+    fs.mkdirSync(normalizedDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(normalizedDirectory, MCP_SERVER_SUMMARIES_FILE_NAME),
+      JSON.stringify(props.summaries, null, 2),
+    );
+  },
   watch: (props: {
     readonly eventStream: EventStream;
     readonly directory: string;

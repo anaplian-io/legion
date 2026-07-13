@@ -17,6 +17,8 @@ export interface ToolNodeProps {
   readonly mcpClient: MCPClient;
   readonly relevanceGate: RelevanceGate;
   readonly capabilityDescription: string;
+  /** Tools fetched at boot while generating the MCP capability summary. */
+  readonly initialTools?: readonly ToolDefinition[];
 }
 
 export class ToolNode implements Node<'tool'> {
@@ -31,6 +33,7 @@ export class ToolNode implements Node<'tool'> {
     this.id = props.id;
     this.capabilityDescription = props.capabilityDescription;
     this.mcpClient = props.mcpClient;
+    this.tools = [...(props.initialTools ?? [])];
   }
 
   /**

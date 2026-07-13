@@ -140,6 +140,30 @@ describe('ToolNode', () => {
     expect(mockMCPClient.getAvailableTools).toHaveBeenCalled();
   });
 
+  it('should use tools fetched during boot without fetching them again', async () => {
+    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
+    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
+
+    const node = new ToolNode({
+      capabilityDescription: 'can use test tools.',
+      id: 'test-node',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+      relevanceGate: mockRelevanceGate,
+      initialTools: tools,
+    });
+
+    await expect(
+      node.sendMessage({
+        workingMemory: { messages: [] },
+        broadcast: { role: 'broadcast' as const, content: 'Test' },
+      }),
+    ).resolves.toBeUndefined();
+    expect(mockMCPClient.getAvailableTools).not.toHaveBeenCalled();
+  });
+
   it('should return undefined when tools are not relevant to broadcast', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);

@@ -1,10 +1,24 @@
 import { Provider } from './provider.js';
 import { Sensor } from './sensor.js';
 import { MessageRole } from './message.js';
+import { ToolDefinition } from './tool.js';
+
+export interface McpServerSummarySupplierDependencies {
+  readonly provider: Provider;
+  readonly tools: readonly ToolDefinition[];
+}
+
+export type McpServerSummarySupplier = (
+  dependencies: McpServerSummarySupplierDependencies,
+) => Promise<string>;
 
 export interface McpServerStdIo {
   readonly command: string;
-  readonly capabilityDescription?: string;
+  /**
+   * A static capability description, or an async supplier that derives one
+   * from the MCP server's tools during startup.
+   */
+  readonly capabilityDescription?: string | McpServerSummarySupplier;
   readonly allowedTools?: string[];
   readonly args?: string[];
   readonly env?: Record<string, string>;
