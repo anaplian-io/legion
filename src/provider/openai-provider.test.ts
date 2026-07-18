@@ -45,7 +45,7 @@ describe('OpenaiProvider', () => {
   });
 
   describe('generate', () => {
-    it('should send system + user messages and return content', async () => {
+    it('should send a Legion self-state assistant turn and return content', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
         completion('Hi there! I am a test response.'),
       );
@@ -69,18 +69,30 @@ describe('OpenaiProvider', () => {
       expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
         model: 'test-model',
         messages: [
-          { role: 'system', content: 'You are a helpful assistant.' },
-          { role: 'user', content: '[BROADCAST]\nHello, how are you?' },
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('You are a helpful assistant.'),
+          }),
+          {
+            role: 'assistant',
+            content:
+              '[LEGION SELF STATE — PRIOR COLLECTIVE THOUGHT]\n[BROADCAST]\nHello, how are you?\n\n[WORKING MEMORY]\nI am doing well, thanks!',
+          },
           {
             role: 'user',
-            content: '[WORKING MEMORY]\nI am doing well, thanks!',
+            content:
+              '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
           },
         ],
       });
+      expect(
+        mockClient.chat.completions.create.mock.calls[0]?.[0].messages[0]
+          ?.content,
+      ).toMatch(/^You are operating inside Legion/);
       expect(result).toBe('Hi there! I am a test response.');
     });
 
-    it('should synthesize a user turn when no messages are provided', async () => {
+    it('should synthesize a runtime tick when no messages are provided', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
         completion('Distilled output'),
       );
@@ -98,18 +110,23 @@ describe('OpenaiProvider', () => {
       expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
         model: 'test-model',
         messages: [
-          { role: 'system', content: 'Everything is in the system prompt.' },
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining(
+              'Everything is in the system prompt.',
+            ),
+          }),
           {
             role: 'user',
             content:
-              'Produce the output now, following the instructions above.',
+              '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
           },
         ],
       });
       expect(result).toBe('Distilled output');
     });
 
-    it('should label non-broadcast Legion message roles as user context', async () => {
+    it('should separate runtime context from actual user input', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
         completion('ok'),
       );
@@ -135,17 +152,21 @@ describe('OpenaiProvider', () => {
       expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
         model: 'test-model',
         messages: [
-          { role: 'system', content: 'System instructions' },
-          { role: 'user', content: '[AFFERENT]\nTool output' },
+          {
+            role: 'system',
+            content: expect.stringContaining('System instructions'),
+          },
           {
             role: 'user',
-            content: '[AFFERENT CAPABILITY]\nAvailable capability',
+            content:
+              '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]\n[AFFERENT]\nTool output\n\n[AFFERENT CAPABILITY]\nAvailable capability\n\n[NODE RESPONSE]\nMemory node response',
+          },
+          {
+            role: 'user',
+            content:
+              '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
           },
           { role: 'user', content: '[USER INPUT]\nUser instruction' },
-          {
-            role: 'user',
-            content: '[NODE RESPONSE]\nMemory node response',
-          },
         ],
       });
     });
@@ -258,19 +279,31 @@ describe('OpenaiProvider', () => {
           model: 'test-model',
           temperature: 0,
           messages: [
-            { role: 'system', content: 'Choose the concrete next action.' },
             {
-              role: 'user',
-              content: '[WORKING MEMORY]\nWe need fresh information.',
+              role: 'system',
+              content: expect.stringContaining(
+                'Choose the concrete next action.',
+              ),
             },
             {
-              role: 'user',
-              content: '[AFFERENT]\nA tool returned old information.',
+              role: 'assistant',
+              content:
+                '[LEGION SELF STATE — PRIOR COLLECTIVE THOUGHT]\n[WORKING MEMORY]\nWe need fresh information.',
             },
             {
               role: 'user',
               content:
-                'Candidates:\n[CANDIDATE 0]: Generic response\n[CANDIDATE 1]: Ask tool-search for fresh sources',
+                '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]\n[AFFERENT]\nA tool returned old information.',
+            },
+            {
+              role: 'user',
+              content:
+                '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
+            },
+            {
+              role: 'user',
+              content:
+                '[CANDIDATE SET — NOT HUMAN INPUT]\nCandidates:\n[CANDIDATE 0]: Generic response\n[CANDIDATE 1]: Ask tool-search for fresh sources',
             },
           ],
           response_format: {
@@ -356,10 +389,19 @@ describe('OpenaiProvider', () => {
         expect.objectContaining({
           temperature: 0,
           messages: [
-            { role: 'system', content: 'You are node 42.' },
+            {
+              role: 'system',
+              content: expect.stringContaining('You are node 42.'),
+            },
+            {
+              role: 'assistant',
+              content:
+                '[LEGION SELF STATE — PRIOR COLLECTIVE THOUGHT]\n[WORKING MEMORY]\nWorking memory snapshot',
+            },
             {
               role: 'user',
-              content: '[WORKING MEMORY]\nWorking memory snapshot',
+              content:
+                '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
             },
             {
               role: 'user',
@@ -508,6 +550,10 @@ describe('OpenaiProvider', () => {
           tool_choice: 'required',
           messages: [
             expect.objectContaining({ role: 'system' }),
+            expect.objectContaining({
+              role: 'assistant',
+              content: expect.stringContaining('[LEGION SELF STATE'),
+            }),
             expect.objectContaining({ role: 'user' }),
           ],
           tools: [
