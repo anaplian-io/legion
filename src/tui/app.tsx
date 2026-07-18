@@ -4,6 +4,7 @@ import type { EventStream } from '../types/event-stream.js';
 import type { NodeStatus } from '../types/node.js';
 import type { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import { Markdown, stripMarkdown } from './markdown.js';
+import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 
 export interface AppProps {
   readonly orchestrator: EpochOrchestrator;
@@ -256,6 +257,39 @@ export const App: React.FC<AppProps> = ({
             ),
           );
         });
+      },
+    });
+
+    eventStream.subscribe({
+      topicName: 'tool/invocation-started',
+      receiver: ({ nodeId, toolName, arguments: toolArguments }) => {
+        appendLog(
+          `⚙ ${shortId(nodeId)} → ${toolName} ${toolArguments}`,
+          'cyan',
+        );
+      },
+    });
+
+    eventStream.subscribe({
+      topicName: 'tool/invocation-completed',
+      receiver: ({ nodeId, toolName, success, output }) => {
+        const outputPreview = createToolOutputPreview(output);
+        appendLog(
+          `${success ? '✓' : '✗'} ${shortId(nodeId)} ${toolName}${outputPreview.length === 0 ? '' : ` → ${outputPreview}`}`,
+          success ? 'green' : 'red',
+        );
+      },
+    });
+
+    eventStream.subscribe({
+      topicName: 'goal/updated',
+      receiver: ({ activeGoal }) => {
+        appendLog(
+          activeGoal === undefined
+            ? '◎ active collective goal cleared'
+            : `◎ active goal: ${activeGoal.content}`,
+          'magenta',
+        );
       },
     });
   }, [eventStream]);

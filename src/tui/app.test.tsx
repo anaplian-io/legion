@@ -655,6 +655,75 @@ describe('App', () => {
     expect(out).toContain('distilled new broadcast');
   });
 
+  it('shows local tool invocation and goal events in the activity pane', async () => {
+    const orchestrator = makeOrchestrator();
+    const { lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    eventStream.publish({
+      topicName: 'tool/invocation-started',
+      data: {
+        nodeId: 'tool-weather',
+        callId: 'call-1',
+        toolName: 'get_weather',
+        arguments: '{"city":"Brooklyn"}',
+      },
+    });
+    eventStream.publish({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: 'tool-weather',
+        callId: 'call-1',
+        toolName: 'get_weather',
+        success: true,
+        output: 'windy\nand warm',
+      },
+    });
+    eventStream.publish({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: 'tool-weather',
+        callId: 'call-2',
+        toolName: 'get_weather',
+        success: false,
+        output: 'weather service unavailable',
+      },
+    });
+    eventStream.publish({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: 'tool-empty',
+        callId: 'call-3',
+        toolName: 'get_status',
+        success: true,
+        output: '',
+      },
+    });
+    eventStream.publish({
+      topicName: 'goal/updated',
+      data: { activeGoal: { id: 'goal-1', content: 'Explore sensors' } },
+    });
+    eventStream.publish({
+      topicName: 'goal/updated',
+      data: { activeGoal: undefined },
+    });
+
+    const out = await waitForFrame(lastFrame, (frame) =>
+      frame.includes('active collective goal cleared'),
+    );
+    expect(out).toContain('tool-weather');
+    expect(out).toContain('get_weather');
+    expect(out).toContain('windy and warm');
+    expect(out).toContain('✓ tool-empty get_status');
+    expect(out).toContain('Explore sensors');
+    expect(out).toContain('active collective goal cleared');
+  });
+
   it('keeps the consolidate phase when a generating status arrives mid-consolidation', async () => {
     const orchestrator = makeOrchestrator();
     const { lastFrame } = render(

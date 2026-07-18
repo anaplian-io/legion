@@ -9,6 +9,7 @@ import { Provider } from '../types/provider.js';
 import { ToolDefinition } from '../types/tool.js';
 import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 import { RelevanceGate } from '../types/relevance-gate.js';
+import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 
 export interface ToolNodeProps {
   readonly id: string;
@@ -80,7 +81,7 @@ export class ToolNode implements Node<'tool'> {
     this.setStatus('generating');
     const response = await provider.generateWithTools({
       messages,
-      systemPrompt: `You are a tool invocation node. Use the available tools to act on the broadcast. You MUST make a tool call.`,
+      systemPrompt: `${this.preamble}\nYou MUST make a tool call.`,
       tools: this.tools,
     });
     if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -89,19 +90,52 @@ export class ToolNode implements Node<'tool'> {
     }
     const toolCallResponse = await Promise.all(
       response.toolCalls.map(async (call) => {
+        this.props.eventStream.publish({
+          topicName: 'tool/invocation-started',
+          data: {
+            nodeId: this.id,
+            callId: call.id,
+            toolName: call.function.name,
+            arguments: call.function.arguments,
+          },
+        });
         try {
-          return await mcpClient.invokeTool(
+          const result = await mcpClient.invokeTool(
             call.id,
             call.function.name,
             call.function.arguments,
           );
+          this.props.eventStream.publish({
+            topicName: 'tool/invocation-completed',
+            data: {
+              nodeId: this.id,
+              callId: call.id,
+              toolName: call.function.name,
+              success: result.success,
+              output: createToolOutputPreview(
+                result.success ? result.result : result.error,
+              ),
+            },
+          });
+          return result;
         } catch (e) {
-          return {
+          const failure = {
             callId: call.id,
             name: call.function.name,
             success: false,
             error: `${e}`,
           } satisfies ToolResult;
+          this.props.eventStream.publish({
+            topicName: 'tool/invocation-completed',
+            data: {
+              nodeId: this.id,
+              callId: call.id,
+              toolName: call.function.name,
+              success: false,
+              output: createToolOutputPreview(`${e}`),
+            },
+          });
+          return failure;
         }
       }),
     );
@@ -128,7 +162,7 @@ export class ToolNode implements Node<'tool'> {
   };
 
   public get preamble(): string {
-    return `You are a tool node in a collective reasoning system. You contribute only by invoking tools when a broadcast names a task one of your tools can resolve.
+    return `You are a tool invocation node in a collective reasoning system. You contribute only by invoking tools when a broadcast names a task one of your tools can resolve.
 
 Your node ID: ${this.id}
 Your capability: ${this.capabilityDescription}

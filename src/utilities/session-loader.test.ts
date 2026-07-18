@@ -485,4 +485,63 @@ describe('SessionLoader', () => {
       'utf-8',
     );
   });
+
+  it('returns no active goal when one was not persisted', () => {
+    existsSync.mockReturnValue(false);
+
+    expect(
+      SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+    ).toBeUndefined();
+  });
+
+  it('loads an active goal or an explicitly cleared goal', () => {
+    existsSync.mockReturnValue(true);
+    readFileSync
+      .mockReturnValueOnce(
+        JSON.stringify({
+          activeGoal: { id: 'goal-1', content: 'Explore sensors' },
+        }),
+      )
+      .mockReturnValueOnce(JSON.stringify({ activeGoal: null }));
+
+    expect(SessionLoader.loadActiveGoal({ directory: mockDirectory })).toEqual({
+      id: 'goal-1',
+      content: 'Explore sensors',
+    });
+    expect(
+      SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+    ).toBeUndefined();
+    expect(readFileSync).toHaveBeenCalledWith(
+      path.join(mockDirectory, 'active-goal.json'),
+      'utf-8',
+    );
+  });
+
+  it('rejects malformed active-goal file shapes', () => {
+    existsSync.mockReturnValue(true);
+    const invalidShapes = ['1', 'null', '[]', '{}'];
+
+    invalidShapes.forEach((content) => {
+      readFileSync.mockReturnValue(content);
+      expect(() =>
+        SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+      ).toThrow('[SessionLoader] active goal file has invalid shape');
+    });
+  });
+
+  it('rejects malformed active-goal data', () => {
+    existsSync.mockReturnValue(true);
+    const invalidGoals = [
+      JSON.stringify({ activeGoal: [] }),
+      JSON.stringify({ activeGoal: { id: 1, content: 'Explore' } }),
+      JSON.stringify({ activeGoal: { id: 'goal-1', content: 1 } }),
+    ];
+
+    invalidGoals.forEach((content) => {
+      readFileSync.mockReturnValue(content);
+      expect(() =>
+        SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+      ).toThrow('[SessionLoader] active goal file has invalid goal data');
+    });
+  });
 });

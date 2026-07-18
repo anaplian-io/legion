@@ -312,6 +312,25 @@ describe('ToolNode', () => {
         tools,
       }),
     );
+    expect(mockEventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/invocation-started',
+      data: {
+        nodeId: 'test-node',
+        callId: 'call_1',
+        toolName: 'get_weather',
+        arguments: JSON.stringify({ location: 'NYC' }),
+      },
+    });
+    expect(mockEventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: 'test-node',
+        callId: 'call_1',
+        toolName: 'get_weather',
+        success: true,
+        output: JSON.stringify({ temperature: 72, condition: 'sunny' }),
+      },
+    });
   });
 
   it('should pass working memory and broadcast as discrete messages to generateWithTools', async () => {
@@ -693,6 +712,16 @@ describe('ToolNode', () => {
           error: 'Connection timeout',
         },
       ]),
+    });
+    expect(mockEventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: 'test-node',
+        callId: 'call_calc',
+        toolName: 'calculator',
+        success: false,
+        output: 'Connection timeout',
+      },
     });
   });
 
