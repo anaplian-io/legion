@@ -11,6 +11,7 @@ import {
   MCP_SERVER_SUMMARIES_FILE_NAME,
   PersistedMcpServerSummaries,
 } from '../types/mcp-server-summary.js';
+import { ACTIVE_GOAL_FILE_NAME, ActiveGoal } from '../types/goal.js';
 
 export interface LoadedSession {
   readonly nodes: Node<'memory'>[];
@@ -97,4 +98,37 @@ export const SessionLoader = {
       fs.readFileSync(filePath, 'utf-8'),
     ) as PersistedMcpServerSummaries;
   },
+  loadActiveGoal: (props: {
+    readonly directory: string;
+  }): ActiveGoal | undefined => {
+    const filePath = path.join(
+      path.normalize(props.directory),
+      ACTIVE_GOAL_FILE_NAME,
+    );
+    if (!fs.existsSync(filePath)) {
+      return undefined;
+    }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+    if (!isRecord(parsed) || !('activeGoal' in parsed)) {
+      throw new Error('[SessionLoader] active goal file has invalid shape');
+    }
+    const activeGoal = parsed['activeGoal'];
+    if (activeGoal === null) {
+      return undefined;
+    }
+    if (
+      !isRecord(activeGoal) ||
+      typeof activeGoal['id'] !== 'string' ||
+      typeof activeGoal['content'] !== 'string'
+    ) {
+      throw new Error('[SessionLoader] active goal file has invalid goal data');
+    }
+    return {
+      id: activeGoal['id'],
+      content: activeGoal['content'],
+    };
+  },
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -40,6 +40,10 @@ import {
   defaultMcpServerCapabilityDescription,
   resolveMcpServerCapabilityDescription,
 } from '../service/mcp-server-summary-resolver.js';
+import { GoalStore } from '../service/goal-store.js';
+import { GoalNode } from '../node/goal-node.js';
+import { ActiveGoalSensor } from '../sensor/active-goal-sensor.js';
+import type { ActiveGoal } from '../types/goal.js';
 
 // Set up console logging subscribers for all event types
 const setupLoggingSubscribers = (eventStream: EventStream): void => {
@@ -123,6 +127,35 @@ const setupLoggingSubscribers = (eventStream: EventStream): void => {
       });
     },
   });
+
+  eventStream.subscribe({
+    topicName: 'tool/invocation-started',
+    receiver: (data) => {
+      console.info(
+        `[Tool ${data.nodeId}] invoking ${data.toolName}(${data.arguments})`,
+      );
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'tool/invocation-completed',
+    receiver: (data) => {
+      console.info(
+        `[Tool ${data.nodeId}] ${data.toolName} ${data.success ? 'completed' : 'failed'}: ${data.output}`,
+      );
+    },
+  });
+
+  eventStream.subscribe({
+    topicName: 'goal/updated',
+    receiver: ({ activeGoal }) => {
+      console.info(
+        activeGoal === undefined
+          ? '[Goals] active goal cleared'
+          : `[Goals] active goal set: ${activeGoal.content}`,
+      );
+    },
+  });
 };
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
@@ -185,6 +218,21 @@ export const init = async (options?: InitOptions) => {
 
   // Create event stream for node communication
   const eventStream = new ConcreteEventStream();
+
+  let initialActiveGoal: ActiveGoal | undefined;
+  try {
+    initialActiveGoal = SessionLoader.loadActiveGoal({
+      directory: settings.saveLocation,
+    });
+  } catch (error) {
+    console.warn(
+      `[Init] Failed to load active goal: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const goalStore = new GoalStore({
+    eventStream,
+    ...(initialActiveGoal === undefined ? {} : { initialActiveGoal }),
+  });
 
   // Setup logging subscribers to see what's happening
   if (options?.attachConsoleLogging ?? true) {
@@ -392,6 +440,23 @@ export const init = async (options?: InitOptions) => {
     provider,
     eventStream,
   });
+  const activeGoalNode = createSensoryNode({
+    definition: {
+      id: 'sensor-active-goal',
+      sensor: new ActiveGoalSensor({ goalStore }),
+      capabilityDescription:
+        'can provide the current persistent collective goal when one is active.',
+    },
+    provider,
+    eventStream,
+  });
+  const goalManagerNode = new GoalNode({
+    id: 'goal-manager',
+    provider,
+    eventStream,
+    relevanceGate: new ExplicitNodeMentionRelevanceGate(),
+    goalStore,
+  });
 
   const nodeSplitter = new MemoryNodeSplitter({
     splittingProvider: provider,
@@ -426,6 +491,8 @@ export const init = async (options?: InitOptions) => {
 
   initialNodes.push(...sensoryNodes);
   initialNodes.push(userInputNode);
+  initialNodes.push(activeGoalNode);
+  initialNodes.push(goalManagerNode);
 
   // Use loaded working memory and broadcast if available, otherwise use defaults
   const initialWorkingMemory = loadedSession?.workingMemory ?? { messages: [] };

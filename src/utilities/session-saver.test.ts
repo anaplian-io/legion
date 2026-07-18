@@ -614,6 +614,43 @@ describe('SessionSaver', () => {
     });
   });
 
+  describe('goal/updated event', () => {
+    it('persists a set or cleared active goal independently of a memory session', () => {
+      SessionSaver.watch({ eventStream, directory: mockDirectory });
+
+      eventStream.publish({
+        topicName: 'goal/updated',
+        data: {
+          activeGoal: { id: 'goal-1', content: 'Explore the workspace' },
+        },
+      });
+      eventStream.publish({
+        topicName: 'goal/updated',
+        data: { activeGoal: undefined },
+      });
+
+      expect(writeFileSync).toHaveBeenNthCalledWith(
+        1,
+        path.join(mockDirectory, 'active-goal.json'),
+        JSON.stringify(
+          {
+            activeGoal: {
+              id: 'goal-1',
+              content: 'Explore the workspace',
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      expect(writeFileSync).toHaveBeenNthCalledWith(
+        2,
+        path.join(mockDirectory, 'active-goal.json'),
+        JSON.stringify({ activeGoal: null }, null, 2),
+      );
+    });
+  });
+
   it('should save generated MCP server summaries independently of events', () => {
     const summaries = {
       'search-server': {

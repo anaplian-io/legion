@@ -6,6 +6,7 @@ import {
   MCP_SERVER_SUMMARIES_FILE_NAME,
   PersistedMcpServerSummaries,
 } from '../types/mcp-server-summary.js';
+import { ACTIVE_GOAL_FILE_NAME } from '../types/goal.js';
 
 export const SessionSaver = {
   saveMcpServerSummaries: (props: {
@@ -95,6 +96,15 @@ export const SessionSaver = {
         fs.writeFileSync(
           path.join(normalizedDirectory, 'stats.json'),
           JSON.stringify(event.nodeStats, null, 2),
+        );
+      },
+    });
+    eventStream.subscribe({
+      topicName: 'goal/updated',
+      receiver: (event) => {
+        fs.writeFileSync(
+          path.join(normalizedDirectory, ACTIVE_GOAL_FILE_NAME),
+          JSON.stringify({ activeGoal: event.activeGoal ?? null }, null, 2),
         );
       },
     });

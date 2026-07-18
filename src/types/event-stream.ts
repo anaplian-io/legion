@@ -2,6 +2,7 @@ import { Node, NodeStatus } from './node.js';
 import { WorkingMemory } from './working-memory.js';
 import { Message } from './message.js';
 import { NodeStats } from './node-stats.js';
+import { ActiveGoal } from './goal.js';
 
 export interface NodeStatusChangeData {
   readonly nodeId: string;
@@ -16,6 +17,58 @@ export interface PublishNodeStatusChange {
 export interface SubscribeNodeStatusChange {
   readonly topicName: PublishNodeStatusChange['topicName'];
   readonly receiver: (data: NodeStatusChangeData) => void | Promise<void>;
+}
+
+export interface ToolInvocationStartedData {
+  readonly nodeId: string;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly arguments: string;
+}
+
+export interface PublishToolInvocationStarted {
+  readonly topicName: 'tool/invocation-started';
+  readonly data: ToolInvocationStartedData;
+}
+
+export interface SubscribeToolInvocationStarted {
+  readonly topicName: PublishToolInvocationStarted['topicName'];
+  readonly receiver: (data: ToolInvocationStartedData) => void | Promise<void>;
+}
+
+export interface ToolInvocationCompletedData {
+  readonly nodeId: string;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly success: boolean;
+  /** Bounded, single-line output preview for logs and the TUI. */
+  readonly output: string;
+}
+
+export interface PublishToolInvocationCompleted {
+  readonly topicName: 'tool/invocation-completed';
+  readonly data: ToolInvocationCompletedData;
+}
+
+export interface SubscribeToolInvocationCompleted {
+  readonly topicName: PublishToolInvocationCompleted['topicName'];
+  readonly receiver: (
+    data: ToolInvocationCompletedData,
+  ) => void | Promise<void>;
+}
+
+export interface GoalUpdatedData {
+  readonly activeGoal: ActiveGoal | undefined;
+}
+
+export interface PublishGoalUpdated {
+  readonly topicName: 'goal/updated';
+  readonly data: GoalUpdatedData;
+}
+
+export interface SubscribeGoalUpdated {
+  readonly topicName: PublishGoalUpdated['topicName'];
+  readonly receiver: (data: GoalUpdatedData) => void | Promise<void>;
 }
 
 export interface NodesChangedData {
@@ -145,7 +198,10 @@ export type PublishProps =
   | PublishOrchestratorUserInputReceived
   | PublishOrchestratorUserInputConsumed
   | PublishOrchestratorNodeStatsUpdated
-  | PublishNodeStatusChange;
+  | PublishNodeStatusChange
+  | PublishToolInvocationStarted
+  | PublishToolInvocationCompleted
+  | PublishGoalUpdated;
 
 export type SubscribeProps =
   | SubscribeOrchestratorNodesChanged
@@ -156,7 +212,10 @@ export type SubscribeProps =
   | SubscribeOrchestratorUserInputReceived
   | SubscribeOrchestratorUserInputConsumed
   | SubscribeOrchestratorNodeStatsUpdated
-  | SubscribeNodeStatusChange;
+  | SubscribeNodeStatusChange
+  | SubscribeToolInvocationStarted
+  | SubscribeToolInvocationCompleted
+  | SubscribeGoalUpdated;
 
 export type Topics = PublishProps['topicName'];
 
