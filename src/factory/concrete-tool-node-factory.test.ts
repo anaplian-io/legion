@@ -4,6 +4,7 @@ import { ToolNode } from '../node/tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
+import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
 
 // Mock MCP Client
 interface MockMcpClient {
@@ -137,5 +138,18 @@ describe('ConcreteToolNodeFactory', () => {
     });
 
     expect((node as ToolNode).preamble).toContain('boot-tool');
+  });
+
+  it('passes an error stream through to its MCP client', () => {
+    const factory = new ConcreteToolNodeFactory({
+      capabilityDescription: 'can report MCP failures.',
+      provider: mockProvider,
+      mcpClient:
+        mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
+      relevanceGate: mockRelevanceGate,
+      errorStream: new ConcreteErrorStream(),
+    });
+
+    expect(factory.create({ eventStream: mockEventStream }).kind).toBe('tool');
   });
 });

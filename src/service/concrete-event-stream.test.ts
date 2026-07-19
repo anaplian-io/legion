@@ -4,7 +4,10 @@ import { Node, NodeStatus } from '../types/node.js';
 import {
   SubscribeNodeStatusChange,
   SubscribeOrchestratorNodesChanged,
+  PublishProps,
 } from '../types/event-stream.js';
+import { ConcreteErrorStream } from './concrete-error-stream.js';
+import type { LoggableStream, LogRouter } from '../types/logging.js';
 
 describe('ConcreteEventStream', () => {
   let eventStream: ConcreteEventStream;
@@ -100,6 +103,10 @@ describe('ConcreteEventStream', () => {
   });
 
   it('should handle subscriber throwing an error without breaking other subscribers', async () => {
+    const errors: unknown[] = [];
+    const errorStream = new ConcreteErrorStream();
+    errorStream.subscribe((error) => errors.push(error));
+    eventStream = new ConcreteEventStream({ errorStream });
     const receivedByFirst = vi.fn(() => {
       throw new Error('First subscriber failed');
     });
@@ -129,6 +136,126 @@ describe('ConcreteEventStream', () => {
     expect(receivedBySecond).toHaveBeenCalledWith({
       nodeId: 'test',
       status: 'idle',
+    });
+    expect(errors).toEqual([
+      {
+        source: 'EventStream',
+        message: 'A subscriber for topic "node/status-change" threw.',
+        error: expect.any(Error),
+      },
+    ]);
+  });
+
+  it('reports asynchronous subscriber rejections without blocking publication', async () => {
+    const reports: unknown[] = [];
+    const errorStream = new ConcreteErrorStream();
+    errorStream.subscribe((report) => reports.push(report));
+    eventStream = new ConcreteEventStream({ errorStream });
+    eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: async () => {
+        throw new Error('async failure');
+      },
+    });
+
+    eventStream.publish({
+      topicName: 'node/status-change',
+      data: { nodeId: 'async', status: 'idle' },
+    });
+    await Promise.resolve();
+
+    expect(reports).toEqual([
+      {
+        source: 'EventStream',
+        message:
+          'An asynchronous subscriber for topic "node/status-change" rejected.',
+        error: expect.any(Error),
+      },
+    ]);
+  });
+
+  it('automatically registers an all-event logging consumer', () => {
+    let loggedStream: LoggableStream<PublishProps> | undefined;
+    const router: LogRouter = {
+      consume: (stream) => {
+        loggedStream = stream as unknown as LoggableStream<PublishProps>;
+      },
+    };
+    eventStream = new ConcreteEventStream({ logRouter: router });
+
+    expect(loggedStream?.name).toBe('events');
+    const received = vi.fn();
+    loggedStream?.subscribeForLogging(received);
+    eventStream.publish({
+      topicName: 'system/notice',
+      data: { message: 'ready' },
+    });
+    expect(received).toHaveBeenCalledWith({
+      topicName: 'system/notice',
+      data: { message: 'ready' },
+    });
+    expect(
+      loggedStream?.serializeForLogging({
+        topicName: 'system/notice',
+        data: { message: 'ready' },
+      }),
+    ).toEqual({
+      topicName: 'system/notice',
+      data: { message: 'ready' },
+    });
+
+    const node = {
+      id: 'node-1',
+      kind: 'memory' as const,
+      status: 'idle' as const,
+      context: 'focused context',
+      sendMessage: async () => undefined,
+    };
+    expect(
+      loggedStream?.serializeForLogging({
+        topicName: 'orchestrator/nodes-changed',
+        data: { allNodes: [node] },
+      }),
+    ).toEqual({
+      topicName: 'orchestrator/nodes-changed',
+      data: {
+        allNodes: [
+          {
+            id: 'node-1',
+            kind: 'memory',
+            status: 'idle',
+            context: 'focused context',
+          },
+        ],
+      },
+    });
+    expect(
+      loggedStream?.serializeForLogging({
+        topicName: 'orchestrator/node-added',
+        data: { addedNodes: [node] },
+      }),
+    ).toMatchObject({
+      data: { addedNodes: [{ id: 'node-1' }] },
+    });
+    expect(
+      loggedStream?.serializeForLogging({
+        topicName: 'orchestrator/node-updated',
+        data: { node },
+      }),
+    ).toMatchObject({ data: { node: { id: 'node-1' } } });
+  });
+
+  it('forwards explicitly reported errors to its configured error stream', () => {
+    const received = vi.fn();
+    const errorStream = new ConcreteErrorStream();
+    errorStream.subscribe(received);
+    eventStream = new ConcreteEventStream({ errorStream });
+
+    eventStream.reportError({ source: 'test', message: 'explicit failure' });
+
+    expect(received).toHaveBeenCalledWith({
+      source: 'test',
+      message: 'explicit failure',
     });
   });
 

@@ -44,119 +44,11 @@ import { GoalStore } from '../service/goal-store.js';
 import { GoalNode } from '../node/goal-node.js';
 import { ActiveGoalSensor } from '../sensor/active-goal-sensor.js';
 import type { ActiveGoal } from '../types/goal.js';
-
-// Set up console logging subscribers for all event types
-const setupLoggingSubscribers = (eventStream: EventStream): void => {
-  eventStream.subscribe({
-    topicName: 'node/status-change',
-    receiver: (data) => {
-      console.info(`[Node ${data.nodeId}] status changed to ${data.status}`);
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/nodes-changed',
-    receiver: (data) => {
-      console.info(
-        `[Orchestrator] nodes changed - total: ${data.allNodes.length} nodes`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/node-added',
-    receiver: (data) => {
-      data.addedNodes.forEach((node) => {
-        console.info(`[Orchestrator] node added: ${node.id} (${node.kind})`);
-      });
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/node-removed',
-    receiver: (data) => {
-      data.removedNodeIds.forEach((id) => {
-        console.info(`[Orchestrator] node removed: ${id}`);
-      });
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/node-updated',
-    receiver: (data) => {
-      console.info(
-        `[Orchestrator] node updated: ${data.node.id} (${data.node.kind})`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/working-memory-updated',
-    receiver: (data) => {
-      console.info(
-        `[Orchestrator] working memory updated - ${data.workingMemory.messages.length} messages, current broadcast: "${data.broadcast.content.slice(0, 50)}..."`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/user-input-received',
-    receiver: (data) => {
-      console.info(
-        `[Orchestrator] user input received: "${data.content.slice(0, 50)}..."`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/user-input-consumed',
-    receiver: (data) => {
-      console.info(
-        `[Orchestrator] user input consumed: "${data.content.slice(0, 50)}..."`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'orchestrator/node-stats-updated',
-    receiver: (data) => {
-      data.nodeStats.forEach(({ nodeId, stats }) => {
-        console.info(
-          `[Orchestrator] node stats: ${nodeId} - alive: ${stats.epochsAlive}, spoke: ${stats.epochsSpoken}, filtered: ${stats.epochsFiltered}`,
-        );
-      });
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'tool/invocation-started',
-    receiver: (data) => {
-      console.info(
-        `[Tool ${data.nodeId}] invoking ${data.toolName}(${data.arguments})`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'tool/invocation-completed',
-    receiver: (data) => {
-      console.info(
-        `[Tool ${data.nodeId}] ${data.toolName} ${data.success ? 'completed' : 'failed'}: ${data.output}`,
-      );
-    },
-  });
-
-  eventStream.subscribe({
-    topicName: 'goal/updated',
-    receiver: ({ activeGoal }) => {
-      console.info(
-        activeGoal === undefined
-          ? '[Goals] active goal cleared'
-          : `[Goals] active goal set: ${activeGoal.content}`,
-      );
-    },
-  });
-};
+import path from 'node:path';
+import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
+import { JsonlLogRouter } from '../service/jsonl-log-router.js';
+import { LogRouter } from '../types/logging.js';
+import { ErrorStream } from '../types/error-stream.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.15;
@@ -166,11 +58,10 @@ const TOOL_RELEVANCE_QUESTION =
   'Given your node ID, capability, tools, and the full message list below, will one or more tools make concrete progress on any unresolved need? Treat earlier messages as working memory and the final message as the current broadcast. If the final broadcast explicitly names your node ID or @nodeID with a concrete request, answer yes. Otherwise answer yes only if a tool call would make concrete progress.';
 
 export interface InitOptions {
-  /**
-   * Attach the console.info logging subscribers. Defaults to true.
-   * The TUI sets this to false so log output doesn't fight Ink for the screen.
-   */
-  readonly attachConsoleLogging?: boolean;
+  /** Reuse a process-level router; omitted callers get `saveLocation/logs`. */
+  readonly logRouter?: LogRouter;
+  /** Reuse the process-level error stream, including for initialization errors. */
+  readonly errorStream?: ErrorStream;
 }
 
 const createSensoryNode = ({
@@ -197,6 +88,14 @@ export const init = async (options?: InitOptions) => {
   const settings: LegionSettings = rawSettings;
   const openAiTimeout = settings.openAiTimeout ?? DEFAULT_OPENAI_TIMEOUT_MS;
 
+  const logRouter =
+    options?.logRouter ??
+    new JsonlLogRouter({
+      directory: path.join(settings.saveLocation, 'logs'),
+    });
+  const errorStream =
+    options?.errorStream ?? new ConcreteErrorStream({ logRouter });
+
   // Create OpenAI client and provider
   const openAi = new OpenAI({
     baseURL: settings.baseUrl,
@@ -217,7 +116,7 @@ export const init = async (options?: InitOptions) => {
   });
 
   // Create event stream for node communication
-  const eventStream = new ConcreteEventStream();
+  const eventStream = new ConcreteEventStream({ errorStream, logRouter });
 
   let initialActiveGoal: ActiveGoal | undefined;
   try {
@@ -225,19 +124,16 @@ export const init = async (options?: InitOptions) => {
       directory: settings.saveLocation,
     });
   } catch (error) {
-    console.warn(
-      `[Init] Failed to load active goal: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    eventStream.reportError?.({
+      source: 'Init',
+      message: 'Failed to load the active goal.',
+      error,
+    });
   }
   const goalStore = new GoalStore({
     eventStream,
     ...(initialActiveGoal === undefined ? {} : { initialActiveGoal }),
   });
-
-  // Setup logging subscribers to see what's happening
-  if (options?.attachConsoleLogging ?? true) {
-    setupLoggingSubscribers(eventStream);
-  }
 
   // Try to load a session if saveLocation is configured
   const memoryRelevanceGate = new SequencedCompositeRelevanceGate({
@@ -265,9 +161,13 @@ export const init = async (options?: InitOptions) => {
   });
   let loadedSession: LoadedSession | undefined;
   try {
-    console.info(
-      `[Init] Attempting to load session from ${settings.saveLocation}`,
-    );
+    eventStream.publish({
+      topicName: 'system/notice',
+      data: {
+        message: 'Attempting to load the saved session.',
+        metadata: { directory: settings.saveLocation },
+      },
+    });
     const memoryNodeFactory = new ConcreteMemoryNodeFactory({
       provider,
       relevanceGate: memoryRelevanceGate,
@@ -278,14 +178,20 @@ export const init = async (options?: InitOptions) => {
       memoryNodeFactory,
     });
     if (loadedSession) {
-      console.info(
-        `[Init] Loaded session with ${loadedSession.nodes.length} nodes`,
-      );
+      eventStream.publish({
+        topicName: 'system/notice',
+        data: {
+          message: 'Loaded a saved session.',
+          metadata: { nodeCount: loadedSession.nodes.length },
+        },
+      });
     }
   } catch (e) {
-    console.warn(
-      `[Init] Failed to load session: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    eventStream.reportError?.({
+      source: 'Init',
+      message: 'Failed to load the saved session.',
+      error: e,
+    });
   }
 
   let persistedMcpServerSummaries: PersistedMcpServerSummaries = {};
@@ -294,9 +200,11 @@ export const init = async (options?: InitOptions) => {
       directory: settings.saveLocation,
     });
   } catch (e) {
-    console.warn(
-      `[Init] Failed to load MCP server summaries: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    eventStream.reportError?.({
+      source: 'Init',
+      message: 'Failed to load persisted MCP server summaries.',
+      error: e,
+    });
   }
 
   const mcpClients: Array<{
@@ -329,11 +237,16 @@ export const init = async (options?: InitOptions) => {
                       : { cwd: definition.cwd }),
                   }),
                 );
-                console.info(
-                  `[Init] Successfully connected MCP client ${name}`,
-                );
+                eventStream.publish({
+                  topicName: 'system/notice',
+                  data: {
+                    message: 'Connected an MCP client.',
+                    metadata: { name },
+                  },
+                });
                 const tools = await new MCPClient({
                   client,
+                  errorStream,
                 }).getAvailableTools();
                 const resolution = await resolveMcpServerCapabilityDescription({
                   name,
@@ -343,9 +256,12 @@ export const init = async (options?: InitOptions) => {
                   tools,
                   persistedSummaries: persistedMcpServerSummaries,
                 }).catch((e: unknown) => {
-                  console.warn(
-                    `[Init] Failed to generate MCP server summary for ${name}: ${e instanceof Error ? e.message : String(e)}`,
-                  );
+                  eventStream.reportError?.({
+                    source: 'Init',
+                    message: 'Failed to generate an MCP server summary.',
+                    error: e,
+                    metadata: { name },
+                  });
                   return {
                     capabilityDescription:
                       defaultMcpServerCapabilityDescription(name),
@@ -358,7 +274,12 @@ export const init = async (options?: InitOptions) => {
                   ...resolution,
                 };
               } catch (e) {
-                console.warn(`[Init] Failed to load MCP client ${name}: ${e}`);
+                eventStream.reportError?.({
+                  source: 'Init',
+                  message: 'Failed to load an MCP client.',
+                  error: e,
+                  metadata: { name },
+                });
                 return undefined;
               }
             },
@@ -383,9 +304,11 @@ export const init = async (options?: InitOptions) => {
         },
       });
     } catch (e) {
-      console.warn(
-        `[Init] Failed to save MCP server summaries: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      eventStream.reportError?.({
+        source: 'Init',
+        message: 'Failed to save MCP server summaries.',
+        error: e,
+      });
     }
   }
 
@@ -398,6 +321,7 @@ export const init = async (options?: InitOptions) => {
         mcpClient: client,
         capabilityDescription,
         initialTools: tools,
+        errorStream,
       }),
   );
 

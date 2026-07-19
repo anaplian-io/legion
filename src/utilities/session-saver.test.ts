@@ -23,6 +23,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import * as fs from 'node:fs';
+import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SessionSaver } from './session-saver.js';
 import type { NodeStatus, Node } from '../types/node.js';
@@ -339,6 +340,34 @@ describe('SessionSaver', () => {
           },
         });
       }).not.toThrow();
+    });
+
+    it('ignores a missing node file but reports other removal failures', () => {
+      const reports: unknown[] = [];
+      const errors = new ConcreteErrorStream();
+      errors.subscribe((report) => reports.push(report));
+      eventStream = new ConcreteEventStream({ errorStream: errors });
+      SessionSaver.watch({ eventStream, directory: mockDirectory });
+      unlinkSync.mockImplementationOnce(() => {
+        throw { code: 'ENOENT' };
+      });
+      unlinkSync.mockImplementationOnce(() => {
+        throw new Error('permission denied');
+      });
+
+      eventStream.publish({
+        topicName: 'orchestrator/node-removed',
+        data: { removedNodeIds: ['missing-node', 'protected-node'] },
+      });
+
+      expect(reports).toEqual([
+        {
+          source: 'SessionSaver',
+          message: 'Failed to remove the saved node protected-node.',
+          error: expect.any(Error),
+          metadata: { nodeId: 'protected-node' },
+        },
+      ]);
     });
 
     it('should handle empty removedNodeIds array', () => {

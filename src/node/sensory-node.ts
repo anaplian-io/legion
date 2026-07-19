@@ -45,7 +45,11 @@ export class SensoryNode implements Node<'sensory'> {
     try {
       content = await sensor.sense(broadcastMessage);
     } catch (error) {
-      console.error(`[SensoryNode ${this.id}]: error:`, error);
+      this.props.eventStream.reportError?.({
+        source: `SensoryNode ${this.id}`,
+        message: 'Sensor failed while sensing a broadcast.',
+        error,
+      });
       await this.setStatus('idle');
       return undefined;
     }
@@ -70,9 +74,11 @@ export class SensoryNode implements Node<'sensory'> {
         data: { nodeId: this.id, status: newStatus },
       });
     } catch (e) {
-      console.warn(
-        `[SensoryNode ${this.id}] event publish threw during execution: ${e}`,
-      );
+      this.props.eventStream.reportError?.({
+        source: `SensoryNode ${this.id}`,
+        message: 'Failed to publish a node status change.',
+        error: e,
+      });
     }
   };
 }

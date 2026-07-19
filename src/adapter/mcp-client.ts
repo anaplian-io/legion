@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ToolDefinition } from '../types/tool.js';
+import { ErrorStream } from '../types/error-stream.js';
 
 export interface ToolResult {
   readonly callId: string;
@@ -27,9 +28,15 @@ const normalizeToolSchema = (schema: unknown): Record<string, unknown> => {
 export class MCPClient {
   private readonly _client: Client;
 
-  constructor(props: { readonly client: Client }) {
+  constructor(props: {
+    readonly client: Client;
+    readonly errorStream?: ErrorStream;
+  }) {
     this._client = props.client;
+    this._errorStream = props.errorStream;
   }
+
+  private readonly _errorStream: ErrorStream | undefined;
 
   public readonly getAvailableTools = async (): Promise<ToolDefinition[]> => {
     const response = await this._client.listTools();
@@ -48,7 +55,13 @@ export class MCPClient {
     let args: Record<string, unknown>;
     try {
       args = JSON.parse(argumentsStr);
-    } catch {
+    } catch (error) {
+      this._errorStream?.publish({
+        source: 'MCPClient',
+        message: `Tool ${name} received invalid JSON arguments.`,
+        error,
+        metadata: { callId, name },
+      });
       return {
         callId,
         name,
@@ -71,6 +84,12 @@ export class MCPClient {
       };
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
+      this._errorStream?.publish({
+        source: 'MCPClient',
+        message: `Tool ${name} invocation failed.`,
+        error: e,
+        metadata: { callId, name },
+      });
       return {
         callId,
         name,

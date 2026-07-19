@@ -148,6 +148,12 @@ export class GoalNode implements Node<'goal'> {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
+      this.props.eventStream.reportError?.({
+        source: `GoalNode ${this.id}`,
+        message: `Goal tool ${call.function.name} failed.`,
+        error,
+        metadata: { callId: call.id, toolName: call.function.name },
+      });
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
@@ -202,9 +208,11 @@ export class GoalNode implements Node<'goal'> {
         data: { nodeId: this.id, status: newStatus },
       });
     } catch (error) {
-      console.warn(
-        `[GoalNode ${this.id}] event publish threw during execution: ${error}`,
-      );
+      this.props.eventStream.reportError?.({
+        source: `GoalNode ${this.id}`,
+        message: 'Failed to publish a node status change.',
+        error,
+      });
     }
   };
 }

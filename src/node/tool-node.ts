@@ -119,6 +119,12 @@ export class ToolNode implements Node<'tool'> {
           });
           return result;
         } catch (e) {
+          this.props.eventStream.reportError?.({
+            source: `ToolNode ${this.id}`,
+            message: `Tool ${call.function.name} threw during invocation.`,
+            error: e,
+            metadata: { callId: call.id, toolName: call.function.name },
+          });
           const failure = {
             callId: call.id,
             name: call.function.name,
@@ -155,9 +161,11 @@ export class ToolNode implements Node<'tool'> {
         data: { nodeId: this.id, status: newStatus },
       });
     } catch (e) {
-      console.warn(
-        `[ToolNode ${this.id}] event publish threw during execution: ${e}`,
-      );
+      this.props.eventStream.reportError?.({
+        source: `ToolNode ${this.id}`,
+        message: 'Failed to publish a node status change.',
+        error: e,
+      });
     }
   };
 

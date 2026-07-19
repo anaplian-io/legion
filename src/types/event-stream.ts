@@ -3,10 +3,26 @@ import { WorkingMemory } from './working-memory.js';
 import { Message } from './message.js';
 import { NodeStats } from './node-stats.js';
 import { ActiveGoal } from './goal.js';
+import { ErrorReport } from './error-stream.js';
 
 export interface NodeStatusChangeData {
   readonly nodeId: string;
   readonly status: NodeStatus;
+}
+
+export interface SystemNoticeData {
+  readonly message: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface PublishSystemNotice {
+  readonly topicName: 'system/notice';
+  readonly data: SystemNoticeData;
+}
+
+export interface SubscribeSystemNotice {
+  readonly topicName: PublishSystemNotice['topicName'];
+  readonly receiver: (data: SystemNoticeData) => void | Promise<void>;
 }
 
 export interface PublishNodeStatusChange {
@@ -190,6 +206,7 @@ export interface SubscribeOrchestratorNodeStatsUpdated {
 }
 
 export type PublishProps =
+  | PublishSystemNotice
   | PublishOrchestratorNodesChanged
   | PublishOrchestratorNodeAdded
   | PublishOrchestratorNodeRemoved
@@ -204,6 +221,7 @@ export type PublishProps =
   | PublishGoalUpdated;
 
 export type SubscribeProps =
+  | SubscribeSystemNotice
   | SubscribeOrchestratorNodesChanged
   | SubscribeOrchestratorNodeAdded
   | SubscribeOrchestratorNodeRemoved
@@ -222,4 +240,8 @@ export type Topics = PublishProps['topicName'];
 export interface EventStream {
   readonly publish: (props: PublishProps) => void;
   readonly subscribe: (props: SubscribeProps) => void;
+  /** Subscribe to every event; used by the durable event log consumer. */
+  readonly subscribeAll?: (receiver: (props: PublishProps) => void) => void;
+  /** Publish a recoverable failure to Legion's dedicated error stream. */
+  readonly reportError?: (report: ErrorReport) => void;
 }

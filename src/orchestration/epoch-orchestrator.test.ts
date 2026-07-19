@@ -52,7 +52,6 @@ describe('EpochOrchestrator', () => {
       selectForPruning: vi.fn().mockReturnValue([]),
     };
     eventStream = new ConcreteEventStream();
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   it('should create an orchestrator with initial working memory', () => {
@@ -1483,6 +1482,7 @@ describe('EpochOrchestrator', () => {
   });
 
   it('should handle node throwing an error during sendMessage', async () => {
+    const reportError = vi.spyOn(eventStream, 'reportError');
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
@@ -1517,11 +1517,12 @@ describe('EpochOrchestrator', () => {
     await orchestrator.runEpoch();
 
     // Should handle the error gracefully and spawn a new node
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '[EpochOrchestrator] Node node-a threw an error:',
-      ),
-    );
+    expect(reportError).toHaveBeenCalledWith({
+      source: 'EpochOrchestrator',
+      message: 'Node node-a threw while processing an epoch.',
+      error: expect.any(Error),
+      metadata: { nodeId: 'node-a' },
+    });
     expect(mockMemoryNodeFactory.create).toHaveBeenCalled();
   });
 });
