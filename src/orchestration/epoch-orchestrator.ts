@@ -13,6 +13,7 @@ import { isDefined } from '../utilities/is-defined.js';
 import { NodeRegistry } from '../service/node-registry.js';
 import { WorkingMemoryBuffer } from '../service/working-memory-buffer.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
+import { formatMessagePayload } from '../utilities/action-request.js';
 
 export interface EpochOrchestratorProps {
   readonly provider: Provider;
@@ -125,16 +126,26 @@ export class EpochOrchestrator {
       cognitive.candidates,
     );
 
-    this.recordEpochStats(afferent, cognitive, survivors);
-
     if (survivors.length === 0) {
+      this.recordEpochStats(afferent, cognitive, survivors, undefined);
       if (!cognitive.fallbackSpawned) {
         this.spawnNewNode();
       }
       return;
     }
 
-    await this.distill(survivors, afferentContext);
+    const selected = await this.props.distiller.distill({
+      workingMemory: this.workingMemory,
+      broadcasts: survivors,
+      afferentContext,
+    });
+    if (selected === undefined) {
+      throw new Error(
+        '[EpochOrchestrator] distiller returned no selection for surviving candidates',
+      );
+    }
+    this.recordEpochStats(afferent, cognitive, survivors, selected);
+    this._workingMemory.append({ ...selected, role: 'broadcast' });
     await this.splitOverflowingNodes();
     this.pruneNodes();
   };
@@ -176,6 +187,9 @@ export class EpochOrchestrator {
                 role: response.role,
                 content: response.content,
                 originatingNodeId: response.originatingNodeId ?? node.id,
+                ...(response.actionRequests === undefined
+                  ? {}
+                  : { actionRequests: response.actionRequests }),
               }
             : undefined,
         )
@@ -227,37 +241,36 @@ export class EpochOrchestrator {
     afferent: EpochCandidates,
     cognitive: EpochCandidates,
     survivors: Message[],
+    selected: Message | undefined,
   ): void => {
-    const survivingNodeIds = new Set(
+    const attentionPassingNodeIds = new Set(
       survivors.map((s) => s.originatingNodeId).filter(isDefined),
     );
-    // Afferent output never passes through the relevance filter, so a spoken
-    // afferent node is counted as surviving (its filter rate stays 0).
+    // Afferent output bypasses the relevance filter, so every generated
+    // afferent candidate is counted as attention-passing.
     afferent.candidates.forEach((c) =>
-      survivingNodeIds.add(c.originatingNodeId),
+      attentionPassingNodeIds.add(c.originatingNodeId),
     );
 
     this._registry.recordEpoch({
       aliveNodeIds: [...afferent.aliveNodeIds, ...cognitive.aliveNodeIds],
-      spokenNodeIds: new Set(
+      generatedNodeIds: new Set(
         [...afferent.candidates, ...cognitive.candidates].map(
           (c) => c.originatingNodeId,
         ),
       ),
-      survivingNodeIds,
+      attentionPassingNodeIds,
+      selectedNodeIds: new Set(
+        selected === undefined
+          ? []
+          : [
+              ...(selected.contributingNodeIds ?? []),
+              ...(selected.originatingNodeId === undefined
+                ? []
+                : [selected.originatingNodeId]),
+            ],
+      ),
     });
-  };
-
-  private readonly distill = async (
-    survivors: Message[],
-    afferentContext: readonly Message[],
-  ): Promise<void> => {
-    const content = await this.props.distiller.distill({
-      workingMemory: this.workingMemory,
-      broadcasts: survivors.map((message) => message.content),
-      afferentContext,
-    });
-    this._workingMemory.append({ role: 'broadcast', content });
   };
 
   private readonly splitOverflowingNodes = async (): Promise<void> => {
@@ -294,7 +307,7 @@ export class EpochOrchestrator {
   private readonly spawnNewNode = (): Node<'memory'> => {
     const node = this.props.memoryNodeFactory.create({
       initialContext: [...this.workingMemory.messages, this.currentBroadcast]
-        .map((message) => message.content)
+        .map(formatMessagePayload)
         .join('\n'),
       eventStream: this.props.eventStream,
     });

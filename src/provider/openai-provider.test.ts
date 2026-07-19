@@ -126,6 +126,47 @@ describe('OpenaiProvider', () => {
       expect(result).toBe('Distilled output');
     });
 
+    it('should expose structured action requests in self-state context', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('Observed.'),
+      );
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await provider.generate({
+        systemPrompt: 'Observe prior actions.',
+        messages: [
+          {
+            role: 'working-memory',
+            content: '',
+            actionRequests: [
+              {
+                id: 'request-1',
+                targetNodeId: 'clock',
+                operation: 'read',
+                arguments: {},
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'assistant',
+              content: expect.stringContaining(
+                '[ACTION REQUEST request-1] target=clock operation=read',
+              ),
+            }),
+          ]),
+        }),
+      );
+    });
+
     it('should separate runtime context from actual user input', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
         completion('ok'),

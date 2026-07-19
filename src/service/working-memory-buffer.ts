@@ -37,8 +37,8 @@ export class WorkingMemoryBuffer {
   public append(broadcast: Message): void {
     if (!this._currentBroadcastCommitted) {
       this._workingMemory.messages.push({
+        ...this._currentBroadcast,
         role: 'working-memory',
-        content: this._currentBroadcast.content,
       });
     }
 
@@ -59,6 +59,18 @@ export class WorkingMemoryBuffer {
   private readonly isCurrentBroadcastLastMemory = (): boolean => {
     const lastMessage =
       this._workingMemory.messages[this._workingMemory.messages.length - 1];
-    return lastMessage?.content === this._currentBroadcast.content;
+    return (
+      lastMessage !== undefined &&
+      messagePayloadKey(lastMessage) ===
+        messagePayloadKey(this._currentBroadcast)
+    );
   };
 }
+
+const messagePayloadKey = (message: Message): string =>
+  JSON.stringify({
+    content: message.content,
+    originatingNodeId: message.originatingNodeId,
+    contributingNodeIds: message.contributingNodeIds,
+    actionRequests: message.actionRequests,
+  });

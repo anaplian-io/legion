@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GoalStore } from './goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
+import type { ActiveGoal } from '../types/goal.js';
+
+const restoredGoal: ActiveGoal = {
+  id: 'restored-goal',
+  objective: 'Resume the inquiry',
+  successCriteria: 'Produce the pending conclusion',
+  origin: 'autonomous',
+  revision: 7,
+};
 
 describe('GoalStore', () => {
   let eventStream: EventStream;
@@ -10,63 +19,86 @@ describe('GoalStore', () => {
   });
 
   it('restores an initial active goal', () => {
-    const activeGoal = { id: 'restored-goal', content: 'Resume the inquiry' };
-
-    const store = new GoalStore({ eventStream, initialActiveGoal: activeGoal });
-
-    expect(store.activeGoal).toEqual(activeGoal);
-  });
-
-  it('sets a trimmed goal and publishes its new state', () => {
     const store = new GoalStore({
       eventStream,
-      createId: () => 'goal-1',
+      initialActiveGoal: restoredGoal,
     });
 
-    const activeGoal = store.setActiveGoal('  Investigate the sensor path.  ');
+    expect(store.activeGoal).toEqual(restoredGoal);
+  });
+
+  it('sets trimmed, versioned goals and publishes state', () => {
+    const store = new GoalStore({
+      eventStream,
+      initialActiveGoal: restoredGoal,
+      createId: () => 'goal-1',
+    });
+    const activeGoal = store.setActiveGoal({
+      objective: '  Investigate the sensor path.  ',
+      successCriteria: '  Trace one reading end to end.  ',
+      origin: 'user',
+    });
 
     expect(activeGoal).toEqual({
       id: 'goal-1',
-      content: 'Investigate the sensor path.',
+      objective: 'Investigate the sensor path.',
+      successCriteria: 'Trace one reading end to end.',
+      origin: 'user',
+      revision: 8,
     });
-    expect(store.activeGoal).toEqual(activeGoal);
     expect(eventStream.publish).toHaveBeenCalledWith({
       topicName: 'goal/updated',
       data: { activeGoal },
     });
   });
 
-  it('uses a generated ID when a caller does not provide one', () => {
+  it('uses a generated ID', () => {
     const store = new GoalStore({ eventStream });
 
-    expect(store.setActiveGoal('Explore the workspace').id).toEqual(
-      expect.any(String),
-    );
+    expect(
+      store.setActiveGoal({
+        objective: 'Explore',
+        successCriteria: 'Find one result',
+        origin: 'autonomous',
+      }).id,
+    ).toEqual(expect.any(String));
   });
 
-  it('rejects an empty active goal', () => {
+  it('rejects empty objectives and success criteria', () => {
+    const store = new GoalStore({ eventStream });
+    expect(() =>
+      store.setActiveGoal({
+        objective: ' ',
+        successCriteria: 'Done',
+        origin: 'autonomous',
+      }),
+    ).toThrow('objective must not be empty');
+    expect(() =>
+      store.setActiveGoal({
+        objective: 'Explore',
+        successCriteria: ' ',
+        origin: 'autonomous',
+      }),
+    ).toThrow('success criteria must not be empty');
+  });
+
+  it('does not publish when no goal exists to clear', () => {
     const store = new GoalStore({ eventStream });
 
-    expect(() => store.setActiveGoal('   ')).toThrow(
-      '[GoalStore] active goal content must not be empty',
-    );
+    expect(store.clearActiveGoal('goal-1')).toBe(false);
     expect(eventStream.publish).not.toHaveBeenCalled();
   });
 
-  it('does not publish when clearing a goal that is already absent', () => {
-    const store = new GoalStore({ eventStream });
-
-    expect(store.clearActiveGoal()).toBe(false);
-    expect(eventStream.publish).not.toHaveBeenCalled();
-  });
-
-  it('clears an active goal and publishes the absence', () => {
+  it('rejects stale clear requests and clears the matching active goal', () => {
     const store = new GoalStore({
       eventStream,
-      initialActiveGoal: { id: 'goal-1', content: 'Explore' },
+      initialActiveGoal: restoredGoal,
     });
 
-    expect(store.clearActiveGoal()).toBe(true);
+    expect(() => store.clearActiveGoal('stale')).toThrow(
+      'cannot clear goal stale; active goal is restored-goal',
+    );
+    expect(store.clearActiveGoal('restored-goal')).toBe(true);
     expect(store.activeGoal).toBeUndefined();
     expect(eventStream.publish).toHaveBeenCalledWith({
       topicName: 'goal/updated',

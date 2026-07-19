@@ -13,6 +13,7 @@ import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { SensoryNode } from '../node/sensory-node.js';
+import type { Message } from '../types/message.js';
 
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;
@@ -306,7 +307,9 @@ describe('EpochOrchestrator', () => {
     ]);
     // First distillation produces both the next broadcast and the new
     // working-memory entry.
-    vi.mocked(mockDistiller.distill).mockResolvedValue('New insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('New insight', 'node-a'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -348,7 +351,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('insight', 'node-a'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -420,14 +425,18 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('Distilled insight', 'node-a'),
+    );
 
     await orchestrator.runEpoch();
 
     expect(mockRelevanceFilter.filter).toHaveBeenCalled();
     expect(mockDistiller.distill).toHaveBeenCalledWith(
       expect.objectContaining({
-        broadcasts: expect.arrayContaining(['Node A response']),
+        broadcasts: expect.arrayContaining([
+          expect.objectContaining({ content: 'Node A response' }),
+        ]),
       }),
     );
     expect(orchestrator.workingMemory.messages).toEqual([
@@ -551,25 +560,175 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'speaker',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('insight', 'speaker'),
+    );
 
     await orchestrator.runEpoch();
 
     const stats = orchestrator.nodeStats;
     expect(stats.get('speaker')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 1,
-      epochsFiltered: 0,
+      epochsGenerated: 1,
+      epochsPassedAttention: 1,
+      epochsSelected: 1,
     });
     expect(stats.get('silent')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 0,
-      epochsFiltered: 0,
+      epochsGenerated: 0,
+      epochsPassedAttention: 0,
+      epochsSelected: 0,
     });
     expect(stats.get('filtered')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 1,
-      epochsFiltered: 1,
+      epochsGenerated: 1,
+      epochsPassedAttention: 0,
+      epochsSelected: 0,
+    });
+  });
+
+  it('credits every contributor to a synthesized broadcast', async () => {
+    const responses = [
+      selectedMessage('Candidate A', 'node-a'),
+      selectedMessage('Candidate B', 'node-b'),
+    ];
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [
+        createMockNode('node-a', async () => responses[0]),
+        createMockNode('node-b', async () => responses[1]),
+      ],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue(responses);
+    vi.mocked(mockDistiller.distill).mockResolvedValue({
+      role: 'broadcast',
+      content: 'Synthesis',
+      contributingNodeIds: ['node-a', 'node-b'],
+    });
+
+    await orchestrator.runEpoch();
+
+    expect(orchestrator.nodeStats.get('node-a')?.epochsSelected).toBe(1);
+    expect(orchestrator.nodeStats.get('node-b')?.epochsSelected).toBe(1);
+  });
+
+  it('rejects a missing distiller selection when candidates survived', async () => {
+    const response = selectedMessage('Candidate', 'node-a');
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [createMockNode('node-a', async () => response)],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([response]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue(undefined);
+
+    await expect(orchestrator.runEpoch()).rejects.toThrow(
+      'distiller returned no selection',
+    );
+  });
+
+  it('preserves structured requests through filtering and selection', async () => {
+    const response: Message = {
+      role: 'node-response',
+      content: 'Inspect the workspace.',
+      originatingNodeId: 'node-a',
+      actionRequests: [
+        {
+          id: 'request-1',
+          targetNodeId: 'tool-files',
+          operation: 'list_directory',
+          arguments: { path: '.' },
+        },
+      ],
+    };
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [createMockNode('node-a', async () => response)],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([response]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue(response);
+
+    await orchestrator.runEpoch();
+
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
+      response,
+    ]);
+    expect(orchestrator.currentBroadcast.actionRequests).toEqual(
+      response.actionRequests,
+    );
+  });
+
+  it('rolls an action-only selected broadcast into working memory intact', async () => {
+    const actionOnly: Message = {
+      role: 'node-response',
+      content: '',
+      originatingNodeId: 'node-a',
+      actionRequests: [
+        {
+          id: 'request-1',
+          targetNodeId: 'clock',
+          operation: 'read',
+          arguments: {},
+        },
+      ],
+    };
+    const next = selectedMessage('The clock result arrived.', 'node-a');
+    const node = createMockNode('node-a');
+    vi.mocked(node.sendMessage)
+      .mockResolvedValueOnce(actionOnly)
+      .mockResolvedValueOnce(next);
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [node],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockImplementation(
+      async (_workingMemory, candidates) => candidates,
+    );
+    vi.mocked(mockDistiller.distill).mockImplementation(
+      async ({ broadcasts }) => broadcasts[0],
+    );
+
+    await orchestrator.runEpoch();
+    await orchestrator.runEpoch();
+
+    expect(orchestrator.workingMemory.messages[1]).toEqual({
+      ...actionOnly,
+      role: 'working-memory',
     });
   });
 
@@ -605,7 +764,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('insight', 'node-a'),
+    );
 
     let published: Array<{ nodeId: string }> | undefined;
     eventStream.subscribe({
@@ -620,7 +781,12 @@ describe('EpochOrchestrator', () => {
     expect(published).toEqual([
       {
         nodeId: 'node-a',
-        stats: { epochsAlive: 1, epochsSpoken: 1, epochsFiltered: 0 },
+        stats: {
+          epochsAlive: 1,
+          epochsGenerated: 1,
+          epochsPassedAttention: 1,
+          epochsSelected: 1,
+        },
       },
     ]);
   });
@@ -634,8 +800,9 @@ describe('EpochOrchestrator', () => {
     const node = createMockNode('node-a', sendMessage);
     const restoredStats = {
       epochsAlive: 3,
-      epochsSpoken: 2,
-      epochsFiltered: 1,
+      epochsGenerated: 2,
+      epochsPassedAttention: 1,
+      epochsSelected: 1,
     };
     const orchestrator = new EpochOrchestrator({
       provider: mockProvider,
@@ -661,7 +828,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('insight', 'node-a'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -705,7 +874,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'speaker',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('insight', 'speaker'),
+    );
     vi.mocked(mockNodePruner.selectForPruning).mockReturnValue([
       deadweight as unknown as MemoryNode,
     ]);
@@ -751,7 +922,9 @@ describe('EpochOrchestrator', () => {
           originatingNodeId: 'node-a',
         },
       ]);
-      vi.mocked(mockDistiller.distill).mockResolvedValue(`Distilled ${i}`);
+      vi.mocked(mockDistiller.distill).mockResolvedValue(
+        selectedMessage(`Distilled ${i}`),
+      );
       await orchestrator.runEpoch();
     }
 
@@ -772,7 +945,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled 3');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('Distilled 3'),
+    );
     await orchestrator.runEpoch();
 
     expect(orchestrator.workingMemory.messages).toHaveLength(3);
@@ -831,7 +1006,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('Insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('Insight'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -957,7 +1134,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('Distilled insight', 'node-a'),
+    );
 
     orchestrator.receiveUserInput('Hello workspace');
     await orchestrator.runEpoch();
@@ -983,7 +1162,13 @@ describe('EpochOrchestrator', () => {
     );
     expect(mockDistiller.distill).toHaveBeenCalledWith(
       expect.objectContaining({
-        broadcasts: ['Response'],
+        broadcasts: [
+          {
+            role: 'node-response',
+            content: 'Response',
+            originatingNodeId: 'node-a',
+          },
+        ],
         afferentContext: [
           {
             role: 'afferent-capability',
@@ -1051,7 +1236,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'mem',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('Distilled insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('Distilled insight'),
+    );
 
     orchestrator.receiveUserInput('first');
     orchestrator.receiveUserInput('second');
@@ -1217,7 +1404,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'node-a',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('Insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('Insight'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -1274,7 +1463,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'mem',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('insight'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -1351,7 +1542,9 @@ describe('EpochOrchestrator', () => {
         originatingNodeId: 'mem',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('search request');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('search request'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -1451,7 +1644,9 @@ describe('EpochOrchestrator', () => {
         content: 'Fallback memory response',
       },
     ]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue('fallback insight');
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      selectedMessage('fallback insight', 'new-memory-node'),
+    );
 
     await orchestrator.runEpoch();
 
@@ -1475,7 +1670,13 @@ describe('EpochOrchestrator', () => {
     ]);
     expect(mockDistiller.distill).toHaveBeenCalledWith(
       expect.objectContaining({
-        broadcasts: ['Fallback memory response'],
+        broadcasts: [
+          {
+            role: 'node-response',
+            originatingNodeId: 'new-memory-node',
+            content: 'Fallback memory response',
+          },
+        ],
       }),
     );
     expect(orchestrator.currentBroadcast.content).toBe('fallback insight');
@@ -1538,5 +1739,13 @@ function createMockNode(
     status: 'idle',
     context: `Context for ${id}`,
     sendMessage,
+  };
+}
+
+function selectedMessage(content: string, originatingNodeId?: string): Message {
+  return {
+    role: 'node-response',
+    content,
+    ...(originatingNodeId === undefined ? {} : { originatingNodeId }),
   };
 }

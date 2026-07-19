@@ -111,6 +111,37 @@ describe('App', () => {
     expect(out).toContain('remembered thing');
   });
 
+  it('renders action-only working memory and broadcasts', () => {
+    const action = {
+      id: 'request-1',
+      targetNodeId: 'clock',
+      operation: 'read',
+      arguments: {},
+    };
+    const orchestrator = makeOrchestrator({
+      workingMemory: {
+        messages: [
+          { role: 'working-memory', content: '', actionRequests: [action] },
+        ],
+      },
+      currentBroadcast: {
+        role: 'broadcast',
+        content: '',
+        actionRequests: [action],
+      },
+    });
+
+    const { lastFrame } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={() => {}}
+      />,
+    );
+
+    expect(lastFrame() ?? '').toContain('target=clock operation=read');
+  });
+
   it('shows the initial broadcast before the loop is unpaused', () => {
     const orchestrator = makeOrchestrator({
       currentBroadcast: {
@@ -706,7 +737,15 @@ describe('App', () => {
     });
     eventStream.publish({
       topicName: 'goal/updated',
-      data: { activeGoal: { id: 'goal-1', content: 'Explore sensors' } },
+      data: {
+        activeGoal: {
+          id: 'goal-1',
+          objective: 'Explore sensors',
+          successCriteria: 'Record one reading',
+          origin: 'autonomous',
+          revision: 1,
+        },
+      },
     });
     eventStream.publish({
       topicName: 'goal/updated',

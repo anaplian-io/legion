@@ -4,6 +4,7 @@ import { AttentionGate } from '../types/attention-gate.js';
 import { Message } from '../types/message.js';
 import { WorkingMemory } from '../types/working-memory.js';
 import { isDefined } from '../utilities/is-defined.js';
+import { formatMessagePayload } from '../utilities/action-request.js';
 
 export interface LlmRelevanceFilterProps {
   readonly provider: Provider;
@@ -22,7 +23,10 @@ export class LlmRelevanceFilter implements RelevanceFilter {
       return [];
     }
     const concatenatedConcept = workingMemory.messages
-      .map((message, index) => `[MESSAGE ${index}]:${message.content}\n`)
+      .map(
+        (message, index) =>
+          `[MESSAGE ${index}]:${formatMessagePayload(message)}\n`,
+      )
       .join('');
     const attentionGateValue = await attentionGate.getTopN({ workingMemory });
     if (
@@ -34,7 +38,7 @@ export class LlmRelevanceFilter implements RelevanceFilter {
     return (
       await provider.rankByRelevance(
         concatenatedConcept,
-        candidateMessages.map((message) => message.content),
+        candidateMessages.map(formatMessagePayload),
       )
     )
       .map((messageIndex) => candidateMessages[messageIndex])

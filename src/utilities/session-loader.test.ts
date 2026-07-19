@@ -392,8 +392,70 @@ describe('SessionLoader', () => {
 
     expect(result?.nodeStats.get('node-1')).toEqual({
       epochsAlive: 9,
-      epochsSpoken: 4,
-      epochsFiltered: 2,
+      epochsGenerated: 4,
+      epochsPassedAttention: 2,
+      epochsSelected: 2,
+    });
+  });
+
+  it('restores current node stats and rejects malformed stats', () => {
+    readdirSync.mockReturnValue([]);
+    existsSync.mockReturnValue(true);
+    const currentStats = {
+      epochsAlive: 4,
+      epochsGenerated: 3,
+      epochsPassedAttention: 2,
+      epochsSelected: 1,
+    };
+    readFileSync.mockImplementation((filePath: string) => {
+      if (filePath.includes('working-memory.json')) {
+        return JSON.stringify({
+          workingMemory: { messages: [] },
+          broadcast: { role: 'broadcast', content: '' },
+        });
+      }
+      if (filePath.includes('stats.json')) {
+        return JSON.stringify([{ nodeId: 'node-1', stats: currentStats }]);
+      }
+      throw new Error(`unexpected read ${filePath}`);
+    });
+    const eventStream: EventStream = {
+      subscribe: vi.fn(),
+      publish: vi.fn(),
+    };
+    const memoryNodeFactory: MemoryNodeFactory = { create: vi.fn() };
+
+    expect(
+      SessionLoader.load({
+        directory: mockDirectory,
+        eventStream,
+        memoryNodeFactory,
+      })?.nodeStats.get('node-1'),
+    ).toEqual(currentStats);
+
+    const invalidStats: unknown[] = [
+      null,
+      {},
+      { ...currentStats, epochsSelected: -1 },
+      { epochsAlive: 1, epochsSpoken: 1, epochsFiltered: -1 },
+    ];
+    invalidStats.forEach((stats) => {
+      readFileSync.mockImplementation((filePath: string) => {
+        if (filePath.includes('working-memory.json')) {
+          return JSON.stringify({
+            workingMemory: { messages: [] },
+            broadcast: { role: 'broadcast', content: '' },
+          });
+        }
+        return JSON.stringify([{ nodeId: 'node-1', stats }]);
+      });
+      expect(() =>
+        SessionLoader.load({
+          directory: mockDirectory,
+          eventStream,
+          memoryNodeFactory,
+        }),
+      ).toThrow('[SessionLoader] node stats have invalid data');
     });
   });
 
@@ -506,7 +568,11 @@ describe('SessionLoader', () => {
 
     expect(SessionLoader.loadActiveGoal({ directory: mockDirectory })).toEqual({
       id: 'goal-1',
-      content: 'Explore sensors',
+      objective: 'Explore sensors',
+      successCriteria:
+        'Explicitly confirm that the migrated objective is complete.',
+      origin: 'autonomous',
+      revision: 1,
     });
     expect(
       SessionLoader.loadActiveGoal({ directory: mockDirectory }),
@@ -514,6 +580,22 @@ describe('SessionLoader', () => {
     expect(readFileSync).toHaveBeenCalledWith(
       path.join(mockDirectory, 'active-goal.json'),
       'utf-8',
+    );
+  });
+
+  it('loads the current precise active-goal format', () => {
+    existsSync.mockReturnValue(true);
+    const activeGoal = {
+      id: 'goal-2',
+      objective: 'Inspect sensors',
+      successCriteria: 'Record one verified reading',
+      origin: 'user',
+      revision: 4,
+    };
+    readFileSync.mockReturnValue(JSON.stringify({ activeGoal }));
+
+    expect(SessionLoader.loadActiveGoal({ directory: mockDirectory })).toEqual(
+      activeGoal,
     );
   });
 
@@ -535,6 +617,43 @@ describe('SessionLoader', () => {
       JSON.stringify({ activeGoal: [] }),
       JSON.stringify({ activeGoal: { id: 1, content: 'Explore' } }),
       JSON.stringify({ activeGoal: { id: 'goal-1', content: 1 } }),
+      JSON.stringify({ activeGoal: { id: 'goal-1' } }),
+      JSON.stringify({
+        activeGoal: {
+          id: 'goal-1',
+          objective: 1,
+          successCriteria: 'Done',
+          origin: 'user',
+          revision: 1,
+        },
+      }),
+      JSON.stringify({
+        activeGoal: {
+          id: 'goal-1',
+          objective: 'Explore',
+          successCriteria: 1,
+          origin: 'user',
+          revision: 1,
+        },
+      }),
+      JSON.stringify({
+        activeGoal: {
+          id: 'goal-1',
+          objective: 'Explore',
+          successCriteria: 'Done',
+          origin: 'external',
+          revision: 1,
+        },
+      }),
+      JSON.stringify({
+        activeGoal: {
+          id: 'goal-1',
+          objective: 'Explore',
+          successCriteria: 'Done',
+          origin: 'user',
+          revision: 0,
+        },
+      }),
     ];
 
     invalidGoals.forEach((content) => {

@@ -10,6 +10,7 @@ import { ToolDefinition } from '../types/tool.js';
 import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 import { RelevanceGate } from '../types/relevance-gate.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
+import { Message } from '../types/message.js';
 
 export interface ToolNodeProps {
   readonly id: string;
@@ -59,16 +60,36 @@ export class ToolNode implements Node<'tool'> {
     if (this.tools.length === 0) {
       await this.initialize();
     }
-    // Shared between the relevance check and the tool-calling generation so
-    // both present an identical [tools preamble][working memory][broadcast]
-    // prefix, maximizing prompt-cache reuse.
-    const messages = [
-      ...broadcastMessage.workingMemory.messages,
-      broadcastMessage.broadcast,
-    ];
+    // Expose only requests addressed to this node during generation. The
+    // relevance gate still receives the original broadcast for routing.
+    const targetedRequests = broadcastMessage.broadcast.actionRequests?.filter(
+      (request) => request.targetNodeId === this.id,
+    );
+    const broadcast: Message = {
+      role: broadcastMessage.broadcast.role,
+      content: broadcastMessage.broadcast.content,
+      ...(broadcastMessage.broadcast.originatingNodeId === undefined
+        ? {}
+        : {
+            originatingNodeId: broadcastMessage.broadcast.originatingNodeId,
+          }),
+      ...(broadcastMessage.broadcast.contributingNodeIds === undefined
+        ? {}
+        : {
+            contributingNodeIds: broadcastMessage.broadcast.contributingNodeIds,
+          }),
+      ...(targetedRequests === undefined || targetedRequests.length === 0
+        ? {}
+        : { actionRequests: targetedRequests }),
+    };
+    const messages = [...broadcastMessage.workingMemory.messages, broadcast];
+    const nodeBroadcastMessage: BroadcastMessage = {
+      ...broadcastMessage,
+      broadcast,
+    };
     this.setStatus('evaluating-relevance');
     const relevant = this.props.relevanceGate.isRelevant({
-      broadcastMessage,
+      broadcastMessage: nodeBroadcastMessage,
       nodeId: this.id,
       epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
       nodeContext: this.preamble,

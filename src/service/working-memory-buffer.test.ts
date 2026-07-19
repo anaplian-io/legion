@@ -93,6 +93,78 @@ describe('WorkingMemoryBuffer', () => {
     });
   });
 
+  it('preserves action-only broadcasts when they roll into working memory', () => {
+    const request = {
+      id: 'request-1',
+      targetNodeId: 'tool-files',
+      operation: 'list_directory',
+      arguments: { path: '.' },
+    };
+    const buffer = new WorkingMemoryBuffer({
+      maxMessages: 3,
+      eventStream,
+      initialBroadcast: {
+        role: 'broadcast',
+        content: '',
+        originatingNodeId: 'memory-1',
+        actionRequests: [request],
+      },
+    });
+
+    buffer.append({ role: 'broadcast', content: 'Tool result received.' });
+
+    expect(buffer.workingMemory.messages).toEqual([
+      {
+        role: 'working-memory',
+        content: '',
+        originatingNodeId: 'memory-1',
+        actionRequests: [request],
+      },
+    ]);
+  });
+
+  it('does not conflate restored action-only broadcasts with different requests', () => {
+    const buffer = new WorkingMemoryBuffer({
+      maxMessages: 3,
+      eventStream,
+      initial: {
+        messages: [
+          {
+            role: 'working-memory',
+            content: '',
+            actionRequests: [
+              {
+                id: 'older-request',
+                targetNodeId: 'clock',
+                operation: 'read',
+                arguments: {},
+              },
+            ],
+          },
+        ],
+      },
+      initialBroadcast: {
+        role: 'broadcast',
+        content: '',
+        actionRequests: [
+          {
+            id: 'current-request',
+            targetNodeId: 'search',
+            operation: 'query',
+            arguments: { q: 'Legion' },
+          },
+        ],
+      },
+    });
+
+    buffer.append({ role: 'broadcast', content: 'Next.' });
+
+    expect(buffer.workingMemory.messages).toHaveLength(2);
+    expect(buffer.workingMemory.messages[1]?.actionRequests?.[0]?.id).toBe(
+      'current-request',
+    );
+  });
+
   it('publishes the updated window and current broadcast on append', () => {
     const buffer = new WorkingMemoryBuffer({
       maxMessages: 3,

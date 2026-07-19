@@ -1,171 +1,358 @@
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LlmDistiller } from './llm-distiller.js';
 import type { Provider } from '../types/provider.js';
-import type { WorkingMemory } from '../types/working-memory.js';
+import type { Message } from '../types/message.js';
+import type { ToolCall } from '../types/tool.js';
+
+const candidate = (content: string, nodeId?: string): Message => ({
+  role: 'node-response',
+  content,
+  ...(nodeId === undefined ? {} : { originatingNodeId: nodeId }),
+});
+
+const synthesisCall = (argumentsValue: unknown): ToolCall => ({
+  id: 'synthesis-1',
+  type: 'function',
+  function: {
+    name: 'publish_synthesized_broadcast',
+    arguments:
+      typeof argumentsValue === 'string'
+        ? argumentsValue
+        : JSON.stringify(argumentsValue),
+  },
+});
 
 describe('LlmDistiller', () => {
-  let mockProvider: Provider;
+  let provider: Provider;
 
   beforeEach(() => {
-    mockProvider = {
+    provider = {
       askYesNoQuestion: vi.fn(),
       generate: vi.fn(),
+      generateWithTools: vi.fn(),
       rankByRelevance: vi.fn(),
       selectBest: vi.fn(),
       splitString: vi.fn(),
-      generateWithTools: vi.fn(),
     };
   });
 
-  it('should distill broadcasts into a new working memory entry', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
+  it('returns undefined when no candidates survive', async () => {
+    const distiller = new LlmDistiller({ provider });
 
-    const workingMemory: WorkingMemory = {
-      messages: [
-        { role: 'working-memory', content: 'Previous insight 1' },
-        { role: 'working-memory', content: 'Previous insight 2' },
+    await expect(
+      distiller.distill({ workingMemory: { messages: [] }, broadcasts: [] }),
+    ).resolves.toBeUndefined();
+    expect(provider.generateWithTools).not.toHaveBeenCalled();
+  });
+
+  it('returns a sole candidate unchanged, including action-only candidates', async () => {
+    const broadcast = {
+      ...candidate('', 'memory-1'),
+      actionRequests: [
+        {
+          id: 'request-1',
+          targetNodeId: 'clock',
+          operation: 'read',
+          arguments: {},
+        },
       ],
     };
+    const distiller = new LlmDistiller({ provider });
 
-    const broadcasts = [
-      'Node A has important information',
-      'Node B adds supplementary data',
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [broadcast],
+      }),
+    ).resolves.toBe(broadcast);
+    expect(provider.generateWithTools).not.toHaveBeenCalled();
+  });
+
+  it('synthesizes two candidates and copies original selected actions by ID', async () => {
+    const originalRequest = {
+      id: 'request-1',
+      targetNodeId: 'tool-files',
+      operation: 'list_directory',
+      arguments: { path: '.' },
+    };
+    const broadcasts: Message[] = [
+      candidate('The user wants a workspace summary.', 'memory-a'),
+      {
+        ...candidate('', 'memory-b'),
+        actionRequests: [originalRequest],
+      },
     ];
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        synthesisCall({
+          content: 'Inspect the workspace, then summarize it for the user.',
+          contributingCandidateIndices: [0, 1],
+          includedActionRequestIds: ['request-1'],
+        }),
+      ],
+    });
+    const distiller = new LlmDistiller({ provider });
 
-    vi.mocked(mockProvider.generate).mockResolvedValue(
-      'New consolidated insight',
-    );
+    await expect(
+      distiller.distill({
+        workingMemory: {
+          messages: [
+            {
+              role: 'working-memory',
+              content: '',
+              actionRequests: [
+                {
+                  id: 'historical-request',
+                  targetNodeId: 'clock',
+                  operation: 'read',
+                  arguments: {},
+                },
+              ],
+            },
+          ],
+        },
+        afferentContext: [
+          {
+            role: 'user-input',
+            content: 'What is in the workspace?',
+            originatingNodeId: 'sensor-user-input',
+          },
+        ],
+        broadcasts,
+      }),
+    ).resolves.toEqual({
+      role: 'broadcast',
+      content: 'Inspect the workspace, then summarize it for the user.',
+      contributingNodeIds: ['memory-a', 'memory-b'],
+      actionRequests: [originalRequest],
+    });
 
-    const result = await distiller.distill({ workingMemory, broadcasts });
-
-    expect(mockProvider.generate).toHaveBeenCalledWith({
+    expect(provider.generateWithTools).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining(
-        'consolidate a reasoning step into the next global workspace broadcast',
+        'Never rewrite, invent, or copy its target',
       ),
       messages: [
-        { role: 'working-memory', content: expect.stringContaining('Node A') },
-      ],
-    });
-
-    expect(result).toBe('New consolidated insight');
-  });
-
-  it('should include working memory in the user message', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = {
-      messages: [{ role: 'working-memory', content: 'Test WM' }],
-    };
-    const broadcasts = [''];
-
-    await distiller.distill({ workingMemory, broadcasts });
-
-    expect(mockProvider.generate).toHaveBeenCalledWith({
-      systemPrompt: expect.any(String),
-      messages: [
         {
-          role: 'working-memory',
-          content: expect.stringContaining('Test WM'),
+          role: 'node-response',
+          content: expect.stringMatching(
+            /historical-request[\s\S]*USER INPUT 0 from sensor-user-input[\s\S]*CANDIDATE 0 from memory-a[\s\S]*CANDIDATE 1 from memory-b[\s\S]*request-1/,
+          ),
         },
       ],
+      tools: [
+        expect.objectContaining({ name: 'publish_synthesized_broadcast' }),
+      ],
+      toolChoice: 'required',
     });
   });
 
-  it('should include all broadcasts in the user message', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = { messages: [] };
-    const broadcasts = ['A content', 'B content'];
+  it('deduplicates contributor node attribution', async () => {
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        synthesisCall({
+          content: 'Combined.',
+          contributingCandidateIndices: [0, 1],
+          includedActionRequestIds: [],
+        }),
+      ],
+    });
+    const distiller = new LlmDistiller({ provider });
 
-    await distiller.distill({ workingMemory, broadcasts });
-
-    const callArgs = (mockProvider.generate as Mock).mock.calls[0]![0] as {
-      systemPrompt: string;
-      messages: Array<{ content: string }>;
-    };
-    expect(callArgs.messages[0]?.content).toContain('[BROADCAST 0]: A content');
-    expect(callArgs.messages[0]?.content).toContain('[BROADCAST 1]: B content');
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [candidate('A', 'same-node'), candidate('B', 'same-node')],
+      }),
+    ).resolves.toEqual({
+      role: 'broadcast',
+      content: 'Combined.',
+      contributingNodeIds: ['same-node'],
+    });
   });
 
-  it('should include afferent context in the user message', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = { messages: [] };
+  it('omits node attribution when contributing candidates have no origin', async () => {
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        synthesisCall({
+          content: 'Combined.',
+          contributingCandidateIndices: [0],
+          includedActionRequestIds: [],
+        }),
+      ],
+    });
+    const distiller = new LlmDistiller({ provider });
 
-    await distiller.distill({
-      workingMemory,
-      broadcasts: ['Memory node can answer after acknowledging the user.'],
-      afferentContext: [
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [candidate('A'), candidate('B')],
+      }),
+    ).resolves.toEqual({ role: 'broadcast', content: 'Combined.' });
+  });
+
+  it.each([
+    { toolCalls: undefined, error: 'expected exactly one' },
+    { toolCalls: [], error: 'expected exactly one' },
+    {
+      toolCalls: [synthesisCall({}), synthesisCall({})],
+      error: 'expected exactly one',
+    },
+    {
+      toolCalls: [
         {
-          role: 'user-input',
-          content: 'Can you explain what you are doing?',
-          originatingNodeId: 'sensor-user-input',
+          ...synthesisCall({}),
+          function: { name: 'other', arguments: '{}' },
         },
-        {
-          role: 'afferent-capability',
-          content:
-            'Available afferent capabilities:\n- tool-search: can search the web.',
-        },
+      ],
+      error: 'unsupported tool other',
+    },
+  ])(
+    'rejects an invalid synthesis call shape',
+    async ({ toolCalls, error }) => {
+      vi.mocked(provider.generateWithTools).mockResolvedValue({
+        content: '',
+        toolCalls,
+      });
+      const distiller = new LlmDistiller({ provider });
+
+      await expect(
+        distiller.distill({
+          workingMemory: { messages: [] },
+          broadcasts: [candidate('A'), candidate('B')],
+        }),
+      ).rejects.toThrow(error);
+    },
+  );
+
+  it.each([
+    { argumentsValue: '{bad', error: 'must be valid JSON' },
+    { argumentsValue: [], error: 'must be an object' },
+    {
+      argumentsValue: {
+        content: ' ',
+        contributingCandidateIndices: [0],
+        includedActionRequestIds: [],
+      },
+      error: 'content must not be empty',
+    },
+    {
+      argumentsValue: {
+        content: 'Result',
+        contributingCandidateIndices: [],
+        includedActionRequestIds: [],
+      },
+      error: 'indices must be unique and in range',
+    },
+    {
+      argumentsValue: {
+        content: 'Result',
+        contributingCandidateIndices: [2],
+        includedActionRequestIds: [],
+      },
+      error: 'indices must be unique and in range',
+    },
+    {
+      argumentsValue: {
+        content: 'Result',
+        contributingCandidateIndices: [0, 0],
+        includedActionRequestIds: [],
+      },
+      error: 'indices must be unique and in range',
+    },
+    {
+      argumentsValue: {
+        content: 'Result',
+        contributingCandidateIndices: [0],
+        includedActionRequestIds: [1],
+      },
+      error: 'IDs must be unique strings',
+    },
+    {
+      argumentsValue: {
+        content: 'Result',
+        contributingCandidateIndices: [0],
+        includedActionRequestIds: ['missing'],
+      },
+      error: 'unknown action request ID missing',
+    },
+  ])(
+    'rejects malformed synthesis arguments',
+    async ({ argumentsValue, error }) => {
+      vi.mocked(provider.generateWithTools).mockResolvedValue({
+        content: '',
+        toolCalls: [synthesisCall(argumentsValue)],
+      });
+      const distiller = new LlmDistiller({ provider });
+
+      await expect(
+        distiller.distill({
+          workingMemory: { messages: [] },
+          broadcasts: [candidate('A'), candidate('B')],
+        }),
+      ).rejects.toThrow(error);
+    },
+  );
+
+  it('rejects duplicate actions and actions from non-contributing candidates', async () => {
+    const duplicate = {
+      id: 'same-id',
+      targetNodeId: 'clock',
+      operation: 'read',
+      arguments: {},
+    };
+    const distiller = new LlmDistiller({ provider });
+    vi.mocked(provider.generateWithTools).mockResolvedValueOnce({
+      content: '',
+      toolCalls: [
+        synthesisCall({
+          content: 'Result',
+          contributingCandidateIndices: [0, 1],
+          includedActionRequestIds: [],
+        }),
       ],
     });
 
-    const callArgs = (mockProvider.generate as Mock).mock.calls[0]![0] as {
-      systemPrompt: string;
-      messages: Array<{ content: string }>;
-    };
-    expect(callArgs.messages[0]?.content).toContain(
-      '[USER INPUT 0 from sensor-user-input]: Can you explain what you are doing?',
-    );
-    expect(callArgs.messages[0]?.content).toContain(
-      '[AFFERENT CAPABILITY 1]: Available afferent capabilities',
-    );
-  });
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [
+          { ...candidate('A'), actionRequests: [duplicate] },
+          { ...candidate('B'), actionRequests: [duplicate] },
+        ],
+      }),
+    ).rejects.toThrow('duplicate action request ID same-id');
 
-  it('should instruct the model to preserve user acknowledgements and tool callouts', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = { messages: [] };
-
-    await distiller.distill({
-      workingMemory,
-      broadcasts: [
-        'Acknowledge the user, then ask tool-search to search for current source material.',
+    vi.mocked(provider.generateWithTools).mockResolvedValueOnce({
+      content: '',
+      toolCalls: [
+        synthesisCall({
+          content: 'Result',
+          contributingCandidateIndices: [0],
+          includedActionRequestIds: ['request-b'],
+        }),
       ],
     });
-
-    const callArgs = (mockProvider.generate as Mock).mock.calls[0]![0] as {
-      systemPrompt: string;
-      messages: Array<{ content: string }>;
-    };
-    expect(callArgs.systemPrompt).toContain('acknowledge and address');
-    expect(callArgs.systemPrompt).toContain('Preserve exact afferent node IDs');
-    expect(callArgs.messages[0]?.content).toContain('tool-search');
-  });
-
-  it('should handle empty broadcasts', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = { messages: [] };
-
-    vi.mocked(mockProvider.generate).mockResolvedValue('');
-
-    const result = await distiller.distill({ workingMemory, broadcasts: [] });
-
-    expect(result).toBe('');
-  });
-
-  it('should handle empty working memory', async () => {
-    const distiller = new LlmDistiller({ provider: mockProvider });
-    const workingMemory: WorkingMemory = { messages: [] };
-    const broadcasts = ['test'];
-
-    vi.mocked(mockProvider.generate).mockResolvedValue('Result');
-
-    await distiller.distill({ workingMemory, broadcasts });
-
-    expect(mockProvider.generate).toHaveBeenCalledWith({
-      systemPrompt: expect.any(String),
-      messages: [
-        {
-          role: 'working-memory' as const,
-          content: expect.stringContaining('Working memory:'),
-        },
-      ],
-    });
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [
+          candidate('A'),
+          {
+            ...candidate('B'),
+            actionRequests: [
+              {
+                id: 'request-b',
+                targetNodeId: 'clock',
+                operation: 'read',
+                arguments: {},
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow('came from a non-contributing candidate');
   });
 });

@@ -380,6 +380,81 @@ describe('ToolNode', () => {
     expect(callArgs.systemPrompt).not.toContain('Previous message 1');
   });
 
+  it('passes only targeted structured action requests to generation', async () => {
+    const tools: ToolDefinition[] = [
+      { name: 'list_directory', parameters: {} },
+    ];
+    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [],
+    });
+    const node = new ToolNode({
+      capabilityDescription: 'can inspect files.',
+      id: 'tool-files',
+      provider: mockProvider,
+      eventStream: mockEventStream,
+      mcpClient:
+        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
+      relevanceGate: mockRelevanceGate,
+    });
+    await node.initialize();
+
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: {
+        role: 'broadcast',
+        content: 'Inspect the workspace.',
+        originatingNodeId: 'memory-a',
+        contributingNodeIds: ['memory-a', 'memory-b'],
+        actionRequests: [
+          {
+            id: 'request-1',
+            targetNodeId: 'other-tool',
+            operation: 'ignore',
+            arguments: {},
+          },
+          {
+            id: 'request-2',
+            targetNodeId: 'tool-files',
+            operation: 'list_directory',
+            arguments: { path: '.' },
+          },
+        ],
+      },
+    });
+
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            role: 'broadcast',
+            content: 'Inspect the workspace.',
+            originatingNodeId: 'memory-a',
+            contributingNodeIds: ['memory-a', 'memory-b'],
+            actionRequests: [
+              {
+                id: 'request-2',
+                targetNodeId: 'tool-files',
+                operation: 'list_directory',
+                arguments: { path: '.' },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        broadcastMessage: expect.objectContaining({
+          broadcast: expect.objectContaining({
+            actionRequests: [expect.objectContaining({ id: 'request-2' })],
+          }),
+        }),
+      }),
+    );
+  });
+
   it('should pass broadcast and tool preamble to relevance gate', async () => {
     const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
     vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);

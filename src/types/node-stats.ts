@@ -10,11 +10,10 @@
 export interface NodeStats {
   /** Epochs the node has existed for (its first epoch counts as 1). */
   readonly epochsAlive: number;
-  /** Epochs in which the node produced a candidate message (spoke). */
-  readonly epochsSpoken: number;
-  /**
-   * Epochs in which the node spoke but its message was filtered out (did not
-   * survive the relevance filter). Always <= epochsSpoken.
-   */
-  readonly epochsFiltered: number;
+  /** Epochs in which the node generated a candidate message. */
+  readonly epochsGenerated: number;
+  /** Generated candidates admitted through the attention gate. */
+  readonly epochsPassedAttention: number;
+  /** Candidates chosen as the epoch's single workspace broadcast. */
+  readonly epochsSelected: number;
 }

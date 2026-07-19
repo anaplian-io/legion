@@ -93,6 +93,81 @@ describe('LlmRelevanceFilter', () => {
     ]);
   });
 
+  it('includes structured action requests in candidate ranking', async () => {
+    const workingMemory: WorkingMemory = {
+      messages: [{ role: 'working-memory', content: 'Need the current time' }],
+    };
+    const candidateMessages: Message[] = [
+      {
+        role: 'node-response',
+        content: 'I will check.',
+        actionRequests: [
+          {
+            id: 'request-1',
+            targetNodeId: 'current-time',
+            operation: 'read',
+            arguments: { timezone: 'UTC' },
+          },
+        ],
+      },
+      { role: 'node-response', content: 'Unrelated candidate' },
+    ];
+
+    vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(1);
+    vi.mocked(mockProvider.rankByRelevance).mockResolvedValue([0, 1]);
+
+    const filter = new LlmRelevanceFilter({
+      provider: mockProvider,
+      attentionGate: mockAttentionGate,
+    });
+
+    await filter.filter(workingMemory, candidateMessages);
+
+    expect(mockProvider.rankByRelevance).toHaveBeenCalledWith(
+      '[MESSAGE 0]:Need the current time\n',
+      [
+        'I will check.\n[ACTION REQUEST request-1] target=current-time operation=read arguments={"timezone":"UTC"}',
+        'Unrelated candidate',
+      ],
+    );
+  });
+
+  it('includes historical action-only broadcasts in the working-memory concept', async () => {
+    const workingMemory: WorkingMemory = {
+      messages: [
+        {
+          role: 'working-memory',
+          content: '',
+          actionRequests: [
+            {
+              id: 'historical-request',
+              targetNodeId: 'clock',
+              operation: 'read',
+              arguments: {},
+            },
+          ],
+        },
+      ],
+    };
+    const candidates = [
+      { role: 'node-response' as const, content: 'A' },
+      { role: 'node-response' as const, content: 'B' },
+    ];
+    vi.mocked(mockAttentionGate.getTopN).mockResolvedValue(1);
+    vi.mocked(mockProvider.rankByRelevance).mockResolvedValue([0, 1]);
+    const filter = new LlmRelevanceFilter({
+      provider: mockProvider,
+      attentionGate: mockAttentionGate,
+    });
+
+    await filter.filter(workingMemory, candidates);
+
+    expect(mockProvider.rankByRelevance).toHaveBeenCalledWith(
+      '[MESSAGE 0]:[ACTION REQUEST historical-request] target=clock operation=read arguments={}\n',
+      ['A', 'B'],
+    );
+  });
+
   it('should concatenate multi-message working memory without stray separators', async () => {
     const workingMemory: WorkingMemory = {
       messages: [

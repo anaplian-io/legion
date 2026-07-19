@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BestBroadcastDistiller } from './best-broadcast-distiller.js';
 import type { Provider } from '../types/provider.js';
+import type { Message } from '../types/message.js';
+
+const candidate = (content: string): Message => ({
+  role: 'node-response',
+  content,
+});
 
 describe('BestBroadcastDistiller', () => {
   let mockProvider: Provider;
@@ -16,18 +22,18 @@ describe('BestBroadcastDistiller', () => {
     };
   });
 
-  it('returns an empty string without selecting when there are no broadcasts', async () => {
+  it('returns undefined without selecting when there are no broadcasts', async () => {
     const distiller = new BestBroadcastDistiller({ provider: mockProvider });
 
     await expect(
       distiller.distill({ workingMemory: { messages: [] }, broadcasts: [] }),
-    ).resolves.toBe('');
+    ).resolves.toBeUndefined();
     expect(mockProvider.selectBest).not.toHaveBeenCalled();
   });
 
   it('returns a sole broadcast unchanged without selecting', async () => {
     const distiller = new BestBroadcastDistiller({ provider: mockProvider });
-    const broadcast = 'Ask tool-search to find the current source.';
+    const broadcast = candidate('Ask tool-search to find the current source.');
 
     await expect(
       distiller.distill({
@@ -40,7 +46,7 @@ describe('BestBroadcastDistiller', () => {
 
   it('selects and returns one original broadcast with its context', async () => {
     const distiller = new BestBroadcastDistiller({ provider: mockProvider });
-    const selected = 'Ask tool-search to find the current source.';
+    const selected = candidate('Ask tool-search to find the current source.');
     vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
 
     await expect(
@@ -58,7 +64,7 @@ describe('BestBroadcastDistiller', () => {
           },
           { role: 'user-input', content: 'Please cite a current source.' },
         ],
-        broadcasts: ['We should research this.', selected],
+        broadcasts: [candidate('We should research this.'), selected],
       }),
     ).resolves.toBe(selected);
 
@@ -73,7 +79,7 @@ describe('BestBroadcastDistiller', () => {
         },
         { role: 'user-input', content: 'Please cite a current source.' },
       ],
-      candidates: ['We should research this.', selected],
+      candidates: ['We should research this.', selected.content],
     });
     expect(
       vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
@@ -90,8 +96,42 @@ describe('BestBroadcastDistiller', () => {
     await expect(
       distiller.distill({
         workingMemory: { messages: [] },
-        broadcasts: ['First candidate', 'Second candidate'],
+        broadcasts: [
+          candidate('First candidate'),
+          candidate('Second candidate'),
+        ],
       }),
     ).rejects.toThrow('provider selected invalid candidate index 2');
+  });
+
+  it('preserves structured action requests and exposes them during selection', async () => {
+    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const selected = {
+      ...candidate('Inspect the workspace.'),
+      actionRequests: [
+        {
+          id: 'request-1',
+          targetNodeId: 'tool-files',
+          operation: 'list_directory',
+          arguments: { path: '.' },
+        },
+      ],
+    };
+    vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
+
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [candidate('Wait.'), selected],
+      }),
+    ).resolves.toEqual(selected);
+    expect(mockProvider.selectBest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: [
+          'Wait.',
+          expect.stringContaining('target=tool-files operation=list_directory'),
+        ],
+      }),
+    );
   });
 });

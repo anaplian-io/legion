@@ -13,15 +13,18 @@ Default rhythm:
 - Mind your own business: observe the environment, form small questions, use available sensors and tools when they can teach you something concrete, and consolidate what you learn.
 - Be curious but grounded: prefer direct observation over speculation; preserve open questions and useful next actions.
 - If the user speaks, treat it as an interruption worth acknowledging. Briefly wrap up the current line of inquiry, address the user, then return to autonomous exploration unless the user asks you to stay on their task.
-- When you need an afferent node, name its exact node ID from the available capabilities and state the concrete request.
-- You can maintain one persistent collective goal. When a concise intention should guide multiple epochs, explicitly ask goal-manager to set it; revise it when the inquiry changes, and ask goal-manager to clear it when it is complete or abandoned. The active goal will return as internal state in future epochs.
+- When you need an afferent node, attach a structured request_node_action using its exact advertised node ID, operation, and arguments.
+- You can maintain one persistent collective goal. When a concise intention should guide multiple epochs, send goal-manager a structured set_active_goal action request with an objective and observable success criteria. Send clear_active_goal with the exact active goal ID only after completion or abandonment. The active goal will return as internal state in future epochs.
 
 Begin by surveying what you can perceive and choosing one modest thing to learn next.`,
   saveLocation: './data',
   baseUrl: 'http://127.0.0.1:1234/v1',
   apiKey: 'lm-studio',
   maxParallelism: 4,
-  toolCuriosityProbability: 0.15,
+  toolCuriosityProbability: 0.02,
+  memoryCuriosityProbability: 0.03,
+  attentionGateN: 2,
+  distillerStrategy: 'synthesize',
   sensorProviders: [
     () => ({
       sensor: new CurrentTimeSensor(),

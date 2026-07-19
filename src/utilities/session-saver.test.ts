@@ -627,7 +627,12 @@ describe('SessionSaver', () => {
       const nodeStats = [
         {
           nodeId: 'node-1',
-          stats: { epochsAlive: 7, epochsSpoken: 5, epochsFiltered: 1 },
+          stats: {
+            epochsAlive: 7,
+            epochsGenerated: 5,
+            epochsPassedAttention: 3,
+            epochsSelected: 2,
+          },
         },
       ];
 
@@ -650,7 +655,13 @@ describe('SessionSaver', () => {
       eventStream.publish({
         topicName: 'goal/updated',
         data: {
-          activeGoal: { id: 'goal-1', content: 'Explore the workspace' },
+          activeGoal: {
+            id: 'goal-1',
+            objective: 'Explore the workspace',
+            successCriteria: 'Document one verified finding',
+            origin: 'autonomous',
+            revision: 1,
+          },
         },
       });
       eventStream.publish({
@@ -665,7 +676,10 @@ describe('SessionSaver', () => {
           {
             activeGoal: {
               id: 'goal-1',
-              content: 'Explore the workspace',
+              objective: 'Explore the workspace',
+              successCriteria: 'Document one verified finding',
+              origin: 'autonomous',
+              revision: 1,
             },
           },
           null,

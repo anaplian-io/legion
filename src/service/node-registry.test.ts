@@ -34,8 +34,9 @@ describe('NodeRegistry', () => {
     expect(registry.all().map((n) => n.id)).toEqual(['a']);
     expect(registry.stats().get('a')).toEqual({
       epochsAlive: 0,
-      epochsSpoken: 0,
-      epochsFiltered: 0,
+      epochsGenerated: 0,
+      epochsPassedAttention: 0,
+      epochsSelected: 0,
     });
   });
 
@@ -43,16 +44,18 @@ describe('NodeRegistry', () => {
     registry.register(memoryNode('a'));
     registry.recordEpoch({
       aliveNodeIds: ['a'],
-      spokenNodeIds: new Set(['a']),
-      survivingNodeIds: new Set(['a']),
+      generatedNodeIds: new Set(['a']),
+      attentionPassingNodeIds: new Set(['a']),
+      selectedNodeIds: new Set(['a']),
     });
 
     registry.register(memoryNode('a'));
 
     expect(registry.stats().get('a')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 1,
-      epochsFiltered: 0,
+      epochsGenerated: 1,
+      epochsPassedAttention: 1,
+      epochsSelected: 1,
     });
   });
 
@@ -102,7 +105,7 @@ describe('NodeRegistry', () => {
     expect(changedSizes).toEqual([1, 0]);
   });
 
-  it('records spoke/filtered/alive across an epoch and publishes stats', () => {
+  it('records generated/attention/selected participation and publishes stats', () => {
     registry.register(memoryNode('speaker'));
     registry.register(memoryNode('silent'));
     registry.register(memoryNode('filtered'));
@@ -117,25 +120,29 @@ describe('NodeRegistry', () => {
 
     registry.recordEpoch({
       aliveNodeIds: ['speaker', 'silent', 'filtered'],
-      spokenNodeIds: new Set(['speaker', 'filtered']),
-      survivingNodeIds: new Set(['speaker']),
+      generatedNodeIds: new Set(['speaker', 'filtered']),
+      attentionPassingNodeIds: new Set(['speaker']),
+      selectedNodeIds: new Set(['speaker']),
     });
 
     const stats = registry.stats();
     expect(stats.get('speaker')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 1,
-      epochsFiltered: 0,
+      epochsGenerated: 1,
+      epochsPassedAttention: 1,
+      epochsSelected: 1,
     });
     expect(stats.get('silent')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 0,
-      epochsFiltered: 0,
+      epochsGenerated: 0,
+      epochsPassedAttention: 0,
+      epochsSelected: 0,
     });
     expect(stats.get('filtered')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 1,
-      epochsFiltered: 1,
+      epochsGenerated: 1,
+      epochsPassedAttention: 0,
+      epochsSelected: 0,
     });
     expect(published).toHaveLength(3);
   });
@@ -145,14 +152,16 @@ describe('NodeRegistry', () => {
     // zero-based rather than throwing.
     registry.recordEpoch({
       aliveNodeIds: ['ghost'],
-      spokenNodeIds: new Set(['ghost']),
-      survivingNodeIds: new Set(),
+      generatedNodeIds: new Set(['ghost']),
+      attentionPassingNodeIds: new Set(),
+      selectedNodeIds: new Set(),
     });
 
     expect(registry.stats().get('ghost')).toEqual({
       epochsAlive: 1,
-      epochsSpoken: 1,
-      epochsFiltered: 1,
+      epochsGenerated: 1,
+      epochsPassedAttention: 0,
+      epochsSelected: 0,
     });
   });
 });

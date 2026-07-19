@@ -8,9 +8,14 @@ const node = (id: string): MemoryNode => ({ id }) as unknown as MemoryNode;
 
 const stat = (
   epochsAlive: number,
-  epochsSpoken: number,
-  epochsFiltered: number,
-): NodeStats => ({ epochsAlive, epochsSpoken, epochsFiltered });
+  epochsGenerated: number,
+  epochsNotSelected: number,
+): NodeStats => ({
+  epochsAlive,
+  epochsGenerated,
+  epochsPassedAttention: epochsGenerated - epochsNotSelected,
+  epochsSelected: epochsGenerated - epochsNotSelected,
+});
 
 const pruner = (
   overrides: Partial<ConstructorParameters<typeof StaticNodePruner>[0]> = {},
@@ -47,11 +52,11 @@ describe('StaticNodePruner', () => {
     expect(result.map((n) => n.id)).toEqual(['inert']);
   });
 
-  it('prunes an eligible node whose filter rate exceeds maxFilterRate', () => {
+  it('prunes an eligible node whose selection miss rate exceeds maxFilterRate', () => {
     const nodes = [node('good'), node('noisy')];
     const stats = new Map<string, NodeStats>([
-      ['good', stat(10, 10, 2)], // 0.2 filtered
-      ['noisy', stat(10, 10, 8)], // 0.8 filtered
+      ['good', stat(10, 10, 2)], // 0.2 missed selection
+      ['noisy', stat(10, 10, 8)], // 0.8 missed selection
     ]);
 
     const result = pruner({ maxFilterRate: 0.5 }).selectForPruning(
@@ -62,7 +67,7 @@ describe('StaticNodePruner', () => {
     expect(result.map((n) => n.id)).toEqual(['noisy']);
   });
 
-  it('keeps a node exactly at the maxFilterRate boundary', () => {
+  it('keeps a node exactly at the selection miss boundary', () => {
     const nodes = [node('a'), node('b')];
     const stats = new Map<string, NodeStats>([
       ['a', stat(10, 10, 5)], // exactly 0.5
@@ -78,9 +83,9 @@ describe('StaticNodePruner', () => {
   it('enforces the population floor, dropping the worst performers first', () => {
     const nodes = [node('a'), node('b'), node('c')];
     const stats = new Map<string, NodeStats>([
-      ['a', stat(10, 10, 6)], // 0.6 filtered
-      ['b', stat(10, 10, 9)], // 0.9 filtered (worst)
-      ['c', stat(10, 10, 7)], // 0.7 filtered
+      ['a', stat(10, 10, 6)], // 0.6 missed selection
+      ['b', stat(10, 10, 9)], // 0.9 missed selection (worst)
+      ['c', stat(10, 10, 7)], // 0.7 missed selection
     ]);
 
     // All three are underperforming, but the floor of 2 permits removing only 1.

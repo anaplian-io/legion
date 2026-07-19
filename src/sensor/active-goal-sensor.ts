@@ -14,6 +14,6 @@ export class ActiveGoalSensor implements Sensor {
     if (activeGoal === undefined) {
       return '';
     }
-    return `[ACTIVE COLLECTIVE GOAL — INTERNAL STATE]\nID: ${activeGoal.id}\n${activeGoal.content}`;
+    return `[ACTIVE COLLECTIVE GOAL — INTERNAL STATE]\nID: ${activeGoal.id}\nRevision: ${activeGoal.revision}\nOrigin: ${activeGoal.origin}\nObjective: ${activeGoal.objective}\nSuccess criteria: ${activeGoal.successCriteria}`;
   };
 }
