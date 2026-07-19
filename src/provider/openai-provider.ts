@@ -15,6 +15,7 @@ import {
 } from 'openai/resources/chat/completions';
 import { isStrictEligible } from '../utilities/is-strict-eligible.js';
 import { Message, MessageRole } from '../types/message.js';
+import { formatMessagePayload } from '../utilities/action-request.js';
 
 export interface OpenAiProviderProps {
   readonly model: string;
@@ -108,7 +109,7 @@ export class OpenaiProvider implements Provider {
     `${heading}\n${messages
       .map(
         (message) =>
-          `${this.messageRoleLabel(message.role)}\n${message.content}`,
+          `${this.messageRoleLabel(message.role)}\n${formatMessagePayload(message)}`,
       )
       .join('\n\n')}`;
 
@@ -116,7 +117,7 @@ export class OpenaiProvider implements Provider {
     message: Message,
   ): ChatCompletionMessageParam => ({
     role: 'user',
-    content: `${this.messageRoleLabel(message.role)}\n${message.content}`,
+    content: `${this.messageRoleLabel(message.role)}\n${formatMessagePayload(message)}`,
   });
 
   private readonly messageRoleLabel = (role: MessageRole): string => {
@@ -370,7 +371,7 @@ Example: {"left": "This is some content about rainbows.", "right": "This is some
       model: this.props.model,
       messages,
       tools,
-      tool_choice: 'required',
+      tool_choice: props.toolChoice ?? 'required',
     });
 
     const message = response.choices[0]?.message;

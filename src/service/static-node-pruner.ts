@@ -11,13 +11,14 @@ export interface StaticNodePrunerProps {
    */
   readonly minEpochsAlive: number;
   /**
-   * Minimum number of epochs an eligible node must have spoken in. Nodes that
-   * speak less than this are pruned as inert.
+   * Minimum number of epochs in which an eligible node must have generated a
+   * candidate. Nodes that generate less than this are pruned as inert.
    */
   readonly minBroadcasts: number;
   /**
-   * Maximum tolerated fraction of a node's spoken epochs that were filtered
-   * out. Eligible nodes above this rate are pruned as low-signal. In [0, 1].
+   * Maximum tolerated fraction of a node's generated candidates that were not
+   * ultimately selected. Eligible nodes above this rate are pruned as
+   * low-signal. In [0, 1].
    */
   readonly maxFilterRate: number;
   /**
@@ -58,24 +59,27 @@ export class StaticNodePruner implements NodePruner {
       underperforming.length <= maxRemovable
         ? underperforming
         : [...underperforming]
-            .sort((a, b) => this.filterRate(b.stat) - this.filterRate(a.stat))
+            .sort(
+              (a, b) =>
+                this.selectionMissRate(b.stat) - this.selectionMissRate(a.stat),
+            )
             .slice(0, maxRemovable);
 
     return selected.map((entry) => entry.node);
   };
 
   private readonly isUnderperforming = (stat: NodeStats): boolean => {
-    if (stat.epochsSpoken < this.props.minBroadcasts) {
+    if (stat.epochsGenerated < this.props.minBroadcasts) {
       return true;
     }
-    return this.filterRate(stat) > this.props.maxFilterRate;
+    return this.selectionMissRate(stat) > this.props.maxFilterRate;
   };
 
-  /** Fraction of spoken epochs that were filtered out; 0 if never spoke. */
-  private readonly filterRate = (stat: NodeStats): number => {
-    if (stat.epochsSpoken === 0) {
+  /** Fraction of generated candidates that were not selected; 0 if none. */
+  private readonly selectionMissRate = (stat: NodeStats): number => {
+    if (stat.epochsGenerated === 0) {
       return 0;
     }
-    return stat.epochsFiltered / stat.epochsSpoken;
+    return (stat.epochsGenerated - stat.epochsSelected) / stat.epochsGenerated;
   };
 }

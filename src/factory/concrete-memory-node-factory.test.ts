@@ -56,7 +56,10 @@ describe('ConcreteMemoryNodeFactory', () => {
       relevanceGate: mockRelevanceGate,
     });
 
-    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: 'Response',
+      toolCalls: undefined,
+    });
 
     const node = factory.create({
       initialContext: 'Test context',
@@ -68,7 +71,7 @@ describe('ConcreteMemoryNodeFactory', () => {
     });
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalled();
-    expect(mockProvider.generate).toHaveBeenCalled();
+    expect(mockProvider.generateWithTools).toHaveBeenCalled();
   });
 
   it('should generate unique IDs for each created node', () => {

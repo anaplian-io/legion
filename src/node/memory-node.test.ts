@@ -17,7 +17,9 @@ describe('MemoryNode', () => {
       rankByRelevance: vi.fn(),
       selectBest: vi.fn(),
       splitString: vi.fn(),
-      generateWithTools: vi.fn(),
+      generateWithTools: vi
+        .fn()
+        .mockResolvedValue({ content: '', toolCalls: undefined }),
     };
     eventStream = new ConcreteEventStream();
     mockRelevanceGate = {
@@ -70,7 +72,7 @@ describe('MemoryNode', () => {
       epochsAlive: 0,
       nodeContext: expect.stringContaining('Initial context'),
     });
-    expect(mockProvider.generate).not.toHaveBeenCalled();
+    expect(mockProvider.generateWithTools).not.toHaveBeenCalled();
     expect(result).toBeUndefined();
     expect(node.status).toBe('idle');
   });
@@ -86,7 +88,7 @@ describe('MemoryNode', () => {
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.generate).mockResolvedValue('Generated response');
+    mockGeneration('Generated response');
 
     const node = new MemoryNode({
       id: 'memory-1',
@@ -107,13 +109,15 @@ describe('MemoryNode', () => {
       nodeContext: expect.stringContaining('Initial context'),
     });
 
-    expect(mockProvider.generate).toHaveBeenCalledWith({
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('Initial context'),
       messages: [
         { role: 'working-memory', content: 'Previous message 1' },
         { role: 'working-memory', content: 'Previous message 2' },
         { role: 'broadcast', content: 'New broadcast' },
       ],
+      tools: [expect.objectContaining({ name: 'request_node_action' })],
+      toolChoice: 'auto',
     });
 
     expect(result).toEqual({
@@ -131,7 +135,7 @@ describe('MemoryNode', () => {
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
-    vi.mocked(mockProvider.generate).mockResolvedValue('Curious response');
+    mockGeneration('Curious response');
 
     const node = new MemoryNode({
       id: 'memory-1',
@@ -249,7 +253,7 @@ describe('MemoryNode', () => {
       },
     };
 
-    vi.mocked(mockProvider.generate).mockResolvedValue(
+    mockGeneration(
       'Search the web for Brooklyn NY weather next few days and nearby events.',
     );
 
@@ -268,13 +272,12 @@ describe('MemoryNode', () => {
     expect(relevanceCall?.nodeContext).toContain(
       'available afferent capabilities',
     );
-    expect(relevanceCall?.nodeContext).toContain('concrete next actions');
     expect(relevanceCall?.nodeContext).toContain(
-      'Leave exact tool selection and execution details to afferent nodes',
+      'use the request_node_action tool',
     );
     expect(relevanceCall?.broadcastMessage).toEqual(broadcastMessage);
 
-    expect(mockProvider.generate).toHaveBeenCalledWith({
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('available afferent capabilities'),
       messages: expect.arrayContaining([
         {
@@ -283,6 +286,8 @@ describe('MemoryNode', () => {
             'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
         },
       ]),
+      tools: [expect.objectContaining({ name: 'request_node_action' })],
+      toolChoice: 'auto',
     });
   });
 
@@ -292,7 +297,7 @@ describe('MemoryNode', () => {
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+    mockGeneration('Response');
 
     const node = new MemoryNode({
       id: 'memory-1',
@@ -304,9 +309,11 @@ describe('MemoryNode', () => {
 
     await node.sendMessage(broadcastMessage);
 
-    expect(mockProvider.generate).toHaveBeenCalledWith({
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith({
       messages: [{ role: 'broadcast', content: 'New broadcast' }],
       systemPrompt: expect.any(String),
+      tools: [expect.objectContaining({ name: 'request_node_action' })],
+      toolChoice: 'auto',
     });
   });
 
@@ -333,7 +340,7 @@ describe('MemoryNode', () => {
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-    vi.mocked(mockProvider.generate).mockResolvedValue('Should not be called');
+    mockGeneration('Should not be called');
 
     const node = new MemoryNode({
       id: 'memory-1',
@@ -348,7 +355,7 @@ describe('MemoryNode', () => {
     const result = await node.sendMessage(broadcastMessage);
 
     expect(result).toBeUndefined();
-    expect(mockProvider.generate).not.toHaveBeenCalled();
+    expect(mockProvider.generateWithTools).not.toHaveBeenCalled();
     expect(node.status).toBe('idle');
   });
 
@@ -358,7 +365,7 @@ describe('MemoryNode', () => {
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+    mockGeneration('Response');
 
     const statusEvents: Array<{ nodeId: string; status: string }> = [];
     eventStream.subscribe({
@@ -467,7 +474,7 @@ describe('MemoryNode', () => {
     };
 
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-    vi.mocked(mockProvider.generate).mockResolvedValue('Response');
+    mockGeneration('Response');
 
     // Replace eventStream with one that throws on publish
     const throwingEventStream = {
@@ -494,7 +501,7 @@ describe('MemoryNode', () => {
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
 
-    vi.mocked(mockProvider.generate).mockResolvedValue('Node response');
+    mockGeneration('Node response');
 
     const node = new MemoryNode({
       id: 'memory-1',
@@ -512,6 +519,83 @@ describe('MemoryNode', () => {
     expect(node.status).toBe('idle');
   });
 
+  it('attaches valid structured action requests to its response and context', async () => {
+    const broadcastMessage: BroadcastMessage = {
+      workingMemory: { messages: [] },
+      broadcast: { role: 'broadcast', content: 'Inspect the workspace.' },
+    };
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        {
+          id: 'request-1',
+          type: 'function',
+          function: {
+            name: 'request_node_action',
+            arguments: JSON.stringify({
+              targetNodeId: 'tool-files',
+              operation: 'list_directory',
+              arguments: { path: '.' },
+            }),
+          },
+        },
+      ],
+    });
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: mockRelevanceGate,
+    });
+
+    const result = await node.sendMessage(broadcastMessage);
+
+    expect(result?.actionRequests).toEqual([
+      {
+        id: 'request-1',
+        targetNodeId: 'tool-files',
+        operation: 'list_directory',
+        arguments: { path: '.' },
+      },
+    ]);
+    expect(node.context).toContain(
+      '[ACTION REQUEST request-1] target=tool-files operation=list_directory',
+    );
+  });
+
+  it('does not emit or remember an empty response without a valid action', async () => {
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: ' ',
+      toolCalls: [
+        {
+          id: 'invalid-request',
+          type: 'function',
+          function: {
+            name: 'request_node_action',
+            arguments: '{bad',
+          },
+        },
+      ],
+    });
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: mockRelevanceGate,
+    });
+
+    await expect(
+      node.sendMessage({
+        workingMemory: { messages: [] },
+        broadcast: { role: 'broadcast', content: 'Think.' },
+      }),
+    ).resolves.toBeUndefined();
+    expect(node.context).toBe('Initial context');
+    expect(node.status).toBe('idle');
+  });
+
   it('should accumulate context across multiple sendMessage calls', async () => {
     const broadcastMessage1: BroadcastMessage = {
       workingMemory: { messages: [] },
@@ -523,9 +607,15 @@ describe('MemoryNode', () => {
       broadcast: { role: 'broadcast' as const, content: 'Second broadcast' },
     };
 
-    vi.mocked(mockProvider.generate)
-      .mockResolvedValueOnce('First response')
-      .mockResolvedValueOnce('Second response');
+    vi.mocked(mockProvider.generateWithTools)
+      .mockResolvedValueOnce({
+        content: 'First response',
+        toolCalls: undefined,
+      })
+      .mockResolvedValueOnce({
+        content: 'Second response',
+        toolCalls: undefined,
+      });
 
     const node = new MemoryNode({
       id: 'memory-1',
@@ -543,4 +633,11 @@ describe('MemoryNode', () => {
     );
     expect(node.status).toBe('idle');
   });
+
+  function mockGeneration(content: string): void {
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content,
+      toolCalls: undefined,
+    });
+  }
 });

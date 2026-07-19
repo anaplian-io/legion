@@ -53,15 +53,19 @@ export interface LegionSettings {
   readonly maxParallelism?: number;
   readonly sensorProviders?: SensorProvider[];
   readonly attentionGateN?: number | 'all';
+  /** How attention survivors become the next global-workspace broadcast. */
+  readonly distillerStrategy?: 'synthesize' | 'select-best';
   readonly maxWorkingMemoryMessages?: number;
   readonly contextLengthThreshold?: number;
   /** Fixed per-epoch curiosity probability used by tool nodes. */
   readonly toolCuriosityProbability?: number;
+  /** Fixed memory curiosity probability after a guaranteed first epoch. */
+  readonly memoryCuriosityProbability?: number;
   /** Epochs a node must survive before it becomes eligible for pruning. */
   readonly pruneMinEpochsAlive?: number;
-  /** Minimum epochs an eligible node must have spoken in to be retained. */
+  /** Minimum epochs in which an eligible node must generate a candidate. */
   readonly pruneMinBroadcasts?: number;
-  /** Maximum tolerated fraction of a node's spoken epochs that were filtered. */
+  /** Maximum tolerated fraction of generated candidates not selected. */
   readonly pruneMaxFilterRate?: number;
   /** Floor on the memory-node population; pruning never drops below this. */
   readonly pruneMinMemoryNodes?: number;

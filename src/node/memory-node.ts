@@ -7,6 +7,13 @@ import {
 import { Provider } from '../types/provider.js';
 import { EventStream } from '../types/event-stream.js';
 import { RelevanceGate } from '../types/relevance-gate.js';
+import {
+  ACTION_REQUEST_TOOL,
+  actionRequestFromToolCall,
+  formatActionRequests,
+  formatMessagePayload,
+} from '../utilities/action-request.js';
+import { isDefined } from '../utilities/is-defined.js';
 
 export interface MemoryNodeProps {
   readonly id: string;
@@ -58,20 +65,34 @@ export class MemoryNode implements Node<'memory'> {
     }
     await this.setStatus('idle');
     await this.setStatus('generating');
+    const generated = await provider.generateWithTools({
+      messages,
+      systemPrompt: this.preamble,
+      tools: [ACTION_REQUEST_TOOL],
+      toolChoice: 'auto',
+    });
+    const actionRequests = (generated.toolCalls ?? [])
+      .map(actionRequestFromToolCall)
+      .filter(isDefined);
+    if (generated.content.trim().length === 0 && actionRequests.length === 0) {
+      await this.setStatus('idle');
+      return undefined;
+    }
     const response: NodeResponse = {
       role: 'node-response',
       originatingNodeId: this.id,
-      content: await provider.generate({
-        messages,
-        systemPrompt: this.preamble,
-      }),
+      content: generated.content,
+      ...(actionRequests.length === 0 ? {} : { actionRequests }),
     };
     await this.setStatus('idle');
     this._context =
       this._context +
       `\n\n` +
-      `[BROADCAST MESSAGE]:${broadcastMessage.broadcast.content}` +
-      `[NODE RESPONSE]:${response.content}`;
+      `[BROADCAST MESSAGE]:${formatMessagePayload(broadcastMessage.broadcast)}` +
+      `[NODE RESPONSE]:${response.content}` +
+      (response.actionRequests === undefined
+        ? ''
+        : `\n${formatActionRequests(response.actionRequests)}`);
     this.props.eventStream.publish({
       topicName: 'orchestrator/node-updated',
       data: { node: this },
@@ -86,7 +107,7 @@ Default rhythm: mind your own business, stay curious about the environment, ask 
 
 User input is special. When an afferent message has role user-input, treat it as an interruption worth acknowledging. Help the collective briefly wrap up the current line of inquiry, address the user, and preserve enough context to resume autonomous exploration unless the user asks otherwise.
 
-Some messages may describe available afferent capabilities such as tools or sensors. Use those capability descriptions to propose concrete next actions the system can take, but do not invent tool names, schemas, or arguments. Leave exact tool selection and execution details to afferent nodes.
+Some messages may describe available afferent capabilities such as tools or sensors. When a specific afferent node must act, use the request_node_action tool to attach a structured request; do not put fake tool calls or action JSON in prose. Copy the exact target node ID and follow its advertised operation schema. Otherwise, respond without a tool call.
 
 Your accumulated experience follows. Reason only from it and from the broadcast you are given; do not invent expertise you do not have.
 ───────────────────────────────────────

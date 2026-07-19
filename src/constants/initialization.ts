@@ -13,6 +13,7 @@ import { ConcreteToolNodeFactory } from '../factory/concrete-tool-node-factory.j
 import { LlmRelevanceFilter } from '../service/llm-relevance-filter.js';
 import { StaticAttentionGate } from '../service/static-attention-gate.js';
 import { BestBroadcastDistiller } from '../service/best-broadcast-distiller.js';
+import { LlmDistiller } from '../service/llm-distiller.js';
 import { MemoryNodeSplitter } from '../service/memory-node-splitter.js';
 import { StaticNodePruner } from '../service/static-node-pruner.js';
 import { ConcreteMemoryNodeFactory } from '../factory/concrete-memory-node-factory.js';
@@ -23,13 +24,13 @@ import { LoadedSession, SessionLoader } from '../utilities/session-loader.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
-import { GeometricScheduleCuriosityGate } from '../service/geometric-schedule-curiosity-gate.js';
+import { FirstEpochThenFixedCuriosityGate } from '../service/first-epoch-then-fixed-curiosity-gate.js';
 import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curiosity-gate.js';
 import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
 import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
 import { Provider } from '../types/provider.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
-import { ExplicitNodeMentionRelevanceGate } from '../service/explicit-node-mention-relevance-gate.js';
+import { TargetedActionRequestRelevanceGate } from '../service/targeted-action-request-relevance-gate.js';
 import { MCPClient } from '../adapter/mcp-client.js';
 import { ToolDefinition } from '../types/tool.js';
 import {
@@ -51,7 +52,9 @@ import { LogRouter } from '../types/logging.js';
 import { ErrorStream } from '../types/error-stream.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
-const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.15;
+const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.02;
+const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;
+const DEFAULT_ATTENTION_GATE_N = 2;
 const MEMORY_RELEVANCE_QUESTION =
   'Given your experience above and the full message list below, can you add something the collective does not already have? If user input is present, answer yes when you can help acknowledge it, answer it, or preserve enough context to resume the prior inquiry. Otherwise answer yes only if your contribution would be specific and non-redundant.';
 const TOOL_RELEVANCE_QUESTION =
@@ -138,7 +141,11 @@ export const init = async (options?: InitOptions) => {
   // Try to load a session if saveLocation is configured
   const memoryRelevanceGate = new SequencedCompositeRelevanceGate({
     gates: [
-      new GeometricScheduleCuriosityGate(),
+      new FirstEpochThenFixedCuriosityGate(Math.random, {
+        probability:
+          settings.memoryCuriosityProbability ??
+          DEFAULT_MEMORY_CURIOSITY_PROBABILITY,
+      }),
       new AskYesNoQuestionRelevanceGate({
         provider,
         question: MEMORY_RELEVANCE_QUESTION,
@@ -147,7 +154,7 @@ export const init = async (options?: InitOptions) => {
   });
   const toolRelevanceGate = new SequencedCompositeRelevanceGate({
     gates: [
-      new ExplicitNodeMentionRelevanceGate(),
+      new TargetedActionRequestRelevanceGate(),
       new FixedProbabilityCuriosityGate({
         probability:
           settings.toolCuriosityProbability ??
@@ -338,14 +345,17 @@ export const init = async (options?: InitOptions) => {
 
   // Create supporting services for EpochOrchestrator
   const attentionGate = new StaticAttentionGate({
-    n: settings.attentionGateN ?? 'all',
+    n: settings.attentionGateN ?? DEFAULT_ATTENTION_GATE_N,
   });
   const relevanceFilter = new LlmRelevanceFilter({
     provider,
     attentionGate,
   });
 
-  const distiller = new BestBroadcastDistiller({ provider });
+  const distiller =
+    settings.distillerStrategy === 'select-best'
+      ? new BestBroadcastDistiller({ provider })
+      : new LlmDistiller({ provider });
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
     provider,
@@ -376,9 +386,7 @@ export const init = async (options?: InitOptions) => {
   });
   const goalManagerNode = new GoalNode({
     id: 'goal-manager',
-    provider,
     eventStream,
-    relevanceGate: new ExplicitNodeMentionRelevanceGate(),
     goalStore,
   });
 

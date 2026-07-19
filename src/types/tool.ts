@@ -19,4 +19,6 @@ export interface GenerateWithToolsProps {
   readonly systemPrompt: string;
   readonly messages: Message[];
   readonly tools: readonly ToolDefinition[];
+  /** Actuators require a call; cognitive nodes may optionally request one. */
+  readonly toolChoice?: 'auto' | 'required';
 }

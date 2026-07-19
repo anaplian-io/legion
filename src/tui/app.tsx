@@ -5,6 +5,7 @@ import type { NodeStatus } from '../types/node.js';
 import type { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import { Markdown, stripMarkdown } from './markdown.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
+import { formatMessagePayload } from '../utilities/action-request.js';
 
 export interface AppProps {
   readonly orchestrator: EpochOrchestrator;
@@ -118,10 +119,10 @@ export const App: React.FC<AppProps> = ({
   );
   const nodesRef = useRef(nodes);
   const [workingMemory, setWorkingMemory] = useState<string[]>(() =>
-    orchestrator.workingMemory.messages.map((m) => m.content),
+    orchestrator.workingMemory.messages.map(formatMessagePayload),
   );
   const [broadcast, setBroadcast] = useState<string>(
-    orchestrator.currentBroadcast.content,
+    formatMessagePayload(orchestrator.currentBroadcast),
   );
   const [epoch, setEpoch] = useState<number>(0);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -220,8 +221,8 @@ export const App: React.FC<AppProps> = ({
     eventStream.subscribe({
       topicName: 'orchestrator/working-memory-updated',
       receiver: ({ workingMemory: wm, broadcast: next }) => {
-        setWorkingMemory(wm.messages.map((m) => m.content));
-        setBroadcast(next.content);
+        setWorkingMemory(wm.messages.map(formatMessagePayload));
+        setBroadcast(formatMessagePayload(next));
         setPhase('consolidate');
         appendLog('✦ distilled new broadcast into working memory', 'magenta');
       },
@@ -287,7 +288,7 @@ export const App: React.FC<AppProps> = ({
         appendLog(
           activeGoal === undefined
             ? '◎ active collective goal cleared'
-            : `◎ active goal: ${activeGoal.content}`,
+            : `◎ active goal: ${activeGoal.objective}`,
           'magenta',
         );
       },

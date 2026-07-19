@@ -3,41 +3,42 @@ import { GoalNode } from './goal-node.js';
 import { GoalStore } from '../service/goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { BroadcastMessage } from '../types/node.js';
-import type { Provider, ToolCall } from '../types/provider.js';
-import type { RelevanceGate } from '../types/relevance-gate.js';
+import type { ActionRequest } from '../types/message.js';
 
-const broadcastMessage: BroadcastMessage = {
-  workingMemory: {
-    messages: [
-      { role: 'working-memory', content: 'Earlier collective thought' },
-    ],
+const request = (
+  operation: string,
+  args: Readonly<Record<string, unknown>>,
+  overrides: Partial<ActionRequest> = {},
+): ActionRequest => ({
+  id: `request-${operation}`,
+  targetNodeId: 'goal-manager',
+  operation,
+  arguments: args,
+  ...overrides,
+});
+
+const message = (
+  actionRequests?: readonly ActionRequest[],
+  content = 'Ordinary prose mentioning goal-manager.',
+): BroadcastMessage => ({
+  workingMemory: { messages: [] },
+  broadcast: {
+    role: 'broadcast',
+    content,
+    ...(actionRequests === undefined ? {} : { actionRequests }),
   },
-  broadcast: { role: 'broadcast', content: '@goal-manager set a goal' },
-};
-
-const call = (name: string, argumentsString: string): ToolCall => ({
-  id: `call-${name}`,
-  type: 'function',
-  function: { name, arguments: argumentsString },
 });
 
 describe('GoalNode', () => {
-  let provider: Provider;
   let eventStream: EventStream;
-  let relevanceGate: RelevanceGate;
   let goalStore: GoalStore;
 
   beforeEach(() => {
-    provider = {
-      askYesNoQuestion: vi.fn(),
-      generate: vi.fn(),
-      rankByRelevance: vi.fn(),
-      selectBest: vi.fn(),
-      splitString: vi.fn(),
-      generateWithTools: vi.fn(),
+    eventStream = {
+      publish: vi.fn(),
+      subscribe: vi.fn(),
+      reportError: vi.fn(),
     };
-    eventStream = { publish: vi.fn(), subscribe: vi.fn() };
-    relevanceGate = { isRelevant: vi.fn().mockResolvedValue(true) };
     goalStore = new GoalStore({
       eventStream,
       createId: () => 'goal-1',
@@ -45,77 +46,66 @@ describe('GoalNode', () => {
   });
 
   const makeNode = (): GoalNode =>
-    new GoalNode({
-      id: 'goal-manager',
-      provider,
-      eventStream,
-      relevanceGate,
-      goalStore,
-    });
+    new GoalNode({ id: 'goal-manager', eventStream, goalStore });
 
-  it('exposes a local goal-management capability', () => {
+  it('exposes its structured goal-management contract', () => {
     const node = makeNode();
 
     expect(node.id).toBe('goal-manager');
     expect(node.kind).toBe('goal');
     expect(node.status).toBe('idle');
     expect(node.context).toBe('');
-    expect(node.capabilityDescription).toContain('active collective goal');
-    expect(node.preamble).toContain('set_active_goal');
-    expect(node.preamble).toContain('clear_active_goal');
+    expect(node.capabilityDescription).toContain('successCriteria');
+    expect(node.preamble).toContain('structured requests');
   });
 
-  it('does not generate when the current broadcast does not address it', async () => {
-    vi.mocked(relevanceGate.isRelevant).mockResolvedValue(false);
+  it('ignores prose mentions and requests addressed to other nodes', async () => {
     const node = makeNode();
 
-    await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
+    await expect(node.sendMessage(message())).resolves.toBeUndefined();
+    await expect(
+      node.sendMessage(
+        message([
+          request('set_active_goal', {}, { targetNodeId: 'other-node' }),
+        ]),
+      ),
+    ).resolves.toBeUndefined();
 
-    expect(relevanceGate.isRelevant).toHaveBeenCalledWith({
-      broadcastMessage,
-      nodeId: 'goal-manager',
-      epochsAlive: 0,
-      nodeContext: node.preamble,
-    });
-    expect(provider.generateWithTools).not.toHaveBeenCalled();
-    expect(node.status).toBe('idle');
+    expect(goalStore.activeGoal).toBeUndefined();
+    expect(eventStream.publish).not.toHaveBeenCalled();
   });
 
-  it('does not emit an afferent result when the model omits or empties tool calls', async () => {
+  it('sets and clears a precise goal through typed action requests', async () => {
     const node = makeNode();
-    vi.mocked(provider.generateWithTools)
-      .mockResolvedValueOnce({ content: '', toolCalls: undefined })
-      .mockResolvedValueOnce({ content: '', toolCalls: [] });
-
-    await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
-    await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
-    expect(node.status).toBe('idle');
-  });
-
-  it('sets and clears the active goal through local tool calls', async () => {
-    const node = makeNode();
-    vi.mocked(provider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        call('set_active_goal', '{"goal":"  Explore local sensors.  "}'),
-        call('clear_active_goal', '{}'),
-      ],
-    });
-
-    const result = await node.sendMessage(broadcastMessage);
+    const result = await node.sendMessage(
+      message([
+        request('set_active_goal', {
+          objective: '  Explore local sensors.  ',
+          successCriteria: '  Record one verified sensor reading.  ',
+          origin: 'user',
+        }),
+        request('clear_active_goal', { goalId: 'goal-1' }),
+      ]),
+    );
 
     expect(result).toEqual({
       role: 'afferent',
       originatingNodeId: 'goal-manager',
       content: JSON.stringify([
         {
-          callId: 'call-set_active_goal',
+          callId: 'request-set_active_goal',
           name: 'set_active_goal',
           success: true,
-          activeGoal: { id: 'goal-1', content: 'Explore local sensors.' },
+          activeGoal: {
+            id: 'goal-1',
+            objective: 'Explore local sensors.',
+            successCriteria: 'Record one verified sensor reading.',
+            origin: 'user',
+            revision: 1,
+          },
         },
         {
-          callId: 'call-clear_active_goal',
+          callId: 'request-clear_active_goal',
           name: 'clear_active_goal',
           success: true,
           cleared: true,
@@ -123,106 +113,99 @@ describe('GoalNode', () => {
       ]),
     });
     expect(goalStore.activeGoal).toBeUndefined();
-    expect(provider.generateWithTools).toHaveBeenCalledWith({
-      systemPrompt: node.preamble,
-      messages: [
-        { role: 'working-memory', content: 'Earlier collective thought' },
-        { role: 'broadcast', content: '@goal-manager set a goal' },
-      ],
-      tools: expect.arrayContaining([
-        expect.objectContaining({ name: 'set_active_goal' }),
-        expect.objectContaining({ name: 'clear_active_goal' }),
-      ]),
-    });
     expect(eventStream.publish).toHaveBeenCalledWith({
       topicName: 'tool/invocation-started',
       data: {
         nodeId: 'goal-manager',
-        callId: 'call-set_active_goal',
+        callId: 'request-set_active_goal',
         toolName: 'set_active_goal',
-        arguments: '{"goal":"  Explore local sensors.  "}',
-      },
-    });
-    expect(eventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-completed',
-      data: {
-        nodeId: 'goal-manager',
-        callId: 'call-clear_active_goal',
-        toolName: 'clear_active_goal',
-        success: true,
-        output:
-          '{"callId":"call-clear_active_goal","name":"clear_active_goal","success":true,"cleared":true}',
+        arguments: JSON.stringify({
+          objective: '  Explore local sensors.  ',
+          successCriteria: '  Record one verified sensor reading.  ',
+          origin: 'user',
+        }),
       },
     });
   });
 
-  it('returns failed results for malformed and unsupported local tool calls', async () => {
+  it('returns failures for malformed, unsupported, and stale requests', async () => {
     const node = makeNode();
-    vi.mocked(provider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        call('set_active_goal', '{not json'),
-        call('set_active_goal', '1'),
-        call('set_active_goal', 'null'),
-        call('set_active_goal', '[]'),
-        call('set_active_goal', '{}'),
-        call('set_active_goal', '{"goal":1}'),
-        call('not_a_goal_tool', '{}'),
-      ],
+    goalStore.setActiveGoal({
+      objective: 'Explore',
+      successCriteria: 'Report a finding',
+      origin: 'autonomous',
     });
 
-    const result = await node.sendMessage(broadcastMessage);
+    const result = await node.sendMessage(
+      message([
+        request('set_active_goal', {
+          objective: '',
+          successCriteria: 'Done',
+          origin: 'autonomous',
+        }),
+        request('set_active_goal', {
+          objective: 'Explore',
+          successCriteria: 'Done',
+          origin: 'external',
+        }),
+        request('clear_active_goal', { goalId: 'stale-goal' }),
+        request('unsupported', {}),
+      ]),
+    );
     const parsed = JSON.parse(result?.content ?? '[]') as Array<{
-      readonly name: string;
       readonly success: boolean;
       readonly error?: string;
     }>;
 
-    expect(parsed).toHaveLength(7);
     expect(parsed.every((entry) => !entry.success)).toBe(true);
-    expect(parsed[0]?.error).toContain('must be valid JSON');
-    expect(parsed[1]?.error).toContain('require a string goal field');
-    expect(parsed[6]?.error).toContain('unsupported goal tool');
-    expect(eventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-completed',
-      data: {
-        nodeId: 'goal-manager',
-        callId: 'call-not_a_goal_tool',
-        toolName: 'not_a_goal_tool',
-        success: false,
-        output: '[GoalNode goal-manager] unsupported goal tool not_a_goal_tool',
-      },
-    });
+    expect(parsed[0]?.error).toContain('non-empty string objective');
+    expect(parsed[1]?.error).toContain('origin must be user or autonomous');
+    expect(parsed[2]?.error).toContain('cannot clear goal stale-goal');
+    expect(parsed[3]?.error).toContain('unsupported goal operation');
+    expect(eventStream.reportError).toHaveBeenCalledTimes(4);
   });
 
-  it('preserves a non-Error local tool failure as text', async () => {
-    const node = makeNode();
+  it('preserves a non-Error goal-store failure as text', async () => {
     vi.spyOn(goalStore, 'setActiveGoal').mockImplementation(() => {
       throw 'goal store offline';
     });
-    vi.mocked(provider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [call('set_active_goal', '{"goal":"Explore"}')],
-    });
 
-    const result = await node.sendMessage(broadcastMessage);
+    const result = await makeNode().sendMessage(
+      message([
+        request('set_active_goal', {
+          objective: 'Explore',
+          successCriteria: 'Finish',
+          origin: 'autonomous',
+        }),
+      ]),
+    );
 
     expect(result?.content).toContain('goal store offline');
   });
 
   it('continues when status-event publishing throws', async () => {
     eventStream = {
-      publish: vi.fn().mockImplementation(() => {
-        throw new Error('event stream unavailable');
+      publish: vi.fn().mockImplementation((event: { topicName: string }) => {
+        if (event.topicName === 'node/status-change') {
+          throw new Error('event stream unavailable');
+        }
       }),
       subscribe: vi.fn(),
       reportError: vi.fn(),
     };
-    relevanceGate = { isRelevant: vi.fn().mockResolvedValue(false) };
-    goalStore = new GoalStore({ eventStream });
-    const node = makeNode();
+    goalStore = new GoalStore({ eventStream, createId: () => 'goal-1' });
 
-    await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
+    await expect(
+      makeNode().sendMessage(
+        message([
+          request('set_active_goal', {
+            objective: 'Explore',
+            successCriteria: 'Finish',
+            origin: 'autonomous',
+          }),
+        ]),
+      ),
+    ).resolves.toBeDefined();
     expect(eventStream.reportError).toHaveBeenCalledWith({
       source: 'GoalNode goal-manager',
       message: 'Failed to publish a node status change.',

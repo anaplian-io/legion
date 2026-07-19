@@ -5,14 +5,16 @@ import { EventStream } from '../types/event-stream.js';
 
 const ZERO_STATS: NodeStats = {
   epochsAlive: 0,
-  epochsSpoken: 0,
-  epochsFiltered: 0,
+  epochsGenerated: 0,
+  epochsPassedAttention: 0,
+  epochsSelected: 0,
 };
 
 export interface EpochParticipation {
   readonly aliveNodeIds: string[];
-  readonly spokenNodeIds: Set<string>;
-  readonly survivingNodeIds: Set<string>;
+  readonly generatedNodeIds: Set<string>;
+  readonly attentionPassingNodeIds: Set<string>;
+  readonly selectedNodeIds: Set<string>;
 }
 
 /**
@@ -86,15 +88,23 @@ export class NodeRegistry {
    * publishes the updated snapshot.
    */
   public recordEpoch(participation: EpochParticipation): void {
-    const { aliveNodeIds, spokenNodeIds, survivingNodeIds } = participation;
+    const {
+      aliveNodeIds,
+      generatedNodeIds,
+      attentionPassingNodeIds,
+      selectedNodeIds,
+    } = participation;
     for (const nodeId of aliveNodeIds) {
       const current = this.statsById.get(nodeId) ?? ZERO_STATS;
-      const spoke = spokenNodeIds.has(nodeId);
-      const filtered = spoke && !survivingNodeIds.has(nodeId);
       this.statsById.set(nodeId, {
         epochsAlive: current.epochsAlive + 1,
-        epochsSpoken: current.epochsSpoken + (spoke ? 1 : 0),
-        epochsFiltered: current.epochsFiltered + (filtered ? 1 : 0),
+        epochsGenerated:
+          current.epochsGenerated + (generatedNodeIds.has(nodeId) ? 1 : 0),
+        epochsPassedAttention:
+          current.epochsPassedAttention +
+          (attentionPassingNodeIds.has(nodeId) ? 1 : 0),
+        epochsSelected:
+          current.epochsSelected + (selectedNodeIds.has(nodeId) ? 1 : 0),
       });
     }
     this.eventStream.publish({

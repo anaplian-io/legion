@@ -5,43 +5,12 @@ import {
   NodeStatus,
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
-import { Provider, ToolCall } from '../types/provider.js';
-import { RelevanceGate } from '../types/relevance-gate.js';
-import { ToolDefinition } from '../types/tool.js';
 import { GoalStore } from '../service/goal-store.js';
-import { ActiveGoal } from '../types/goal.js';
+import { ActiveGoal, GoalOrigin } from '../types/goal.js';
+import { ActionRequest } from '../types/message.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 
-const GOAL_TOOLS: readonly ToolDefinition[] = [
-  {
-    name: 'set_active_goal',
-    description: 'Set or replace the single active collective goal.',
-    parameters: {
-      type: 'object',
-      properties: {
-        goal: {
-          type: 'string',
-          description: 'A concise, concrete shared intention for Legion.',
-        },
-      },
-      required: ['goal'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'clear_active_goal',
-    description:
-      'Clear the active collective goal after completion or abandonment.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    },
-  },
-];
-
-interface GoalToolResult {
+interface GoalActionResult {
   readonly callId: string;
   readonly name: string;
   readonly success: boolean;
@@ -52,18 +21,16 @@ interface GoalToolResult {
 
 export interface GoalNodeProps {
   readonly id: string;
-  readonly provider: Provider;
   readonly eventStream: EventStream;
-  readonly relevanceGate: RelevanceGate;
   readonly goalStore: GoalStore;
 }
 
-/** A local actuator that lets the collective turn a selected thought into intent. */
+/** Executes only typed action requests addressed to Legion's goal actuator. */
 export class GoalNode implements Node<'goal'> {
   public readonly kind = 'goal' as const;
   public readonly id: string;
   public readonly capabilityDescription =
-    "can set, replace, or clear Legion's single persistent active collective goal.";
+    'accepts structured operations: set_active_goal with objective, successCriteria, and origin (user or autonomous); clear_active_goal with the exact active goalId.';
   private _nodeStatus: NodeStatus = 'idle';
 
   constructor(private readonly props: GoalNodeProps) {
@@ -81,35 +48,16 @@ export class GoalNode implements Node<'goal'> {
   public readonly sendMessage = async (
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
-    const messages = [
-      ...broadcastMessage.workingMemory.messages,
-      broadcastMessage.broadcast,
-    ];
-    this.setStatus('evaluating-relevance');
-    const relevant = await this.props.relevanceGate.isRelevant({
-      broadcastMessage,
-      nodeId: this.id,
-      epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
-      nodeContext: this.preamble,
-    });
-    if (!relevant) {
-      this.setStatus('idle');
+    const requests =
+      broadcastMessage.broadcast.actionRequests?.filter(
+        (request) => request.targetNodeId === this.id,
+      ) ?? [];
+    if (requests.length === 0) {
       return undefined;
     }
 
-    this.setStatus('idle');
     this.setStatus('generating');
-    const response = await this.props.provider.generateWithTools({
-      systemPrompt: this.preamble,
-      messages,
-      tools: GOAL_TOOLS,
-    });
-    if (!response.toolCalls || response.toolCalls.length === 0) {
-      this.setStatus('idle');
-      return undefined;
-    }
-
-    const results = response.toolCalls.map((call) => this.invokeGoalTool(call));
+    const results = requests.map(this.invokeGoalAction);
     this.setStatus('idle');
     return {
       role: 'afferent',
@@ -119,27 +67,30 @@ export class GoalNode implements Node<'goal'> {
   };
 
   public get preamble(): string {
-    return `You are Legion's native goal-management node. You act only when the collective's broadcast explicitly asks ${this.id} to set, replace, or clear the active goal. The active goal is a concise shared intention, not a task plan or a user message. Use set_active_goal for a new or revised intention, and clear_active_goal only when the current intention is complete or should be abandoned.\n\nYour node ID: ${this.id}\nYour available tools:\n${GOAL_TOOLS.map((tool) => JSON.stringify(tool)).join('\n')}`;
+    return `Goal actions are accepted only through structured requests addressed to ${this.id}. Supported operations: set_active_goal(objective, successCriteria, origin) and clear_active_goal(goalId).`;
   }
 
-  private readonly invokeGoalTool = (call: ToolCall): GoalToolResult => {
+  private readonly invokeGoalAction = (
+    request: ActionRequest,
+  ): GoalActionResult => {
+    const serializedArguments = JSON.stringify(request.arguments);
     this.props.eventStream.publish({
       topicName: 'tool/invocation-started',
       data: {
         nodeId: this.id,
-        callId: call.id,
-        toolName: call.function.name,
-        arguments: call.function.arguments,
+        callId: request.id,
+        toolName: request.operation,
+        arguments: serializedArguments,
       },
     });
     try {
-      const result = this.applyGoalTool(call);
+      const result = this.applyGoalAction(request);
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
           nodeId: this.id,
-          callId: call.id,
-          toolName: call.function.name,
+          callId: request.id,
+          toolName: request.operation,
           success: true,
           output: createToolOutputPreview(result),
         },
@@ -150,52 +101,58 @@ export class GoalNode implements Node<'goal'> {
         error instanceof Error ? error.message : String(error);
       this.props.eventStream.reportError?.({
         source: `GoalNode ${this.id}`,
-        message: `Goal tool ${call.function.name} failed.`,
+        message: `Goal action ${request.operation} failed.`,
         error,
-        metadata: { callId: call.id, toolName: call.function.name },
+        metadata: { callId: request.id, operation: request.operation },
       });
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
           nodeId: this.id,
-          callId: call.id,
-          toolName: call.function.name,
+          callId: request.id,
+          toolName: request.operation,
           success: false,
           output: createToolOutputPreview(errorMessage),
         },
       });
       return {
-        callId: call.id,
-        name: call.function.name,
+        callId: request.id,
+        name: request.operation,
         success: false,
         error: errorMessage,
       };
     }
   };
 
-  private readonly applyGoalTool = (call: ToolCall): GoalToolResult => {
-    switch (call.function.name) {
+  private readonly applyGoalAction = (
+    request: ActionRequest,
+  ): GoalActionResult => {
+    switch (request.operation) {
       case 'set_active_goal': {
-        const activeGoal = this.props.goalStore.setActiveGoal(
-          parseGoalContent(call.function.arguments),
-        );
+        const activeGoal = this.props.goalStore.setActiveGoal({
+          objective: requiredString(request, 'objective'),
+          successCriteria: requiredString(request, 'successCriteria'),
+          origin: requiredOrigin(request),
+        });
         return {
-          callId: call.id,
-          name: call.function.name,
+          callId: request.id,
+          name: request.operation,
           success: true,
           activeGoal,
         };
       }
       case 'clear_active_goal':
         return {
-          callId: call.id,
-          name: call.function.name,
+          callId: request.id,
+          name: request.operation,
           success: true,
-          cleared: this.props.goalStore.clearActiveGoal(),
+          cleared: this.props.goalStore.clearActiveGoal(
+            requiredString(request, 'goalId'),
+          ),
         };
       default:
         throw new Error(
-          `[GoalNode ${this.id}] unsupported goal tool ${call.function.name}`,
+          `[GoalNode ${this.id}] unsupported goal operation ${request.operation}`,
         );
     }
   };
@@ -217,22 +174,22 @@ export class GoalNode implements Node<'goal'> {
   };
 }
 
-const parseGoalContent = (argumentsString: string): string => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(argumentsString) as unknown;
-  } catch {
-    throw new Error('[GoalNode] set_active_goal arguments must be valid JSON');
-  }
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    Array.isArray(parsed) ||
-    typeof (parsed as Record<string, unknown>)['goal'] !== 'string'
-  ) {
+const requiredString = (request: ActionRequest, field: string): string => {
+  const value = request.arguments[field];
+  if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(
-      '[GoalNode] set_active_goal arguments require a string goal field',
+      `[GoalNode] ${request.operation} requires a non-empty string ${field}`,
     );
   }
-  return (parsed as Record<string, unknown>)['goal'] as string;
+  return value;
+};
+
+const requiredOrigin = (request: ActionRequest): GoalOrigin => {
+  const value = requiredString(request, 'origin');
+  if (value !== 'user' && value !== 'autonomous') {
+    throw new Error(
+      '[GoalNode] set_active_goal origin must be user or autonomous',
+    );
+  }
+  return value;
 };

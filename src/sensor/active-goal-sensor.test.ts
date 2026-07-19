@@ -25,13 +25,16 @@ describe('ActiveGoalSensor', () => {
       eventStream,
       initialActiveGoal: {
         id: 'goal-7',
-        content: 'Find a concise explanation.',
+        objective: 'Find a concise explanation.',
+        successCriteria: 'Produce a verified two-sentence explanation.',
+        origin: 'user',
+        revision: 3,
       },
     });
     const sensor = new ActiveGoalSensor({ goalStore });
 
     await expect(sensor.sense(broadcastMessage)).resolves.toBe(
-      '[ACTIVE COLLECTIVE GOAL — INTERNAL STATE]\nID: goal-7\nFind a concise explanation.',
+      '[ACTIVE COLLECTIVE GOAL — INTERNAL STATE]\nID: goal-7\nRevision: 3\nOrigin: user\nObjective: Find a concise explanation.\nSuccess criteria: Produce a verified two-sentence explanation.',
     );
   });
 });

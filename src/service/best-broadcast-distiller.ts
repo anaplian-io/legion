@@ -1,5 +1,6 @@
 import { Provider } from '../types/provider.js';
 import { DistillationProps, Distiller } from '../types/distiller.js';
+import { formatMessagePayload } from '../utilities/action-request.js';
 
 export interface BestBroadcastDistillerProps {
   readonly provider: Provider;
@@ -12,12 +13,10 @@ export interface BestBroadcastDistillerProps {
 export class BestBroadcastDistiller implements Distiller {
   constructor(private readonly props: BestBroadcastDistillerProps) {}
 
-  public readonly distill = async (
-    props: DistillationProps,
-  ): Promise<string> => {
+  public readonly distill = async (props: DistillationProps) => {
     const { broadcasts, workingMemory, afferentContext = [] } = props;
     if (broadcasts.length === 0) {
-      return '';
+      return undefined;
     }
     if (broadcasts.length === 1) {
       return broadcasts[0]!;
@@ -34,7 +33,7 @@ Evaluate in this order:
 
 If the afferent context includes user input, prefer a candidate that addresses it while preserving the relevant line of inquiry.`,
       messages: [...workingMemory.messages, ...afferentContext],
-      candidates: broadcasts,
+      candidates: broadcasts.map(formatMessagePayload),
     });
     const selectedBroadcast = broadcasts[selectedIndex];
     if (selectedBroadcast === undefined) {

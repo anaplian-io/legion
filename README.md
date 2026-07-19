@@ -74,9 +74,9 @@ the workspace rather than competing inside it.
    it has something non-redundant to add, and only then generates.
 3. **Competition.** The relevance filter ranks the memory outputs against
    working memory; the attention gate trims to the top-K survivors.
-4. **Selection.** The distiller selects the best surviving response, without
-   rewriting it, as the single new broadcast — the "conscious" thought for the
-   next epoch.
+4. **Distillation.** By default, the distiller synthesizes the bounded winning
+   coalition into one new broadcast. A `select-best` strategy can instead
+   preserve one survivor unchanged.
 5. **Memory & lifecycle.** Working memory rolls forward, oversized nodes split,
    and underperforming nodes are pruned.
 
@@ -97,8 +97,8 @@ All nodes implement a common `Node` interface (`src/types/node.ts`): an `id`, a
 nothing.
 
 - **MemoryNode** (`src/node/memory-node.ts`) — the cognitive unit. Holds a
-  specialized body of experience, decides relevance, generates, and appends each
-  exchange to its own growing context.
+  specialized body of experience, decides relevance, generates, and can attach
+  machine-readable action requests for one exact afferent node.
 - **ToolNode** (`src/node/tool-node.ts`) — afferent. Invokes external tools over
   the [Model Context Protocol](https://modelcontextprotocol.io/); raw results
   become afferent context.
@@ -114,14 +114,15 @@ parent's experience. The collective grows new expertise under load.
 ### Decay: pruning
 
 Left unchecked, splitting and bootstrapping only ever _add_ nodes. The
-orchestrator accumulates per-node statistics (`epochsAlive`, `epochsSpoken`,
-`epochsFiltered`) and a `NodePruner` removes dead weight:
+orchestrator accumulates per-node statistics (`epochsAlive`,
+`epochsGenerated`, `epochsPassedAttention`, `epochsSelected`) and a `NodePruner`
+removes dead weight:
 
 - Nodes are eligible only after a `minEpochsAlive` grace period (so freshly
   spawned or split nodes aren't culled before they can contribute).
-- An eligible node is pruned if it spoke in fewer than `minBroadcasts` epochs
-  (inert) or was filtered out in more than `maxFilterRate` of the epochs it
-  spoke (low-signal).
+- An eligible node is pruned if it generated candidates in fewer than
+  `minBroadcasts` epochs (inert) or missed final selection in more than
+  `maxFilterRate` of those epochs (low-signal).
 - A `minMemoryNodes` floor is always honoured; when more nodes qualify than the
   floor allows, the worst performers go first.
 
@@ -142,7 +143,8 @@ specific API:
 - `rankByRelevance` — orders items against a concept (the filter's engine)
 - `askYesNoQuestion` — a node's relevance gate
 - `splitString` — semantic bisection for node splitting
-- `generateWithTools` — tool-calling for ToolNodes
+- `generateWithTools` — typed output for ToolNodes, MemoryNode action requests,
+  and action-aware broadcast synthesis
 
 `OpenaiProvider` implements it against the OpenAI SDK, wrapped by
 `QueuingOpenAi`, which adds bounded concurrency, retries, and request timeouts —
@@ -156,8 +158,12 @@ cp settings.example.ts settings.ts   # then edit to taste (the build does this f
 ```
 
 `settings.ts` configures the model endpoint (defaults to a local LM Studio
-server), MCP tool servers, working-memory size, and the split/prune thresholds.
-See `settings.example.ts` for the full list.
+server), MCP tool servers, working-memory size, curiosity, attention capacity,
+distillation strategy, and split/prune thresholds. See `settings.example.ts`
+for the full list. New memory nodes always receive one cognitive turn;
+`memoryCuriosityProbability` controls their fixed curiosity probability after
+that first epoch. `distillerStrategy` accepts `synthesize` (default) or
+`select-best`.
 
 ### Runtime logs
 
@@ -199,10 +205,10 @@ The cognitive core is complete and exercised end to end: nodes, working memory,
 the two-wave epoch, relevance filtering, distillation, splitting, pruning,
 MCP tool calling, sensory input, and session persistence.
 
-Tool calling is single-phase — results are broadcast raw and synthesized
-globally by the distiller rather than by the calling node, so a dedicated
-second tool-synthesis pass is intentionally unnecessary. A terminal UI for
-visualizing node activity in real time is the main planned addition.
+Tool execution uses two-stage dispatch: a selected cognitive broadcast carries
+a typed action request, then the exact target afferent node validates and
+executes it during the next epoch. Structured requests remain part of broadcast
+history instead of collapsing into empty working-memory entries.
 
 ## License
 
