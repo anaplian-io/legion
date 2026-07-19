@@ -211,21 +211,22 @@ describe('GoalNode', () => {
   });
 
   it('continues when status-event publishing throws', async () => {
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
     eventStream = {
       publish: vi.fn().mockImplementation(() => {
         throw new Error('event stream unavailable');
       }),
       subscribe: vi.fn(),
+      reportError: vi.fn(),
     };
     relevanceGate = { isRelevant: vi.fn().mockResolvedValue(false) };
     goalStore = new GoalStore({ eventStream });
     const node = makeNode();
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
-    expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining('event publish threw during execution'),
-    );
-    warning.mockRestore();
+    expect(eventStream.reportError).toHaveBeenCalledWith({
+      source: 'GoalNode goal-manager',
+      message: 'Failed to publish a node status change.',
+      error: expect.any(Error),
+    });
   });
 });

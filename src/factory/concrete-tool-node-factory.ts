@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { MCPClient } from '../adapter/mcp-client.js';
 import { RelevanceGate } from '../types/relevance-gate.js';
 import { ToolDefinition } from '../types/tool.js';
+import { ErrorStream } from '../types/error-stream.js';
 
 export interface ConcreteToolNodeFactoryProps {
   readonly provider: Provider;
@@ -16,6 +17,7 @@ export interface ConcreteToolNodeFactoryProps {
   readonly relevanceGate: RelevanceGate;
   readonly capabilityDescription: string;
   readonly initialTools?: readonly ToolDefinition[];
+  readonly errorStream?: ErrorStream;
 }
 
 export class ConcreteToolNodeFactory implements ToolNodeFactory {
@@ -27,7 +29,12 @@ export class ConcreteToolNodeFactory implements ToolNodeFactory {
 
   constructor(props: ConcreteToolNodeFactoryProps) {
     this._provider = props.provider;
-    this._mcpClient = new MCPClient({ client: props.mcpClient });
+    this._mcpClient = new MCPClient({
+      client: props.mcpClient,
+      ...(props.errorStream === undefined
+        ? {}
+        : { errorStream: props.errorStream }),
+    });
     this._relevanceGate = props.relevanceGate;
     this._capabilityDescription = props.capabilityDescription;
     this._initialTools = props.initialTools ?? [];

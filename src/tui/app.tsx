@@ -312,6 +312,12 @@ export const App: React.FC<AppProps> = ({
           setEpoch((n) => n + 1);
         }
       } catch (e) {
+        eventStream.reportError?.({
+          source: 'TUI',
+          message: `Epoch ${epoch} failed.`,
+          error: e,
+          metadata: { epoch },
+        });
         appendLog(
           `✗ epoch ${epoch} error: ${e instanceof Error ? e.message : String(e)}`,
           'red',

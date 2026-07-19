@@ -157,9 +157,12 @@ export class EpochOrchestrator {
             }),
           };
         } catch (e) {
-          console.warn(
-            `[EpochOrchestrator] Node ${node.id} threw an error: ${e}`,
-          );
+          this.props.eventStream.reportError?.({
+            source: 'EpochOrchestrator',
+            message: `Node ${node.id} threw while processing an epoch.`,
+            error: e,
+            metadata: { nodeId: node.id },
+          });
           return { node, response: undefined };
         }
       }),

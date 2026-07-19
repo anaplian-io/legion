@@ -1,41 +1,67 @@
+import path from 'node:path';
 import { render } from 'ink';
+import rawSettings from '../../settings.js';
 import { init } from '../constants/initialization.js';
+import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
+import { JsonlLogRouter } from '../service/jsonl-log-router.js';
 import { App } from './app.js';
 
 export const main = async (): Promise<void> => {
-  if (!process.stdin.isTTY) {
-    console.error(
-      'The Legion TUI needs an interactive terminal (TTY). Run it directly in your terminal.',
-    );
-    process.exit(1);
-  }
-
-  // attachConsoleLogging: false — keep the console subscribers off so they
-  // don't fight Ink for the screen. The TUI surfaces activity itself.
-  const { orchestrator, mcpClients, eventStream } = await init({
-    attachConsoleLogging: false,
+  const logRouter = new JsonlLogRouter({
+    directory: path.join(rawSettings.saveLocation, 'logs'),
   });
+  const errorStream = new ConcreteErrorStream({ logRouter });
 
-  let tornDown = false;
-  const teardown = async (): Promise<void> => {
-    if (tornDown) return;
-    tornDown = true;
-    await Promise.all(mcpClients.map((client) => client.close())).catch(
-      () => undefined,
+  try {
+    if (!process.stdin.isTTY) {
+      errorStream.publish({
+        source: 'TUI',
+        message:
+          'The Legion TUI needs an interactive terminal (TTY). Run it directly in your terminal.',
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    const { orchestrator, mcpClients, eventStream } = await init({
+      logRouter,
+      errorStream,
+    });
+
+    let tornDown = false;
+    const teardown = async (): Promise<void> => {
+      if (tornDown) return;
+      tornDown = true;
+      await Promise.all(mcpClients.map((client) => client.close())).catch(
+        (error: unknown) => {
+          eventStream.reportError?.({
+            source: 'TUI',
+            message: 'Failed to close one or more MCP clients during teardown.',
+            error,
+          });
+        },
+      );
+    };
+
+    const { waitUntilExit } = render(
+      <App
+        orchestrator={orchestrator}
+        eventStream={eventStream}
+        onExit={() => {
+          void teardown();
+        }}
+      />,
     );
-  };
 
-  const { waitUntilExit } = render(
-    <App
-      orchestrator={orchestrator}
-      eventStream={eventStream}
-      onExit={() => {
-        void teardown();
-      }}
-    />,
-  );
-
-  await waitUntilExit();
-  await teardown();
-  process.exit(0);
+    await waitUntilExit();
+    await teardown();
+    process.exit(0);
+  } catch (error) {
+    errorStream.publish({
+      source: 'TUI',
+      message: 'The Legion TUI exited unexpectedly.',
+      error,
+    });
+    process.exitCode = 1;
+  }
 };

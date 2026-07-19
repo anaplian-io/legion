@@ -77,7 +77,16 @@ export const SessionSaver = {
         event.removedNodeIds.forEach((id) => {
           try {
             fs.unlinkSync(path.join(nodesDirectory, `${id}.json`));
-          } catch {}
+          } catch (error) {
+            if (!isMissingFileError(error)) {
+              eventStream.reportError?.({
+                source: 'SessionSaver',
+                message: `Failed to remove the saved node ${id}.`,
+                error,
+                metadata: { nodeId: id },
+              });
+            }
+          }
         });
       },
     });
@@ -110,3 +119,9 @@ export const SessionSaver = {
     });
   },
 };
+
+const isMissingFileError = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 'ENOENT';

@@ -102,9 +102,11 @@ ${this.context}
         data: { nodeId: this.id, status: newStatus },
       });
     } catch (e) {
-      console.warn(
-        `[MemoryNode ${this.id}] event publish threw during execution: ${e}`,
-      );
+      this.props.eventStream.reportError?.({
+        source: `MemoryNode ${this.id}`,
+        message: 'Failed to publish a node status change.',
+        error: e,
+      });
     }
   };
 }
