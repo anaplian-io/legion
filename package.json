@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "ink": "^7.1.0",
+    "ink": "^7.1.1",
     "marked": "^18.0.5",
     "openai": "^6.45.0",
     "p-queue": "^9.3.0",
