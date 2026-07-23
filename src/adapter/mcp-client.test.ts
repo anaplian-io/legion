@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MCPClient } from './mcp-client.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { ErrorStream } from '../types/error-stream.js';
 
 // Mock the MCP SDK Client
 interface MockSdkClient {
@@ -15,7 +16,10 @@ interface MockSdkClient {
     name: string;
     arguments: Record<string, unknown>;
   }) => Promise<{
-    content?: Array<{ type: 'text'; text: string }>;
+    content?: Array<
+      | { type: 'text'; text: string }
+      | { type: 'image'; data: string; mimeType: string }
+    >;
     structuredContent?: unknown;
     isError?: boolean;
     toolResult?: unknown;
@@ -59,7 +63,11 @@ describe('MCPClient', () => {
     ]);
   });
 
-  it('should fall back to an empty-object schema for a non-object inputSchema', async () => {
+  it('should ignore tools with a non-object inputSchema', async () => {
+    const errorStream: ErrorStream = {
+      publish: vi.fn(),
+      subscribe: vi.fn(),
+    };
     vi.mocked(mockSdkClient.listTools).mockResolvedValue({
       tools: [
         // A misbehaving server returning a non-object schema.
@@ -71,10 +79,19 @@ describe('MCPClient', () => {
       ],
     });
 
-    const mcpClient = new MCPClient({ client: asMockClient(mockSdkClient) });
+    const mcpClient = new MCPClient({
+      client: asMockClient(mockSdkClient),
+      errorStream,
+    });
     const tools = await mcpClient.getAvailableTools();
 
-    expect(tools[0]?.parameters).toEqual({ type: 'object', properties: {} });
+    expect(tools).toEqual([]);
+    expect(errorStream.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'MCPClient',
+        message: 'Ignored tool bad_tool because its input schema is invalid.',
+      }),
+    );
   });
 
   it('should handle missing description in tools', async () => {
@@ -165,6 +182,37 @@ describe('MCPClient', () => {
     expect(mockSdkClient.callTool).not.toHaveBeenCalled();
   });
 
+  it('should reject non-object JSON arguments before calling MCP', async () => {
+    const errorStream: ErrorStream = {
+      publish: vi.fn(),
+      subscribe: vi.fn(),
+    };
+    const mcpClient = new MCPClient({
+      client: asMockClient(mockSdkClient),
+      errorStream,
+    });
+
+    const result = await mcpClient.invokeTool(
+      'call_1',
+      'test_tool',
+      '"double-encoded"',
+    );
+
+    expect(result).toEqual({
+      callId: 'call_1',
+      name: 'test_tool',
+      success: false,
+      error: 'Tool arguments must be a JSON object.',
+    });
+    expect(mockSdkClient.callTool).not.toHaveBeenCalled();
+    expect(errorStream.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'MCPClient',
+        message: 'Tool test_tool received non-object arguments.',
+      }),
+    );
+  });
+
   it('should handle structuredContent in tool response', async () => {
     vi.mocked(mockSdkClient.callTool).mockResolvedValue({
       structuredContent: { value: 42, status: 'ok' },
@@ -190,6 +238,66 @@ describe('MCPClient', () => {
     const result = await mcpClient.invokeTool('call_1', 'test_tool', '{}');
 
     expect(result.result).toEqual({ toolResult: { data: 'result' } });
+  });
+
+  it('should return MCP isError responses as failures', async () => {
+    const errorStream: ErrorStream = {
+      publish: vi.fn(),
+      subscribe: vi.fn(),
+    };
+    vi.mocked(mockSdkClient.callTool).mockResolvedValue({
+      isError: true,
+      content: [
+        { type: 'text', text: 'Permission denied' },
+        { type: 'image', data: 'base64', mimeType: 'image/png' },
+        { type: 'text', text: 'Try a different account' },
+      ],
+    });
+    const mcpClient = new MCPClient({
+      client: asMockClient(mockSdkClient),
+      errorStream,
+    });
+
+    const result = await mcpClient.invokeTool('call_1', 'test_tool', '{}');
+
+    expect(result).toEqual({
+      callId: 'call_1',
+      name: 'test_tool',
+      success: false,
+      error: 'Permission denied\nTry a different account',
+    });
+    expect(errorStream.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'MCPClient',
+        message: 'Tool test_tool returned an MCP error result.',
+      }),
+    );
+  });
+
+  it('should describe an MCP isError response without text content', async () => {
+    vi.mocked(mockSdkClient.callTool).mockResolvedValue({
+      isError: true,
+      structuredContent: { code: 'FAILED' },
+    });
+    const mcpClient = new MCPClient({ client: asMockClient(mockSdkClient) });
+
+    const result = await mcpClient.invokeTool('call_1', 'test_tool', '{}');
+
+    expect(result.error).toBe(
+      'MCP tool test_tool returned an error: {"code":"FAILED"}',
+    );
+  });
+
+  it('should ignore non-text MCP error content when describing a failure', async () => {
+    vi.mocked(mockSdkClient.callTool).mockResolvedValue({
+      isError: true,
+      content: [{ type: 'image', data: 'base64', mimeType: 'image/png' }],
+    });
+    const mcpClient = new MCPClient({ client: asMockClient(mockSdkClient) });
+
+    const result = await mcpClient.invokeTool('call_1', 'test_tool', '{}');
+
+    expect(result.error).toBe('MCP tool test_tool returned isError: true.');
   });
 
   it('should handle error from MCP SDK callTool', async () => {

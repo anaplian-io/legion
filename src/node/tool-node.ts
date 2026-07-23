@@ -11,6 +11,12 @@ import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 import { RelevanceGate } from '../types/relevance-gate.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 import { Message } from '../types/message.js';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+import {
+  hasDefinedProperty,
+  isRecord,
+  isToolCall,
+} from '../utilities/type-guards.js';
 
 export interface ToolNodeProps {
   readonly id: string;
@@ -56,15 +62,43 @@ export class ToolNode implements Node<'tool'> {
   public readonly sendMessage = async (
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
-    const { provider, mcpClient } = this.props;
+    const { provider } = this.props;
     if (this.tools.length === 0) {
       await this.initialize();
     }
-    // Expose only requests addressed to this node during generation. The
-    // relevance gate still receives the original broadcast for routing.
+    // Validate requests addressed to this node before model selection. Invalid
+    // requests become failures; valid requests continue independently.
     const targetedRequests = broadcastMessage.broadcast.actionRequests?.filter(
       (request) => request.targetNodeId === this.id,
     );
+    const targetedRequestValidations = (targetedRequests ?? []).map(
+      (request) => ({
+        request,
+        error: this.validateToolSelection(request.operation, request.arguments),
+      }),
+    );
+    const invalidTargetedRequests = targetedRequestValidations.filter(
+      hasDefinedProperty('error'),
+    );
+    const validTargetedRequests = targetedRequestValidations
+      .filter(({ error }) => error === undefined)
+      .map(({ request }) => request);
+    let preflightFailures: ToolResult[] = [];
+    if (invalidTargetedRequests.length > 0) {
+      this.setStatus('generating');
+      preflightFailures = invalidTargetedRequests.map(({ request, error }) =>
+        this.rejectToolCall(
+          request.id,
+          request.operation,
+          JSON.stringify(request.arguments),
+          error,
+        ),
+      );
+      this.setStatus('idle');
+      if (validTargetedRequests.length === 0) {
+        return this.toolResponse(preflightFailures);
+      }
+    }
     const broadcast: Message = {
       role: broadcastMessage.broadcast.role,
       content: broadcastMessage.broadcast.content,
@@ -78,9 +112,9 @@ export class ToolNode implements Node<'tool'> {
         : {
             contributingNodeIds: broadcastMessage.broadcast.contributingNodeIds,
           }),
-      ...(targetedRequests === undefined || targetedRequests.length === 0
+      ...(validTargetedRequests.length === 0
         ? {}
-        : { actionRequests: targetedRequests }),
+        : { actionRequests: validTargetedRequests }),
     };
     const messages = [...broadcastMessage.workingMemory.messages, broadcast];
     const nodeBroadcastMessage: BroadcastMessage = {
@@ -96,7 +130,9 @@ export class ToolNode implements Node<'tool'> {
     });
     if (!(await relevant)) {
       this.setStatus('idle');
-      return undefined;
+      return preflightFailures.length === 0
+        ? undefined
+        : this.toolResponse(preflightFailures);
     }
     this.setStatus('idle');
     this.setStatus('generating');
@@ -107,72 +143,172 @@ export class ToolNode implements Node<'tool'> {
     });
     if (!response.toolCalls || response.toolCalls.length === 0) {
       this.setStatus('idle');
-      return undefined;
+      return preflightFailures.length === 0
+        ? undefined
+        : this.toolResponse(preflightFailures);
     }
     const toolCallResponse = await Promise.all(
-      response.toolCalls.map(async (call) => {
-        this.props.eventStream.publish({
-          topicName: 'tool/invocation-started',
-          data: {
-            nodeId: this.id,
-            callId: call.id,
-            toolName: call.function.name,
-            arguments: call.function.arguments,
-          },
-        });
-        try {
-          const result = await mcpClient.invokeTool(
-            call.id,
-            call.function.name,
-            call.function.arguments,
-          );
-          this.props.eventStream.publish({
-            topicName: 'tool/invocation-completed',
-            data: {
-              nodeId: this.id,
-              callId: call.id,
-              toolName: call.function.name,
-              success: result.success,
-              output: createToolOutputPreview(
-                result.success ? result.result : result.error,
-              ),
-            },
-          });
-          return result;
-        } catch (e) {
-          this.props.eventStream.reportError?.({
-            source: `ToolNode ${this.id}`,
-            message: `Tool ${call.function.name} threw during invocation.`,
-            error: e,
-            metadata: { callId: call.id, toolName: call.function.name },
-          });
-          const failure = {
-            callId: call.id,
-            name: call.function.name,
-            success: false,
-            error: `${e}`,
-          } satisfies ToolResult;
-          this.props.eventStream.publish({
-            topicName: 'tool/invocation-completed',
-            data: {
-              nodeId: this.id,
-              callId: call.id,
-              toolName: call.function.name,
-              success: false,
-              output: createToolOutputPreview(`${e}`),
-            },
-          });
-          return failure;
-        }
-      }),
+      response.toolCalls.map((call) => this.invokeProviderToolCall(call)),
     );
     this.setStatus('idle');
-    return {
-      role: 'afferent',
-      originatingNodeId: this.id,
-      content: JSON.stringify(toolCallResponse),
-    };
+    return this.toolResponse([...preflightFailures, ...toolCallResponse]);
   };
+
+  private readonly invokeProviderToolCall = async (
+    call: unknown,
+  ): Promise<ToolResult> => {
+    if (!isToolCall(call)) {
+      const details = malformedToolCallDetails(call);
+      return this.rejectToolCall(
+        details.callId,
+        details.name,
+        details.arguments,
+        `Provider returned a malformed tool call: ${createToolOutputPreview(call)}`,
+      );
+    }
+    const { id: callId, function: functionCall } = call;
+    const { name, arguments: argumentsStr } = functionCall;
+    this.publishInvocationStarted(callId, name, argumentsStr);
+
+    let parsedArguments: unknown;
+    try {
+      parsedArguments = JSON.parse(argumentsStr) as unknown;
+    } catch {
+      return this.rejectStartedToolCall(
+        callId,
+        name,
+        `Tool ${name} arguments are not valid JSON.`,
+      );
+    }
+
+    const validationError = this.validateToolSelection(name, parsedArguments);
+    if (validationError !== undefined) {
+      return this.rejectStartedToolCall(callId, name, validationError);
+    }
+
+    try {
+      const result = await this.props.mcpClient.invokeTool(
+        callId,
+        name,
+        argumentsStr,
+      );
+      this.publishInvocationCompleted(
+        callId,
+        name,
+        result.success,
+        result.success ? result.result : result.error,
+      );
+      return result;
+    } catch (error) {
+      this.props.eventStream.reportError?.({
+        source: `ToolNode ${this.id}`,
+        message: `Tool ${name} threw during invocation.`,
+        error,
+        metadata: { callId, toolName: name },
+      });
+      const errorMessage = String(error);
+      this.publishInvocationCompleted(callId, name, false, errorMessage);
+      return {
+        callId,
+        name,
+        success: false,
+        error: errorMessage,
+      };
+    }
+  };
+
+  private readonly validateToolSelection = (
+    name: string,
+    argumentsValue: unknown,
+  ): string | undefined => {
+    const tool = this.tools.find((candidate) => candidate.name === name);
+    if (tool === undefined) {
+      const available = this.tools
+        .map((candidate) => candidate.name)
+        .join(', ');
+      return `Tool ${name} was not advertised by ToolNode ${this.id}. Available tools: ${available}.`;
+    }
+    if (!isRecord(argumentsValue)) {
+      return `Tool ${name} arguments must be a JSON object.`;
+    }
+    try {
+      const validation = new AjvJsonSchemaValidator().getValidator(
+        tool.parameters,
+      )(argumentsValue);
+      return validation.valid
+        ? undefined
+        : `Tool ${name} arguments do not match its advertised schema: ${validation.errorMessage}.`;
+    } catch (error) {
+      return `Tool ${name} has an invalid advertised schema: ${String(error)}.`;
+    }
+  };
+
+  private readonly rejectToolCall = (
+    callId: string,
+    name: string,
+    argumentsStr: string,
+    error: string,
+  ): ToolResult => {
+    this.publishInvocationStarted(callId, name, argumentsStr);
+    return this.rejectStartedToolCall(callId, name, error);
+  };
+
+  private readonly rejectStartedToolCall = (
+    callId: string,
+    name: string,
+    error: string,
+  ): ToolResult => {
+    this.props.eventStream.reportError?.({
+      source: `ToolNode ${this.id}`,
+      message: `Rejected tool ${name} before MCP invocation.`,
+      error: new Error(error),
+      metadata: { callId, toolName: name },
+    });
+    this.publishInvocationCompleted(callId, name, false, error);
+    return { callId, name, success: false, error };
+  };
+
+  private readonly publishInvocationStarted = (
+    callId: string,
+    toolName: string,
+    argumentsStr: string,
+  ): void => {
+    this.props.eventStream.publish({
+      topicName: 'tool/invocation-started',
+      data: {
+        nodeId: this.id,
+        callId,
+        toolName,
+        arguments: argumentsStr,
+      },
+    });
+  };
+
+  private readonly publishInvocationCompleted = (
+    callId: string,
+    toolName: string,
+    success: boolean,
+    output: unknown,
+  ): void => {
+    this.props.eventStream.publish({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: this.id,
+        callId,
+        toolName,
+        success,
+        output: createToolOutputPreview(output),
+      },
+    });
+  };
+
+  private readonly toolResponse = (
+    results: readonly ToolResult[],
+  ): Exclude<NodeResponse, undefined> => ({
+    role: 'afferent',
+    originatingNodeId: this.id,
+    content: JSON.stringify(results),
+  });
 
   private readonly setStatus = (newStatus: NodeStatus): void => {
     this._nodeStatus = newStatus;
@@ -201,3 +337,30 @@ ${this.tools.map((tool) => JSON.stringify(tool)).join('\n')}
 `;
   }
 }
+
+const malformedToolCallDetails = (
+  call: unknown,
+): {
+  readonly callId: string;
+  readonly name: string;
+  readonly arguments: string;
+} => {
+  const callRecord = isRecord(call) ? call : {};
+  const functionCall = isRecord(callRecord['function'])
+    ? callRecord['function']
+    : {};
+  return {
+    callId:
+      typeof callRecord['id'] === 'string'
+        ? callRecord['id']
+        : '[missing-call-id]',
+    name:
+      typeof functionCall['name'] === 'string'
+        ? functionCall['name']
+        : '[missing-tool-name]',
+    arguments:
+      typeof functionCall['arguments'] === 'string'
+        ? functionCall['arguments']
+        : createToolOutputPreview(functionCall['arguments']),
+  };
+};

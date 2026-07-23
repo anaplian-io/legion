@@ -1,5 +1,4 @@
 import { EventStream } from '../types/event-stream.js';
-import { MemoryNode } from '../node/memory-node.js';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -7,6 +6,7 @@ import {
   PersistedMcpServerSummaries,
 } from '../types/mcp-server-summary.js';
 import { ACTIVE_GOAL_FILE_NAME } from '../types/goal.js';
+import { hasErrorCode, isMemoryNode } from './type-guards.js';
 
 export const SessionSaver = {
   saveMcpServerSummaries: (props: {
@@ -32,9 +32,7 @@ export const SessionSaver = {
     eventStream.subscribe({
       topicName: 'orchestrator/node-added',
       receiver: (event) => {
-        const memoryNodes = event.addedNodes.filter(
-          (node): node is MemoryNode => node.kind === 'memory',
-        );
+        const memoryNodes = event.addedNodes.filter(isMemoryNode);
         memoryNodes.forEach((node) =>
           fs.writeFileSync(
             path.join(nodesDirectory, `${node.id}.json`),
@@ -78,7 +76,7 @@ export const SessionSaver = {
           try {
             fs.unlinkSync(path.join(nodesDirectory, `${id}.json`));
           } catch (error) {
-            if (!isMissingFileError(error)) {
+            if (!hasErrorCode(error, 'ENOENT')) {
               eventStream.reportError?.({
                 source: 'SessionSaver',
                 message: `Failed to remove the saved node ${id}.`,
@@ -119,9 +117,3 @@ export const SessionSaver = {
     });
   },
 };
-
-const isMissingFileError = (error: unknown): boolean =>
-  typeof error === 'object' &&
-  error !== null &&
-  'code' in error &&
-  error.code === 'ENOENT';

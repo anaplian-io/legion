@@ -2,6 +2,7 @@ import { Node } from '../types/node.js';
 import { MemoryNode } from '../node/memory-node.js';
 import { NodeStats } from '../types/node-stats.js';
 import { EventStream } from '../types/event-stream.js';
+import { isMemoryNode } from '../utilities/type-guards.js';
 
 const ZERO_STATS: NodeStats = {
   epochsAlive: 0,
@@ -69,9 +70,7 @@ export class NodeRegistry {
   }
 
   public memoryNodes(): MemoryNode[] {
-    return this.all().filter(
-      (node): node is MemoryNode => node.kind === 'memory',
-    );
+    return this.all().filter(isMemoryNode);
   }
 
   /** Non-memory nodes (tools, sensors) that feed context into the workspace. */

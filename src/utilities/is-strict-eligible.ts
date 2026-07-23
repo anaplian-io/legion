@@ -1,3 +1,5 @@
+import { isRecord } from './type-guards.js';
+
 /**
  * Determines whether a JSON Schema can safely be sent to the OpenAI Responses
  * API with `strict: true`.
@@ -70,6 +72,3 @@ export const isStrictEligible = (schema: unknown): boolean => {
   // strict requirements.
   return true;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);

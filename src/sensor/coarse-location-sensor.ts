@@ -1,4 +1,5 @@
 import { Sensor } from '../types/sensor.js';
+import { isDefined } from '../utilities/type-guards.js';
 
 export interface CoarseLocation {
   readonly city?: string;
@@ -40,9 +41,7 @@ export class CoarseLocationSensor implements Sensor {
       this.readString(this.location.description),
       ...this.formatAdditionalFields(this.location.additionalFields),
     ];
-    const parts = [...placeParts, ...extraParts].filter(
-      (part): part is string => part !== undefined,
-    );
+    const parts = [...placeParts, ...extraParts].filter(isDefined);
 
     if (parts.length === 0) {
       return 'not configured';

@@ -13,7 +13,7 @@ import {
   formatActionRequests,
   formatMessagePayload,
 } from '../utilities/action-request.js';
-import { isDefined } from '../utilities/is-defined.js';
+import { isDefined } from '../utilities/type-guards.js';
 
 export interface MemoryNodeProps {
   readonly id: string;
