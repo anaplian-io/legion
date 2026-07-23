@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ToolDefinition } from '../types/tool.js';
 import { ErrorStream } from '../types/error-stream.js';
+import { isDefined, isRecord } from '../utilities/type-guards.js';
+import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 
 export interface ToolResult {
   readonly callId: string;
@@ -11,19 +13,16 @@ export interface ToolResult {
 }
 
 /**
- * Coerces an MCP tool's `inputSchema` into a usable JSON object schema.
+ * Accepts only usable JSON object schemas advertised by an MCP server.
  *
  * The MCP SDK types `inputSchema` loosely, and a misbehaving server can return
- * a non-object value. Rather than blindly casting and forwarding malformed
- * schemas to the model, fall back to a minimal empty-object schema (a tool
- * that takes no arguments) when the schema is not a usable object.
+ * a non-object value. Such a tool must not be offered to the model because no
+ * trustworthy argument-validation boundary can be established for it.
  */
-const normalizeToolSchema = (schema: unknown): Record<string, unknown> => {
-  if (typeof schema === 'object' && schema !== null && !Array.isArray(schema)) {
-    return schema as Record<string, unknown>;
-  }
-  return { type: 'object', properties: {} };
-};
+const normalizeToolSchema = (
+  schema: unknown,
+): Record<string, unknown> | undefined =>
+  isRecord(schema) ? schema : undefined;
 
 export class MCPClient {
   private readonly _client: Client;
@@ -40,11 +39,25 @@ export class MCPClient {
 
   public readonly getAvailableTools = async (): Promise<ToolDefinition[]> => {
     const response = await this._client.listTools();
-    return response.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description ?? '',
-      parameters: normalizeToolSchema(tool.inputSchema),
-    }));
+    return response.tools.flatMap((tool) => {
+      const parameters = normalizeToolSchema(tool.inputSchema);
+      if (parameters === undefined) {
+        this._errorStream?.publish({
+          source: 'MCPClient',
+          message: `Ignored tool ${tool.name} because its input schema is invalid.`,
+          error: new Error('MCP tool input schema must be an object.'),
+          metadata: { name: tool.name },
+        });
+        return [];
+      }
+      return [
+        {
+          name: tool.name,
+          description: tool.description ?? '',
+          parameters,
+        },
+      ];
+    });
   };
 
   public readonly invokeTool = async (
@@ -52,9 +65,9 @@ export class MCPClient {
     name: string,
     argumentsStr: string,
   ): Promise<ToolResult> => {
-    let args: Record<string, unknown>;
+    let parsedArguments: unknown;
     try {
-      args = JSON.parse(argumentsStr);
+      parsedArguments = JSON.parse(argumentsStr) as unknown;
     } catch (error) {
       this._errorStream?.publish({
         source: 'MCPClient',
@@ -69,12 +82,43 @@ export class MCPClient {
         error: `Invalid arguments JSON: ${argumentsStr}`,
       };
     }
+    if (!isRecord(parsedArguments)) {
+      const error = new Error('Tool arguments must be a JSON object.');
+      this._errorStream?.publish({
+        source: 'MCPClient',
+        message: `Tool ${name} received non-object arguments.`,
+        error,
+        metadata: { callId, name },
+      });
+      return {
+        callId,
+        name,
+        success: false,
+        error: error.message,
+      };
+    }
 
     try {
       const result = await this._client.callTool({
         name,
-        arguments: args,
+        arguments: parsedArguments,
       });
+
+      if (result.isError === true) {
+        const errorMessage = semanticErrorMessage(name, result);
+        this._errorStream?.publish({
+          source: 'MCPClient',
+          message: `Tool ${name} returned an MCP error result.`,
+          error: new Error(errorMessage),
+          metadata: { callId, name },
+        });
+        return {
+          callId,
+          name,
+          success: false,
+          error: errorMessage,
+        };
+      }
 
       return {
         callId,
@@ -103,3 +147,31 @@ export class MCPClient {
     await this._client.close();
   };
 }
+
+const semanticErrorMessage = (
+  name: string,
+  result: Readonly<Record<string, unknown>>,
+): string => {
+  const content = result['content'];
+  if (Array.isArray(content)) {
+    const text = content
+      .map((item) =>
+        isRecord(item) &&
+        item['type'] === 'text' &&
+        typeof item['text'] === 'string'
+          ? item['text']
+          : undefined,
+      )
+      .filter(isDefined)
+      .join('\n')
+      .trim();
+    if (text.length > 0) {
+      return text;
+    }
+  }
+  const structuredContent = result['structuredContent'];
+  if (structuredContent !== undefined) {
+    return `MCP tool ${name} returned an error: ${createToolOutputPreview(structuredContent)}`;
+  }
+  return `MCP tool ${name} returned isError: true.`;
+};

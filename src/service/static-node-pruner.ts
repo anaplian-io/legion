@@ -1,6 +1,7 @@
 import { NodePruner } from '../types/node-pruner.js';
 import { NodeStats } from '../types/node-stats.js';
 import { Node } from '../types/node.js';
+import { hasDefinedProperty } from '../utilities/type-guards.js';
 
 export interface StaticNodePrunerProps {
   /**
@@ -42,10 +43,8 @@ export class StaticNodePruner implements NodePruner {
     // attendant undefined checks) downstream.
     const eligible = nodes
       .map((node) => ({ node, stat: stats.get(node.id) }))
-      .filter(
-        (entry): entry is { node: Node<T>; stat: NodeStats } =>
-          entry.stat !== undefined && entry.stat.epochsAlive >= minEpochsAlive,
-      );
+      .filter(hasDefinedProperty('stat'))
+      .filter((entry) => entry.stat.epochsAlive >= minEpochsAlive);
 
     const underperforming = eligible.filter((entry) =>
       this.isUnderperforming(entry.stat),

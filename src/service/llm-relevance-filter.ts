@@ -3,7 +3,7 @@ import { Provider } from '../types/provider.js';
 import { AttentionGate } from '../types/attention-gate.js';
 import { Message } from '../types/message.js';
 import { WorkingMemory } from '../types/working-memory.js';
-import { isDefined } from '../utilities/is-defined.js';
+import { isDefined } from '../utilities/type-guards.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
 
 export interface LlmRelevanceFilterProps {

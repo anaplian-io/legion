@@ -1,5 +1,6 @@
 import { ActionRequest, Message } from '../types/message.js';
 import { ToolCall, ToolDefinition } from '../types/tool.js';
+import { isRecord } from './type-guards.js';
 
 export const ACTION_REQUEST_TOOL_NAME = 'request_node_action';
 
@@ -80,6 +81,3 @@ export const formatMessagePayload = (
   [message.content, formatActionRequests(message.actionRequests)]
     .filter((part) => part.length > 0)
     .join('\n');
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);

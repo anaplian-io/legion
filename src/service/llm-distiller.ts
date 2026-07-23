@@ -3,7 +3,12 @@ import { DistillationProps, Distiller } from '../types/distiller.js';
 import { Message, MessageRole } from '../types/message.js';
 import { ToolCall, ToolDefinition } from '../types/tool.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
-import { isDefined } from '../utilities/is-defined.js';
+import {
+  isDefined,
+  isRecord,
+  isUniqueIntegerArray,
+  isUniqueStringArray,
+} from '../utilities/type-guards.js';
 
 export interface LlmDistillerProps {
   readonly provider: Provider;
@@ -213,19 +218,6 @@ const synthesisFromToolCall = (
     ...(actionRequests.length === 0 ? {} : { actionRequests }),
   };
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const isUniqueIntegerArray = (value: unknown): value is number[] =>
-  Array.isArray(value) &&
-  value.every((entry) => Number.isInteger(entry)) &&
-  new Set(value).size === value.length;
-
-const isUniqueStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) &&
-  value.every((entry) => typeof entry === 'string') &&
-  new Set(value).size === value.length;
 
 const MESSAGE_ROLE_LABEL: Record<MessageRole, string> = {
   'working-memory': 'WORKING MEMORY',

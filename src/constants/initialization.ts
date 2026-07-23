@@ -2,7 +2,7 @@ import rawSettings from '../../settings.js';
 import { OpenAI } from 'openai';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { isDefined } from '../utilities/is-defined.js';
+import { isDefined } from '../utilities/type-guards.js';
 import {
   LegionSettings,
   SensorProviderDefinition,

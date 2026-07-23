@@ -12,6 +12,7 @@ import {
   PersistedMcpServerSummaries,
 } from '../types/mcp-server-summary.js';
 import { ACTIVE_GOAL_FILE_NAME, ActiveGoal } from '../types/goal.js';
+import { isRecord } from './type-guards.js';
 
 export interface LoadedSession {
   readonly nodes: Node<'memory'>[];
@@ -148,9 +149,6 @@ export const SessionLoader = {
     };
   },
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const normalizeNodeStats = (stats: unknown): NodeStats => {
   if (!isRecord(stats)) {

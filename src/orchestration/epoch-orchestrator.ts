@@ -9,7 +9,7 @@ import { NodeSplitter } from '../types/node-splitter.js';
 import { EventStream } from '../types/event-stream.js';
 import { NodePruner } from '../types/node-pruner.js';
 import { NodeStats } from '../types/node-stats.js';
-import { isDefined } from '../utilities/is-defined.js';
+import { isDefined } from '../utilities/type-guards.js';
 import { NodeRegistry } from '../service/node-registry.js';
 import { WorkingMemoryBuffer } from '../service/working-memory-buffer.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
