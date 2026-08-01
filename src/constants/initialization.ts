@@ -50,6 +50,8 @@ import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
 import { JsonlLogRouter } from '../service/jsonl-log-router.js';
 import { LogRouter } from '../types/logging.js';
 import { ErrorStream } from '../types/error-stream.js';
+import { DistillationValidator } from '../service/distillation-validator.js';
+import { ValidatedDistiller } from '../service/validated-distiller.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.02;
@@ -352,10 +354,15 @@ export const init = async (options?: InitOptions) => {
     attentionGate,
   });
 
+  const bestBroadcastDistiller = new BestBroadcastDistiller({ provider });
   const distiller =
     settings.distillerStrategy === 'select-best'
-      ? new BestBroadcastDistiller({ provider })
-      : new LlmDistiller({ provider });
+      ? bestBroadcastDistiller
+      : new ValidatedDistiller({
+          primary: new LlmDistiller({ provider }),
+          fallback: bestBroadcastDistiller,
+          validator: new DistillationValidator(),
+        });
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
     provider,
@@ -456,6 +463,7 @@ export const init = async (options?: InitOptions) => {
     initialNodes,
     initialNodeStats: loadedSession?.nodeStats,
     userInputSensor,
+    goalStore,
   });
 
   return {

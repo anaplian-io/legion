@@ -1,3 +1,5 @@
+import type { GoalDecision } from './goal.js';
+
 export type MessageRole =
   | 'working-memory'
   | 'broadcast'
@@ -23,4 +25,6 @@ export interface Message {
   readonly contributingNodeIds?: readonly string[];
   /** Control data is kept separate from prose and survives candidate selection. */
   readonly actionRequests?: readonly ActionRequest[];
+  /** A proposed goal transition for GoalNode to validate on the next wave. */
+  readonly goalDecision?: GoalDecision;
 }
