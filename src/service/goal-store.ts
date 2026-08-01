@@ -53,6 +53,35 @@ export class GoalStore {
     return activeGoal;
   };
 
+  public readonly reviseActiveGoal = (
+    expectedGoalId: string,
+    definition: GoalDefinition,
+  ): ActiveGoal => {
+    if (this._activeGoal?.id !== expectedGoalId) {
+      throw new Error(
+        `[GoalStore] cannot revise goal ${expectedGoalId}; active goal is ${this._activeGoal?.id ?? 'none'}`,
+      );
+    }
+    const objective = definition.objective.trim();
+    const successCriteria = definition.successCriteria.trim();
+    if (objective.length === 0 || successCriteria.length === 0) {
+      throw new Error(
+        '[GoalStore] revised goal requires an objective and success criteria',
+      );
+    }
+    const activeGoal = {
+      id: expectedGoalId,
+      objective,
+      successCriteria,
+      origin: definition.origin,
+      revision: this.nextRevision,
+    };
+    this.nextRevision += 1;
+    this._activeGoal = activeGoal;
+    this.publishUpdate();
+    return activeGoal;
+  };
+
   public readonly clearActiveGoal = (expectedGoalId: string): boolean => {
     if (this._activeGoal === undefined) {
       return false;

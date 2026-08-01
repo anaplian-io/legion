@@ -64,6 +64,69 @@ describe('GoalStore', () => {
     ).toEqual(expect.any(String));
   });
 
+  it('revises the matching goal while preserving identity', () => {
+    const store = new GoalStore({
+      eventStream,
+      initialActiveGoal: restoredGoal,
+    });
+
+    const revised = store.reviseActiveGoal('restored-goal', {
+      objective: '  Refine the inquiry  ',
+      successCriteria: '  Publish the refined conclusion  ',
+      origin: 'user',
+    });
+
+    expect(revised).toEqual({
+      id: 'restored-goal',
+      objective: 'Refine the inquiry',
+      successCriteria: 'Publish the refined conclusion',
+      origin: 'user',
+      revision: 8,
+    });
+    expect(eventStream.publish).toHaveBeenCalledWith({
+      topicName: 'goal/updated',
+      data: { activeGoal: revised },
+    });
+  });
+
+  it('rejects stale and malformed revisions', () => {
+    const store = new GoalStore({ eventStream });
+
+    expect(() =>
+      store.reviseActiveGoal('missing', {
+        objective: 'Explore',
+        successCriteria: 'Finish',
+        origin: 'autonomous',
+      }),
+    ).toThrow('active goal is none');
+
+    const restored = new GoalStore({
+      eventStream,
+      initialActiveGoal: restoredGoal,
+    });
+    expect(() =>
+      restored.reviseActiveGoal('stale', {
+        objective: 'Explore',
+        successCriteria: 'Finish',
+        origin: 'autonomous',
+      }),
+    ).toThrow('active goal is restored-goal');
+    expect(() =>
+      restored.reviseActiveGoal('restored-goal', {
+        objective: ' ',
+        successCriteria: 'Finish',
+        origin: 'autonomous',
+      }),
+    ).toThrow('requires an objective and success criteria');
+    expect(() =>
+      restored.reviseActiveGoal('restored-goal', {
+        objective: 'Explore',
+        successCriteria: ' ',
+        origin: 'autonomous',
+      }),
+    ).toThrow('requires an objective and success criteria');
+  });
+
   it('rejects empty objectives and success criteria', () => {
     const store = new GoalStore({ eventStream });
     expect(() =>

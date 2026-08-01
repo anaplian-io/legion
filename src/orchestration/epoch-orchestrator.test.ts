@@ -4,7 +4,7 @@ import type { RelevanceFilter } from '../types/relevance-filter.js';
 import type { Provider } from '../types/provider.js';
 import type { Node, BroadcastMessage, NodeResponse } from '../types/node.js';
 import type { WorkingMemory } from '../types/working-memory.js';
-import { Distiller } from '../types/distiller.js';
+import { DistillationResult, Distiller } from '../types/distiller.js';
 import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import type { MemoryNode } from '../node/memory-node.js';
 import type { NodeSplitter } from '../types/node-splitter.js';
@@ -14,6 +14,7 @@ import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { SensoryNode } from '../node/sensory-node.js';
 import type { Message } from '../types/message.js';
+import { GoalStore } from '../service/goal-store.js';
 
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;
@@ -308,7 +309,7 @@ describe('EpochOrchestrator', () => {
     // First distillation produces both the next broadcast and the new
     // working-memory entry.
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('New insight', 'node-a'),
+      selectedResult('New insight', 'node-a'),
     );
 
     await orchestrator.runEpoch();
@@ -352,7 +353,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('insight', 'node-a'),
+      selectedResult('insight', 'node-a'),
     );
 
     await orchestrator.runEpoch();
@@ -426,7 +427,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('Distilled insight', 'node-a'),
+      selectedResult('Distilled insight', 'node-a'),
     );
 
     await orchestrator.runEpoch();
@@ -561,7 +562,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('insight', 'speaker'),
+      selectedResult('insight', 'speaker'),
     );
 
     await orchestrator.runEpoch();
@@ -610,15 +611,70 @@ describe('EpochOrchestrator', () => {
     });
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue(responses);
     vi.mocked(mockDistiller.distill).mockResolvedValue({
-      role: 'broadcast',
-      content: 'Synthesis',
-      contributingNodeIds: ['node-a', 'node-b'],
+      ...selectedResult('Synthesis'),
+      broadcast: {
+        role: 'broadcast',
+        content: 'Synthesis',
+        contributingNodeIds: ['node-a', 'node-b'],
+      },
     });
 
     await orchestrator.runEpoch();
 
     expect(orchestrator.nodeStats.get('node-a')?.epochsSelected).toBe(1);
     expect(orchestrator.nodeStats.get('node-b')?.epochsSelected).toBe(1);
+  });
+
+  it('passes the active goal to distillation and publishes inferred transitions', async () => {
+    const response = selectedMessage('Refine the investigation.', 'node-a');
+    const goalStore = new GoalStore({
+      eventStream,
+      initialActiveGoal: {
+        id: 'goal-1',
+        objective: 'Understand the workspace',
+        successCriteria: 'Publish a supported summary',
+        origin: 'user',
+        revision: 1,
+      },
+    });
+    const orchestrator = new EpochOrchestrator({
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      goalStore,
+      initialNodes: [createMockNode('node-a', async () => response)],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([response]);
+    vi.mocked(mockDistiller.distill).mockResolvedValue({
+      broadcast: response,
+      supportingEvidence: [{ source: 'candidate', index: 0 }],
+      goalDecision: {
+        id: 'decision-1',
+        kind: 'revise',
+        goalId: 'goal-1',
+        objective: 'Understand goal-aware distillation',
+        successCriteria: 'Verify its behavior with tests',
+        origin: 'user',
+        reason: 'The current work narrowed the investigation.',
+        supportingEvidence: [{ source: 'candidate', index: 0 }],
+      },
+    });
+
+    await orchestrator.runEpoch();
+
+    expect(mockDistiller.distill).toHaveBeenCalledWith(
+      expect.objectContaining({ activeGoal: goalStore.activeGoal }),
+    );
+    expect(orchestrator.currentBroadcast.goalDecision).toEqual(
+      expect.objectContaining({ kind: 'revise', goalId: 'goal-1' }),
+    );
   });
 
   it('rejects a missing distiller selection when candidates survived', async () => {
@@ -672,7 +728,9 @@ describe('EpochOrchestrator', () => {
       initialNodes: [createMockNode('node-a', async () => response)],
     });
     vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([response]);
-    vi.mocked(mockDistiller.distill).mockResolvedValue(response);
+    vi.mocked(mockDistiller.distill).mockResolvedValue(
+      resultFromMessage(response),
+    );
 
     await orchestrator.runEpoch();
 
@@ -720,7 +778,10 @@ describe('EpochOrchestrator', () => {
       async (_workingMemory, candidates) => candidates,
     );
     vi.mocked(mockDistiller.distill).mockImplementation(
-      async ({ broadcasts }) => broadcasts[0],
+      async ({ broadcasts }) =>
+        broadcasts[0] === undefined
+          ? undefined
+          : resultFromMessage(broadcasts[0]),
     );
 
     await orchestrator.runEpoch();
@@ -765,7 +826,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('insight', 'node-a'),
+      selectedResult('insight', 'node-a'),
     );
 
     let published: Array<{ nodeId: string }> | undefined;
@@ -829,7 +890,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('insight', 'node-a'),
+      selectedResult('insight', 'node-a'),
     );
 
     await orchestrator.runEpoch();
@@ -875,7 +936,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('insight', 'speaker'),
+      selectedResult('insight', 'speaker'),
     );
     vi.mocked(mockNodePruner.selectForPruning).mockReturnValue([
       deadweight as unknown as MemoryNode,
@@ -923,7 +984,7 @@ describe('EpochOrchestrator', () => {
         },
       ]);
       vi.mocked(mockDistiller.distill).mockResolvedValue(
-        selectedMessage(`Distilled ${i}`),
+        selectedResult(`Distilled ${i}`),
       );
       await orchestrator.runEpoch();
     }
@@ -946,7 +1007,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('Distilled 3'),
+      selectedResult('Distilled 3'),
     );
     await orchestrator.runEpoch();
 
@@ -1007,7 +1068,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('Insight'),
+      selectedResult('Insight'),
     );
 
     await orchestrator.runEpoch();
@@ -1135,7 +1196,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('Distilled insight', 'node-a'),
+      selectedResult('Distilled insight', 'node-a'),
     );
 
     orchestrator.receiveUserInput('Hello workspace');
@@ -1237,7 +1298,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('Distilled insight'),
+      selectedResult('Distilled insight'),
     );
 
     orchestrator.receiveUserInput('first');
@@ -1405,7 +1466,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('Insight'),
+      selectedResult('Insight'),
     );
 
     await orchestrator.runEpoch();
@@ -1464,7 +1525,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('insight'),
+      selectedResult('insight'),
     );
 
     await orchestrator.runEpoch();
@@ -1543,7 +1604,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('search request'),
+      selectedResult('search request'),
     );
 
     await orchestrator.runEpoch();
@@ -1645,7 +1706,7 @@ describe('EpochOrchestrator', () => {
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
-      selectedMessage('fallback insight', 'new-memory-node'),
+      selectedResult('fallback insight', 'new-memory-node'),
     );
 
     await orchestrator.runEpoch();
@@ -1747,5 +1808,23 @@ function selectedMessage(content: string, originatingNodeId?: string): Message {
     role: 'node-response',
     content,
     ...(originatingNodeId === undefined ? {} : { originatingNodeId }),
+  };
+}
+
+function selectedResult(
+  content: string,
+  originatingNodeId?: string,
+): DistillationResult {
+  return resultFromMessage(selectedMessage(content, originatingNodeId));
+}
+
+function resultFromMessage(broadcast: Message): DistillationResult {
+  return {
+    broadcast,
+    supportingEvidence: [{ source: 'candidate', index: 0 }],
+    goalDecision: {
+      kind: 'unchanged',
+      reason: 'Test distillation leaves the goal unchanged.',
+    },
   };
 }

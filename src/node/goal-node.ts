@@ -6,7 +6,7 @@ import {
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
 import { GoalStore } from '../service/goal-store.js';
-import { ActiveGoal, GoalOrigin } from '../types/goal.js';
+import { ActiveGoal, GoalDecision, GoalOrigin } from '../types/goal.js';
 import { ActionRequest } from '../types/message.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 
@@ -52,12 +52,21 @@ export class GoalNode implements Node<'goal'> {
       broadcastMessage.broadcast.actionRequests?.filter(
         (request) => request.targetNodeId === this.id,
       ) ?? [];
-    if (requests.length === 0) {
+    const goalDecision = broadcastMessage.broadcast.goalDecision;
+    if (
+      requests.length === 0 &&
+      (goalDecision === undefined || goalDecision.kind === 'unchanged')
+    ) {
       return undefined;
     }
 
     this.setStatus('generating');
-    const results = requests.map(this.invokeGoalAction);
+    const results = [
+      ...requests.map(this.invokeGoalAction),
+      ...(goalDecision === undefined || goalDecision.kind === 'unchanged'
+        ? []
+        : [this.invokeGoalDecision(goalDecision)]),
+    ];
     this.setStatus('idle');
     return {
       role: 'afferent',
@@ -124,6 +133,60 @@ export class GoalNode implements Node<'goal'> {
     }
   };
 
+  private readonly invokeGoalDecision = (
+    decision: Exclude<GoalDecision, { readonly kind: 'unchanged' }>,
+  ): GoalActionResult => {
+    const serializedArguments = JSON.stringify(decision);
+    this.props.eventStream.publish({
+      topicName: 'tool/invocation-started',
+      data: {
+        nodeId: this.id,
+        callId: decision.id,
+        toolName: decision.kind,
+        arguments: serializedArguments,
+      },
+    });
+    try {
+      const result = this.applyGoalDecision(decision);
+      this.props.eventStream.publish({
+        topicName: 'tool/invocation-completed',
+        data: {
+          nodeId: this.id,
+          callId: decision.id,
+          toolName: decision.kind,
+          success: true,
+          output: createToolOutputPreview(result),
+        },
+      });
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.props.eventStream.reportError?.({
+        source: `GoalNode ${this.id}`,
+        message: `Goal decision ${decision.kind} failed.`,
+        error,
+        metadata: { callId: decision.id, operation: decision.kind },
+      });
+      this.props.eventStream.publish({
+        topicName: 'tool/invocation-completed',
+        data: {
+          nodeId: this.id,
+          callId: decision.id,
+          toolName: decision.kind,
+          success: false,
+          output: createToolOutputPreview(errorMessage),
+        },
+      });
+      return {
+        callId: decision.id,
+        name: decision.kind,
+        success: false,
+        error: errorMessage,
+      };
+    }
+  };
+
   private readonly applyGoalAction = (
     request: ActionRequest,
   ): GoalActionResult => {
@@ -154,6 +217,63 @@ export class GoalNode implements Node<'goal'> {
         throw new Error(
           `[GoalNode ${this.id}] unsupported goal operation ${request.operation}`,
         );
+    }
+  };
+
+  private readonly applyGoalDecision = (
+    decision: Exclude<GoalDecision, { readonly kind: 'unchanged' }>,
+  ): GoalActionResult => {
+    switch (decision.kind) {
+      case 'activate': {
+        if (this.props.goalStore.activeGoal !== undefined) {
+          throw new Error(
+            '[GoalNode] cannot activate a new goal while one is active',
+          );
+        }
+        return {
+          callId: decision.id,
+          name: decision.kind,
+          success: true,
+          activeGoal: this.props.goalStore.setActiveGoal(decision),
+        };
+      }
+      case 'revise':
+        return {
+          callId: decision.id,
+          name: decision.kind,
+          success: true,
+          activeGoal: this.props.goalStore.reviseActiveGoal(
+            decision.goalId,
+            decision,
+          ),
+        };
+      case 'supersede':
+        this.requireActiveGoal(decision.goalId, decision.kind);
+        return {
+          callId: decision.id,
+          name: decision.kind,
+          success: true,
+          activeGoal: this.props.goalStore.setActiveGoal(decision),
+        };
+      case 'complete':
+      case 'abandon':
+        return {
+          callId: decision.id,
+          name: decision.kind,
+          success: true,
+          cleared: this.props.goalStore.clearActiveGoal(decision.goalId),
+        };
+    }
+  };
+
+  private readonly requireActiveGoal = (
+    expectedGoalId: string,
+    operation: string,
+  ): void => {
+    if (this.props.goalStore.activeGoal?.id !== expectedGoalId) {
+      throw new Error(
+        `[GoalNode] ${operation} requires the exact active goal ID`,
+      );
     }
   };
 

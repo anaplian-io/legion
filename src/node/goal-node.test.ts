@@ -4,6 +4,7 @@ import { GoalStore } from '../service/goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { BroadcastMessage } from '../types/node.js';
 import type { ActionRequest } from '../types/message.js';
+import type { GoalDecision } from '../types/goal.js';
 
 const request = (
   operation: string,
@@ -26,6 +27,15 @@ const message = (
     role: 'broadcast',
     content,
     ...(actionRequests === undefined ? {} : { actionRequests }),
+  },
+});
+
+const decisionMessage = (goalDecision: GoalDecision): BroadcastMessage => ({
+  workingMemory: { messages: [] },
+  broadcast: {
+    role: 'broadcast',
+    content: 'A distilled goal decision.',
+    goalDecision,
   },
 });
 
@@ -126,6 +136,202 @@ describe('GoalNode', () => {
         }),
       },
     });
+  });
+
+  it('ignores an unchanged distilled goal decision', async () => {
+    await expect(
+      makeNode().sendMessage(
+        decisionMessage({
+          kind: 'unchanged',
+          reason: 'The active goal remains appropriate.',
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    expect(eventStream.publish).not.toHaveBeenCalled();
+  });
+
+  it('activates, revises, supersedes, and completes distilled goals', async () => {
+    const ids = ['goal-1', 'goal-2'];
+    goalStore = new GoalStore({
+      eventStream,
+      createId: () => ids.shift() ?? 'goal-fallback',
+    });
+    const node = makeNode();
+    const evidence = [{ source: 'candidate' as const, index: 0 }];
+
+    await node.sendMessage(
+      decisionMessage({
+        id: 'decision-activate',
+        kind: 'activate',
+        objective: 'Inspect the workspace',
+        successCriteria: 'Publish a supported architecture summary',
+        origin: 'autonomous',
+        reason: 'The inquiry requires several epochs.',
+        supportingEvidence: evidence,
+      }),
+    );
+    expect(goalStore.activeGoal).toEqual({
+      id: 'goal-1',
+      objective: 'Inspect the workspace',
+      successCriteria: 'Publish a supported architecture summary',
+      origin: 'autonomous',
+      revision: 1,
+    });
+
+    await node.sendMessage(
+      decisionMessage({
+        id: 'decision-revise',
+        kind: 'revise',
+        goalId: 'goal-1',
+        objective: 'Inspect the workspace and tests',
+        successCriteria: 'Publish a supported summary covering both',
+        origin: 'user',
+        reason: 'The user expanded the objective.',
+        supportingEvidence: evidence,
+      }),
+    );
+    expect(goalStore.activeGoal).toMatchObject({
+      id: 'goal-1',
+      objective: 'Inspect the workspace and tests',
+      revision: 2,
+    });
+
+    await node.sendMessage(
+      decisionMessage({
+        id: 'decision-supersede',
+        kind: 'supersede',
+        goalId: 'goal-1',
+        objective: 'Inspect only the distiller',
+        successCriteria: 'Explain the distiller with evidence',
+        origin: 'user',
+        reason: 'The user replaced the prior task.',
+        supportingEvidence: evidence,
+      }),
+    );
+    expect(goalStore.activeGoal).toMatchObject({
+      id: 'goal-2',
+      objective: 'Inspect only the distiller',
+      revision: 3,
+    });
+
+    const result = await node.sendMessage(
+      decisionMessage({
+        id: 'decision-complete',
+        kind: 'complete',
+        goalId: 'goal-2',
+        reason: 'The cited summary satisfies the criteria.',
+        supportingEvidence: evidence,
+      }),
+    );
+    expect(goalStore.activeGoal).toBeUndefined();
+    expect(result?.content).toContain('"name":"complete"');
+    expect(eventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/invocation-started',
+      data: expect.objectContaining({
+        callId: 'decision-activate',
+        toolName: 'activate',
+      }),
+    });
+  });
+
+  it('abandons a matching distilled goal', async () => {
+    goalStore.setActiveGoal({
+      objective: 'Explore',
+      successCriteria: 'Find a result',
+      origin: 'autonomous',
+    });
+
+    const result = await makeNode().sendMessage(
+      decisionMessage({
+        id: 'decision-abandon',
+        kind: 'abandon',
+        goalId: 'goal-1',
+        reason: 'Required evidence is unavailable.',
+        supportingEvidence: [{ source: 'candidate', index: 0 }],
+      }),
+    );
+
+    expect(goalStore.activeGoal).toBeUndefined();
+    expect(result?.content).toContain('"name":"abandon"');
+  });
+
+  it('reports stale or conflicting distilled goal decisions', async () => {
+    goalStore.setActiveGoal({
+      objective: 'Existing',
+      successCriteria: 'Finish existing work',
+      origin: 'user',
+    });
+    const evidence = [{ source: 'candidate' as const, index: 0 }];
+    const decisions: GoalDecision[] = [
+      {
+        id: 'activate',
+        kind: 'activate',
+        objective: 'Other',
+        successCriteria: 'Finish other work',
+        origin: 'autonomous',
+        reason: 'Conflict.',
+        supportingEvidence: evidence,
+      },
+      {
+        id: 'revise',
+        kind: 'revise',
+        goalId: 'stale',
+        objective: 'Other',
+        successCriteria: 'Finish other work',
+        origin: 'user',
+        reason: 'Stale.',
+        supportingEvidence: evidence,
+      },
+      {
+        id: 'supersede',
+        kind: 'supersede',
+        goalId: 'stale',
+        objective: 'Other',
+        successCriteria: 'Finish other work',
+        origin: 'user',
+        reason: 'Stale.',
+        supportingEvidence: evidence,
+      },
+      {
+        id: 'complete',
+        kind: 'complete',
+        goalId: 'stale',
+        reason: 'Stale.',
+        supportingEvidence: evidence,
+      },
+    ];
+
+    for (const decision of decisions) {
+      const result = await makeNode().sendMessage(decisionMessage(decision));
+      expect(result?.content).toContain('"success":false');
+    }
+    expect(eventStream.reportError).toHaveBeenCalledTimes(4);
+  });
+
+  it('preserves a non-Error distilled goal failure as text', async () => {
+    goalStore.setActiveGoal({
+      objective: 'Existing',
+      successCriteria: 'Finish',
+      origin: 'user',
+    });
+    vi.spyOn(goalStore, 'reviseActiveGoal').mockImplementation(() => {
+      throw 'goal revision offline';
+    });
+
+    const result = await makeNode().sendMessage(
+      decisionMessage({
+        id: 'revise',
+        kind: 'revise',
+        goalId: 'goal-1',
+        objective: 'Revised',
+        successCriteria: 'Finish revised work',
+        origin: 'user',
+        reason: 'Revise.',
+        supportingEvidence: [{ source: 'candidate', index: 0 }],
+      }),
+    );
+
+    expect(result?.content).toContain('goal revision offline');
   });
 
   it('returns failures for malformed, unsupported, and stale requests', async () => {

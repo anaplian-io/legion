@@ -103,5 +103,16 @@ describe('action requests', () => {
     ).toBe(
       '[ACTION REQUEST request-2] target=clock operation=read arguments={}',
     );
+    expect(
+      formatMessagePayload({
+        content: 'Continue.',
+        goalDecision: {
+          kind: 'unchanged',
+          reason: 'The current goal remains authoritative.',
+        },
+      }),
+    ).toBe(
+      'Continue.\n[GOAL DECISION] {"kind":"unchanged","reason":"The current goal remains authoritative."}',
+    );
   });
 });

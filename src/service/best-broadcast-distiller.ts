@@ -1,6 +1,11 @@
 import { Provider } from '../types/provider.js';
-import { DistillationProps, Distiller } from '../types/distiller.js';
+import {
+  DistillationProps,
+  DistillationResult,
+  Distiller,
+} from '../types/distiller.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
+import type { ActiveGoal } from '../types/goal.js';
 
 export interface BestBroadcastDistillerProps {
   readonly provider: Provider;
@@ -14,12 +19,17 @@ export class BestBroadcastDistiller implements Distiller {
   constructor(private readonly props: BestBroadcastDistillerProps) {}
 
   public readonly distill = async (props: DistillationProps) => {
-    const { broadcasts, workingMemory, afferentContext = [] } = props;
+    const {
+      broadcasts,
+      workingMemory,
+      afferentContext = [],
+      activeGoal,
+    } = props;
     if (broadcasts.length === 0) {
       return undefined;
     }
     if (broadcasts.length === 1) {
-      return broadcasts[0]!;
+      return resultFromSelection(broadcasts[0]!, 0);
     }
 
     const selectedIndex = await this.props.provider.selectBest({
@@ -31,7 +41,10 @@ Evaluate in this order:
 3. Prefer specific facts, decisions, constraints, and next actions over generic commentary.
 4. Use brevity only to break ties between candidates of otherwise similar quality.
 
-If the afferent context includes user input, prefer a candidate that addresses it while preserving the relevant line of inquiry.`,
+If the afferent context includes user input, prefer a candidate that addresses it while preserving the relevant line of inquiry. Prefer progress toward the authoritative active goal over unrelated curiosity, and reject claims that contradict its identity or success criteria.
+
+Authoritative goal state:
+${formatActiveGoal(activeGoal)}`,
       messages: [...workingMemory.messages, ...afferentContext],
       candidates: broadcasts.map(formatMessagePayload),
     });
@@ -41,6 +54,28 @@ If the afferent context includes user input, prefer a candidate that addresses i
         `[BestBroadcastDistiller] provider selected invalid candidate index ${selectedIndex} for ${broadcasts.length} broadcasts`,
       );
     }
-    return selectedBroadcast;
+    return resultFromSelection(selectedBroadcast, selectedIndex);
   };
 }
+
+const resultFromSelection = (
+  broadcast: NonNullable<DistillationResult['broadcast']>,
+  candidateIndex: number,
+): DistillationResult => ({
+  broadcast,
+  supportingEvidence: [{ source: 'candidate', index: candidateIndex }],
+  goalDecision:
+    broadcast.goalDecision ??
+    ({
+      kind: 'unchanged',
+      reason: 'Selection preserved no proposed goal transition.',
+    } as const),
+});
+
+const formatActiveGoal = (activeGoal: ActiveGoal | undefined): string =>
+  activeGoal === undefined
+    ? 'none'
+    : `ID: ${activeGoal.id}
+Origin: ${activeGoal.origin}
+Objective: ${activeGoal.objective}
+Success criteria: ${activeGoal.successCriteria}`;

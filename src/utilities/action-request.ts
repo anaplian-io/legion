@@ -76,8 +76,14 @@ export const formatActionRequests = (
 
 /** Renders prose and structured control data as one model-visible payload. */
 export const formatMessagePayload = (
-  message: Pick<Message, 'content' | 'actionRequests'>,
+  message: Pick<Message, 'content' | 'actionRequests' | 'goalDecision'>,
 ): string =>
-  [message.content, formatActionRequests(message.actionRequests)]
+  [
+    message.content,
+    formatActionRequests(message.actionRequests),
+    message.goalDecision === undefined
+      ? ''
+      : `[GOAL DECISION] ${JSON.stringify(message.goalDecision)}`,
+  ]
     .filter((part) => part.length > 0)
     .join('\n');

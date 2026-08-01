@@ -14,6 +14,7 @@ import { NodeRegistry } from '../service/node-registry.js';
 import { WorkingMemoryBuffer } from '../service/working-memory-buffer.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
+import type { GoalStore } from '../service/goal-store.js';
 
 export interface EpochOrchestratorProps {
   readonly provider: Provider;
@@ -30,6 +31,7 @@ export interface EpochOrchestratorProps {
   readonly initialNodes?: Node<string>[];
   readonly initialNodeStats?: Map<string, NodeStats> | undefined;
   readonly userInputSensor?: UserInputSensor | undefined;
+  readonly goalStore?: GoalStore | undefined;
 }
 
 interface CandidateMessage extends Message {
@@ -138,14 +140,22 @@ export class EpochOrchestrator {
       workingMemory: this.workingMemory,
       broadcasts: survivors,
       afferentContext,
+      activeGoal: this.props.goalStore?.activeGoal,
     });
     if (selected === undefined) {
       throw new Error(
         '[EpochOrchestrator] distiller returned no selection for surviving candidates',
       );
     }
-    this.recordEpochStats(afferent, cognitive, survivors, selected);
-    this._workingMemory.append({ ...selected, role: 'broadcast' });
+    const selectedBroadcast = {
+      ...selected.broadcast,
+      role: 'broadcast' as const,
+      ...(selected.goalDecision.kind === 'unchanged'
+        ? {}
+        : { goalDecision: selected.goalDecision }),
+    };
+    this.recordEpochStats(afferent, cognitive, survivors, selectedBroadcast);
+    this._workingMemory.append(selectedBroadcast);
     await this.splitOverflowingNodes();
     this.pruneNodes();
   };

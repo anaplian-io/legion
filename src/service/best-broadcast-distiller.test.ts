@@ -40,7 +40,14 @@ describe('BestBroadcastDistiller', () => {
         workingMemory: { messages: [] },
         broadcasts: [broadcast],
       }),
-    ).resolves.toBe(broadcast);
+    ).resolves.toEqual({
+      broadcast,
+      supportingEvidence: [{ source: 'candidate', index: 0 }],
+      goalDecision: {
+        kind: 'unchanged',
+        reason: 'Selection preserved no proposed goal transition.',
+      },
+    });
     expect(mockProvider.selectBest).not.toHaveBeenCalled();
   });
 
@@ -66,7 +73,14 @@ describe('BestBroadcastDistiller', () => {
         ],
         broadcasts: [candidate('We should research this.'), selected],
       }),
-    ).resolves.toBe(selected);
+    ).resolves.toEqual({
+      broadcast: selected,
+      supportingEvidence: [{ source: 'candidate', index: 1 }],
+      goalDecision: {
+        kind: 'unchanged',
+        reason: 'Selection preserved no proposed goal transition.',
+      },
+    });
 
     expect(mockProvider.selectBest).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('available afferent node'),
@@ -124,7 +138,14 @@ describe('BestBroadcastDistiller', () => {
         workingMemory: { messages: [] },
         broadcasts: [candidate('Wait.'), selected],
       }),
-    ).resolves.toEqual(selected);
+    ).resolves.toEqual({
+      broadcast: selected,
+      supportingEvidence: [{ source: 'candidate', index: 1 }],
+      goalDecision: {
+        kind: 'unchanged',
+        reason: 'Selection preserved no proposed goal transition.',
+      },
+    });
     expect(mockProvider.selectBest).toHaveBeenCalledWith(
       expect.objectContaining({
         candidates: [
@@ -133,5 +154,38 @@ describe('BestBroadcastDistiller', () => {
         ],
       }),
     );
+  });
+
+  it('uses the active goal during selection and preserves a selected goal decision', async () => {
+    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const selected = {
+      ...candidate('Continue the active investigation.'),
+      goalDecision: {
+        kind: 'unchanged' as const,
+        reason: 'The active goal is still appropriate.',
+      },
+    };
+    vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
+
+    await expect(
+      distiller.distill({
+        workingMemory: { messages: [] },
+        broadcasts: [candidate('Change topics.'), selected],
+        activeGoal: {
+          id: 'goal-1',
+          objective: 'Understand the workspace',
+          successCriteria: 'Publish an evidence-backed summary',
+          origin: 'user',
+          revision: 1,
+        },
+      }),
+    ).resolves.toEqual({
+      broadcast: selected,
+      supportingEvidence: [{ source: 'candidate', index: 1 }],
+      goalDecision: selected.goalDecision,
+    });
+    expect(
+      vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
+    ).toContain('ID: goal-1');
   });
 });
