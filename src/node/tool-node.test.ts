@@ -1,1572 +1,575 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ToolNode } from './tool-node.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToolNode, ToolNodeOutcome } from './tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
-import type { ToolDefinition } from '../types/tool.js';
-import type { RelevanceGate } from '../types/relevance-gate.js';
+import type { ToolCall, ToolDefinition } from '../types/tool.js';
+import type { ActionRequest, Message } from '../types/message.js';
+import type { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 
-// Mock MCPClient interface matching the actual implementation
-interface MockMCPClient {
-  getAvailableTools: () => Promise<ToolDefinition[]>;
-  invokeTool: (
+interface MockMcpClient {
+  readonly getAvailableTools: () => Promise<ToolDefinition[]>;
+  readonly invokeTool: (
     callId: string,
     name: string,
     argumentsStr: string,
-  ) => Promise<{
-    callId: string;
-    name: string;
-    success: boolean;
-    result?: unknown;
-    error?: string;
-  }>;
+  ) => Promise<ToolResult>;
 }
 
+const tools: ToolDefinition[] = [
+  {
+    name: 'list_directory',
+    description: 'List a directory.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+      additionalProperties: false,
+    },
+  },
+];
+
+const request = (
+  id: string,
+  overrides: Partial<ActionRequest> = {},
+): ActionRequest => ({
+  id,
+  targetNodeId: 'tool-files',
+  intent: 'List the current directory.',
+  ...overrides,
+});
+
+const call = (
+  id: string,
+  name = 'list_directory',
+  argumentsStr = '{"path":"."}',
+): ToolCall => ({
+  id,
+  type: 'function',
+  function: { name, arguments: argumentsStr },
+});
+
+const message = (
+  actionRequests?: readonly ActionRequest[],
+  broadcastOverrides: Partial<Message> = {},
+) => ({
+  workingMemory: {
+    messages: [{ role: 'working-memory' as const, content: 'Prior context.' }],
+  },
+  broadcast: {
+    role: 'broadcast' as const,
+    content: 'Inspect the workspace.',
+    ...(actionRequests === undefined ? {} : { actionRequests }),
+    ...broadcastOverrides,
+  },
+});
+
+const outcomes = (response: Awaited<ReturnType<ToolNode['sendMessage']>>) => {
+  expect(response).toBeDefined();
+  return JSON.parse(response?.content ?? '[]') as ToolNodeOutcome[];
+};
+
 describe('ToolNode', () => {
-  let mockProvider: Provider;
-  let mockEventStream: EventStream;
-  let mockMCPClient: MockMCPClient;
-  let mockRelevanceGate: RelevanceGate;
+  let provider: Provider;
+  let eventStream: EventStream;
+  let mcpClient: MockMcpClient;
+
+  const createNode = (initialTools?: readonly ToolDefinition[]): ToolNode =>
+    new ToolNode({
+      id: 'tool-files',
+      capabilityDescription: 'can inspect workspace files.',
+      provider,
+      eventStream,
+      mcpClient: mcpClient as unknown as MCPClient,
+      ...(initialTools === undefined ? {} : { initialTools }),
+    });
 
   beforeEach(() => {
-    mockProvider = {
-      askYesNoQuestion: vi.fn().mockResolvedValue(true),
+    provider = {
+      askYesNoQuestion: vi.fn(),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
       selectBest: vi.fn(),
       splitString: vi.fn(),
-      generateWithTools: vi.fn(),
+      generateWithTools: vi.fn().mockResolvedValue({
+        content: 'No matching tool.',
+        toolCalls: undefined,
+      }),
     };
-    mockEventStream = {
+    eventStream = {
       publish: vi.fn(),
       subscribe: vi.fn(),
       reportError: vi.fn(),
     };
-    mockMCPClient = {
-      getAvailableTools: vi.fn().mockResolvedValue([]),
+    mcpClient = {
+      getAvailableTools: vi.fn().mockResolvedValue(tools),
       invokeTool: vi.fn(),
     };
-    mockRelevanceGate = {
-      isRelevant: vi.fn().mockResolvedValue(true),
-    };
   });
 
-  it('should create a node with the given props', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'test_tool', description: 'A test tool', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
+  it('exposes stable identity and a cache-friendly static prompt', () => {
+    const node = createNode(tools);
 
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-
-    expect(node.id).toBe('test-node');
+    expect(node.id).toBe('tool-files');
     expect(node.kind).toBe('tool');
-    expect(node.capabilityDescription).toBe('can use test tools.');
-    expect(typeof node.sendMessage).toBe('function');
-  });
-
-  it('should return empty context', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-
     expect(node.context).toBe('');
-  });
-
-  it('should return idle status initially', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-
     expect(node.status).toBe('idle');
-  });
-
-  it('should get tools automatically on first sendMessage if not initialized', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const broadcastMessage = {
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    // Don't call initialize - should auto-initialize on first sendMessage
-    await node.sendMessage(broadcastMessage);
-
-    expect(mockMCPClient.getAvailableTools).toHaveBeenCalled();
-  });
-
-  it('should use tools fetched during boot without fetching them again', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-      initialTools: tools,
-    });
-
-    await expect(
-      node.sendMessage({
-        workingMemory: { messages: [] },
-        broadcast: { role: 'broadcast' as const, content: 'Test' },
-      }),
-    ).resolves.toBeUndefined();
-    expect(mockMCPClient.getAvailableTools).not.toHaveBeenCalled();
-  });
-
-  it('should return undefined when tools are not relevant to broadcast', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    expect(result).toBeUndefined();
-  });
-
-  it('should return undefined when LLM returns no tool calls', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: 'Some response',
-      toolCalls: undefined,
-    });
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    expect(result).toBeUndefined();
-  });
-
-  it('should return undefined when LLM returns empty tool calls array', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    expect(result).toBeUndefined();
-  });
-
-  it('should invoke tools and return JSON string of results', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'get_weather', description: 'Get weather', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValue({
-      callId: 'call_1',
-      name: 'get_weather',
-      success: true,
-      result: { temperature: 72, condition: 'sunny' },
-    });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call_1',
-          type: 'function' as const,
-          function: {
-            name: 'get_weather',
-            arguments: JSON.stringify({ location: 'NYC' }),
-          },
-        },
-      ],
-    });
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast' as const,
-        content: 'What is the weather?',
-      },
-    });
-
-    // Should return JSON string of tool results array
-    expect(result).toEqual({
-      role: 'afferent',
-      originatingNodeId: 'test-node',
-      content: JSON.stringify([
-        {
-          callId: 'call_1',
-          name: 'get_weather',
-          success: true,
-          result: { temperature: 72, condition: 'sunny' },
-        },
-      ]),
-    });
-
-    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(1);
-    expect(
-      vi.mocked(mockProvider.generateWithTools).mock.calls[0]?.[0],
-    ).toEqual(
-      expect.objectContaining({
-        tools,
-      }),
+    expect(node.capabilityDescription).toBe('can inspect workspace files.');
+    expect(node.preamble).toContain(
+      'structured intent already routed to your exact node ID',
     );
-    expect(mockEventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-started',
-      data: {
-        nodeId: 'test-node',
-        callId: 'call_1',
-        toolName: 'get_weather',
-        arguments: JSON.stringify({ location: 'NYC' }),
-      },
-    });
-    expect(mockEventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-completed',
-      data: {
-        nodeId: 'test-node',
-        callId: 'call_1',
-        toolName: 'get_weather',
-        success: true,
-        output: JSON.stringify({ temperature: 72, condition: 'sunny' }),
-      },
-    });
+    expect(node.preamble).toContain('must make at least one tool call');
+    expect(node.preamble).toContain(
+      'operation and arguments are non-authoritative hints',
+    );
+    expect(node.preamble).not.toContain('"additionalProperties"');
   });
 
-  it('should pass working memory and broadcast as discrete messages to generateWithTools', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const broadcastMessage = {
-      workingMemory: {
-        messages: [
-          { role: 'working-memory' as const, content: 'Previous message 1' },
-          { role: 'working-memory' as const, content: 'Previous message 2' },
-        ],
-      },
-      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
-    };
-
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
+  it('refreshes tools explicitly and loads them lazily for a targeted request', async () => {
+    const node = createNode();
     await node.initialize();
-    await node.sendMessage(broadcastMessage);
+    expect(mcpClient.getAvailableTools).toHaveBeenCalledOnce();
 
-    // Working memory and broadcast travel as discrete messages; the system
-    // prompt stays a stable, cacheable instruction free of volatile content.
-    const callArgs = vi.mocked(mockProvider.generateWithTools).mock
-      .calls[0]?.[0] as {
-      systemPrompt: string;
-      messages: { role: string; content: string }[];
-    };
-    expect(callArgs.messages).toEqual([
-      { role: 'working-memory' as const, content: 'Previous message 1' },
-      { role: 'working-memory' as const, content: 'Previous message 2' },
-      { role: 'broadcast' as const, content: 'New broadcast' },
+    vi.mocked(mcpClient.getAvailableTools).mockClear();
+    await node.sendMessage(message([request('request-1')]));
+    expect(mcpClient.getAvailableTools).not.toHaveBeenCalled();
+  });
+
+  it('uses boot-loaded tools, including an intentionally empty catalog', async () => {
+    const withTools = createNode(tools);
+    await withTools.sendMessage(message([request('request-tools')]));
+    expect(mcpClient.getAvailableTools).not.toHaveBeenCalled();
+
+    const withoutTools = createNode([]);
+    const response = await withoutTools.sendMessage(
+      message([request('request-empty')]),
+    );
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-empty',
+        stage: 'elaboration',
+        success: false,
+        error: 'ToolNode tool-files has no available MCP tools.',
+      },
     ]);
-    expect(callArgs.systemPrompt).not.toContain('Previous message 1');
-  });
-
-  it('passes only targeted structured action requests to generation', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'list_directory', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can inspect files.',
-      id: 'tool-files',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast',
-        content: 'Inspect the workspace.',
-        originatingNodeId: 'memory-a',
-        contributingNodeIds: ['memory-a', 'memory-b'],
-        actionRequests: [
-          {
-            id: 'request-1',
-            targetNodeId: 'other-tool',
-            operation: 'ignore',
-            arguments: {},
-          },
-          {
-            id: 'request-2',
-            targetNodeId: 'tool-files',
-            operation: 'list_directory',
-            arguments: { path: '.' },
-          },
-        ],
-      },
-    });
-
-    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          {
-            role: 'broadcast',
-            content: 'Inspect the workspace.',
-            originatingNodeId: 'memory-a',
-            contributingNodeIds: ['memory-a', 'memory-b'],
-            actionRequests: [
-              {
-                id: 'request-2',
-                targetNodeId: 'tool-files',
-                operation: 'list_directory',
-                arguments: { path: '.' },
-              },
-            ],
-          },
-        ],
-      }),
-    );
-    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith(
-      expect.objectContaining({
-        broadcastMessage: expect.objectContaining({
-          broadcast: expect.objectContaining({
-            actionRequests: [expect.objectContaining({ id: 'request-2' })],
-          }),
-        }),
-      }),
-    );
-  });
-
-  it('should pass broadcast and tool preamble to relevance gate', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    const broadcastMessage = {
-      workingMemory: {
-        messages: [
-          { role: 'working-memory' as const, content: 'First WM' },
-          { role: 'working-memory' as const, content: 'Second WM' },
-        ],
-      },
-      broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
-    };
-    await node.sendMessage(broadcastMessage);
-
-    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
-      broadcastMessage,
-      nodeId: 'test-node',
-      epochsAlive: 0,
-      nodeContext: expect.stringMatching(
-        /Your node ID: test-node[\s\S]*Your capability: can use test tools\.[\s\S]*Your available tools:/,
-      ),
-    });
-  });
-
-  it('should pass full broadcast message to relevance gate', async () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: 'search',
-        description: 'Search the web for current information',
-        parameters: {},
-      },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    const broadcastMessage = {
-      workingMemory: {
-        messages: [
-          {
-            role: 'working-memory' as const,
-            content:
-              'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
-          },
-          {
-            role: 'working-memory' as const,
-            content:
-              'Need user input/action on weather links for Brooklyn, NY.',
-          },
-          {
-            role: 'working-memory' as const,
-            content:
-              'Need specific dates for weather/clothing advice; no event info found yet.',
-          },
-        ],
-      },
-      broadcast: {
-        role: 'broadcast' as const,
-        content:
-          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
-      },
-    };
-    await node.sendMessage(broadcastMessage);
-
-    expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
-      broadcastMessage,
-      nodeId: 'search-node',
-      epochsAlive: 0,
-      nodeContext: expect.stringContaining('Search the web'),
-    });
-  });
-
-  it('should keep exact tool execution decisions inside the tool node', async () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: 'search',
-        description: 'Search the web for current information',
-        parameters: {},
-      },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    await node.sendMessage({
-      workingMemory: {
-        messages: [
-          {
-            role: 'working-memory' as const,
-            content:
-              'what will the weather be in Brooklyn, NY for the next few days? what should I wear? any interesting events I should know about nearby?',
-          },
-          {
-            role: 'working-memory' as const,
-            content:
-              'Need specific dates for weather/clothing advice; no event info found yet.',
-          },
-        ],
-      },
-      broadcast: {
-        role: 'broadcast' as const,
-        content:
-          'Need specific date range from user to provide tailored weather/event advice for Brooklyn, NY.',
-      },
-    });
-
-    const generateCall = vi.mocked(mockProvider.generateWithTools).mock
-      .calls[0]?.[0];
-    expect(generateCall?.systemPrompt).toContain('tool invocation node');
-    expect(generateCall?.systemPrompt).toContain('available tools');
-    expect(generateCall?.systemPrompt).toContain('You MUST make a tool call');
-  });
-
-  it('should generate when relevance gate selects the tool node', async () => {
-    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast' as const,
-        content: 'Search for a current forecast.',
-      },
-    });
-
-    expect(mockProvider.askYesNoQuestion).not.toHaveBeenCalled();
-    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(1);
-  });
-
-  it('should set status to evaluating-relevance during sendMessage', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    expect(mockEventStream.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'evaluating-relevance' }),
-      }),
-    );
-  });
-
-  it('should set status to generating after relevance check', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    expect(mockEventStream.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'generating' }),
-      }),
-    );
-  });
-
-  it('should set status back to idle after sendMessage completes', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    const publishCalls = vi.mocked(mockEventStream.publish).mock.calls;
-    // Last call should be setting status to idle
-    expect(publishCalls[publishCalls.length - 1]).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'idle' }),
-        }),
-      ]),
-    );
-  });
-
-  it('should return JSON string with error when tool execution fails', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'calculator', description: 'Calculate math', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValue({
-      callId: 'call_calc',
-      name: 'calculator',
-      success: false,
-      error: 'Connection timeout',
-    });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call_calc',
-          type: 'function' as const,
-          function: {
-            name: 'calculator',
-            arguments: JSON.stringify({ expression: '2+2' }),
-          },
-        },
-      ],
-    });
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'What is 2+2?' },
-    });
-
-    expect(result).toEqual({
-      role: 'afferent',
-      originatingNodeId: 'test-node',
-      content: JSON.stringify([
-        {
-          callId: 'call_calc',
-          name: 'calculator',
-          success: false,
-          error: 'Connection timeout',
-        },
-      ]),
-    });
-    expect(mockEventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-completed',
-      data: {
-        nodeId: 'test-node',
-        callId: 'call_calc',
-        toolName: 'calculator',
-        success: false,
-        output: 'Connection timeout',
-      },
-    });
-  });
-
-  it('should return JSON string with caught exception when tool throws', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'calculator', description: 'Calculate math', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockRejectedValue(
-      new Error('Network error'),
-    );
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call_calc',
-          type: 'function' as const,
-          function: {
-            name: 'calculator',
-            arguments: JSON.stringify({ expression: '2+2' }),
-          },
-        },
-      ],
-    });
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'What is 2+2?' },
-    });
-
-    expect(result).toEqual({
-      role: 'afferent',
-      originatingNodeId: 'test-node',
-      content: JSON.stringify([
-        {
-          callId: 'call_calc',
-          name: 'calculator',
-          success: false,
-          error: 'Error: Network error',
-        },
-      ]),
-    });
-  });
-
-  it('rejects an unadvertised targeted action before model or MCP invocation', async () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: 'search',
-        parameters: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-          additionalProperties: false,
-        },
-      },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast',
-        content: 'Clear the active goal.',
-        actionRequests: [
-          {
-            id: 'request-clear',
-            targetNodeId: 'search-node',
-            operation: 'clear_active_goal',
-            arguments: { goalId: 'goal-1' },
-          },
-        ],
-      },
-    });
-
-    expect(mockProvider.generateWithTools).not.toHaveBeenCalled();
-    expect(mockRelevanceGate.isRelevant).not.toHaveBeenCalled();
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      role: 'afferent',
-      originatingNodeId: 'search-node',
-      content: JSON.stringify([
-        {
-          callId: 'request-clear',
-          name: 'clear_active_goal',
-          success: false,
-          error:
-            'Tool clear_active_goal was not advertised by ToolNode search-node. Available tools: search.',
-        },
-      ]),
-    });
-    expect(mockEventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-completed',
-      data: {
-        nodeId: 'search-node',
-        callId: 'request-clear',
-        toolName: 'clear_active_goal',
-        success: false,
-        output:
-          'Tool clear_active_goal was not advertised by ToolNode search-node. Available tools: search.',
-      },
-    });
-  });
-
-  it('rejects targeted action arguments that violate the advertised schema', async () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: 'search',
-        parameters: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-          additionalProperties: false,
-        },
-      },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast',
-        content: 'Search.',
-        actionRequests: [
-          {
-            id: 'request-search',
-            targetNodeId: 'search-node',
-            operation: 'search',
-            arguments: {},
-          },
-        ],
-      },
-    });
-
-    expect(mockProvider.generateWithTools).not.toHaveBeenCalled();
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain(
-      'Tool search arguments do not match its advertised schema:',
-    );
-    expect(result?.content).toContain("must have required property 'query'");
-  });
-
-  it('continues valid targeted actions when another request is invalid', async () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: 'search',
-        parameters: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-          additionalProperties: false,
-        },
-      },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValue({
-      callId: 'call-search',
-      name: 'search',
-      success: true,
-      result: { results: ['match'] },
-    });
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-search',
-          type: 'function',
-          function: {
-            name: 'search',
-            arguments: JSON.stringify({ query: 'Legion' }),
-          },
-        },
-      ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast',
-        content: 'Clear the goal and search for Legion.',
-        actionRequests: [
-          {
-            id: 'request-clear',
-            targetNodeId: 'search-node',
-            operation: 'clear_active_goal',
-            arguments: { goalId: 'goal-1' },
-          },
-          {
-            id: 'request-search',
-            targetNodeId: 'search-node',
-            operation: 'search',
-            arguments: { query: 'Legion' },
-          },
-        ],
-      },
-    });
-
-    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          expect.objectContaining({
-            actionRequests: [expect.objectContaining({ id: 'request-search' })],
-          }),
-        ],
-      }),
-    );
-    expect(mockMCPClient.invokeTool).toHaveBeenCalledTimes(1);
-    expect(result?.content).toContain('request-clear');
-    expect(result?.content).toContain('call-search');
+    expect(provider.generateWithTools).toHaveBeenCalledOnce();
   });
 
   it.each([
-    { description: 'relevance rejects the valid request', relevant: false },
-    { description: 'the provider returns no call', relevant: true },
-  ])('preserves preflight failures when $description', async ({ relevant }) => {
-    const tools: ToolDefinition[] = [
-      { name: 'search', parameters: { type: 'object' } },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(relevant);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: undefined,
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: {
-        role: 'broadcast',
-        content: 'Clear the goal and search.',
-        actionRequests: [
-          {
-            id: 'request-clear',
-            targetNodeId: 'search-node',
-            operation: 'clear_active_goal',
-            arguments: {},
-          },
-          {
-            id: 'request-search',
-            targetNodeId: 'search-node',
-            operation: 'search',
-            arguments: {},
-          },
-        ],
-      },
-    });
-
-    expect(result?.content).toContain('request-clear');
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(mockProvider.generateWithTools).toHaveBeenCalledTimes(
-      relevant ? 1 : 0,
-    );
-  });
-
-  it('rejects a provider-selected tool that was not offered', async () => {
-    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-unknown',
-          type: 'function',
-          function: { name: 'clear_active_goal', arguments: '{}' },
-        },
+    { description: 'there are no action requests', actionRequests: undefined },
+    {
+      description: 'only another node is targeted',
+      actionRequests: [
+        request('request-other', { targetNodeId: 'other-tool' }),
       ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain(
-      'Tool clear_active_goal was not advertised by ToolNode search-node.',
-    );
-  });
-
-  it('rejects malformed provider arguments before MCP invocation', async () => {
-    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-malformed',
-          type: 'function',
-          function: { name: 'search', arguments: '{not-json' },
-        },
-      ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain(
-      'Tool search arguments are not valid JSON.',
-    );
-  });
-
-  it('rejects structurally malformed provider calls with completion events', async () => {
-    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        null,
-        {
-          id: 'call-bad-shape',
-          type: 'function',
-          function: { name: 'search', arguments: { query: 'Legion' } },
-        },
-        {
-          id: 'call-wrong-type',
-          type: 'custom',
-          function: { name: 'search', arguments: '{}' },
-        },
-      ] as unknown as import('../types/tool.js').ToolCall[],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain(
-      'Provider returned a malformed tool call',
-    );
-    expect(result?.content).toContain('call-bad-shape');
-    expect(mockEventStream.publish).toHaveBeenCalledWith({
-      topicName: 'tool/invocation-completed',
-      data: expect.objectContaining({
-        callId: 'call-bad-shape',
-        toolName: 'search',
-        success: false,
-      }),
-    });
-  });
-
-  it('rejects provider arguments that are not JSON objects', async () => {
-    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-array',
-          type: 'function',
-          function: { name: 'search', arguments: '[]' },
-        },
-      ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain(
-      'Tool search arguments must be a JSON object.',
-    );
-  });
-
-  it('rejects provider arguments that violate the advertised schema', async () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: 'search',
-        parameters: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-        },
-      },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-invalid',
-          type: 'function',
-          function: {
-            name: 'search',
-            arguments: JSON.stringify({ query: 42 }),
-          },
-        },
-      ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain('data/query must be string');
-  });
-
-  it('fails closed when a tool advertises an invalid schema', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'search', parameters: { type: 'not-a-json-schema-type' } },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-invalid-schema',
-          type: 'function',
-          function: { name: 'search', arguments: '{}' },
-        },
-      ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    expect(mockMCPClient.invokeTool).not.toHaveBeenCalled();
-    expect(result?.content).toContain(
-      'Tool search has an invalid advertised schema:',
-    );
-  });
-
-  it('bounds failure output in invocation-completed events', async () => {
-    const tools: ToolDefinition[] = [{ name: 'search', parameters: {} }];
-    const longError = `failure: ${'x'.repeat(400)}`;
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool).mockResolvedValue({
-      callId: 'call-long-error',
-      name: 'search',
-      success: false,
-      error: longError,
-    });
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call-long-error',
-          type: 'function',
-          function: { name: 'search', arguments: '{}' },
-        },
-      ],
-    });
-    const node = new ToolNode({
-      capabilityDescription: 'can search.',
-      id: 'search-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-    await node.initialize();
-
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast', content: 'Search.' },
-    });
-
-    const completion = vi
-      .mocked(mockEventStream.publish)
-      .mock.calls.map(([event]) => event)
-      .find(
-        (event) =>
-          event.topicName === 'tool/invocation-completed' &&
-          event.data.callId === 'call-long-error',
-      );
-    expect(completion).toEqual(
-      expect.objectContaining({
-        data: expect.objectContaining({ success: false }),
-      }),
-    );
-    if (completion?.topicName === 'tool/invocation-completed') {
-      expect(completion.data.output).toHaveLength(240);
-      expect(completion.data.output.endsWith('…')).toBe(true);
-    }
-  });
-
-  it('should handle multiple tool calls in parallel', async () => {
-    const tools: ToolDefinition[] = [
-      { name: 'tool_a', parameters: {} },
-      { name: 'tool_b', parameters: {} },
-    ];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockMCPClient.invokeTool)
-      .mockResolvedValueOnce({
-        callId: 'call_a',
-        name: 'tool_a',
-        success: true,
-        result: 'result_a',
-      })
-      .mockResolvedValueOnce({
-        callId: 'call_b',
-        name: 'tool_b',
-        success: true,
-        result: 'result_b',
-      });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [
-        {
-          id: 'call_a',
-          type: 'function' as const,
-          function: {
-            name: 'tool_a',
-            arguments: JSON.stringify({ param: 'a' }),
-          },
-        },
-        {
-          id: 'call_b',
-          type: 'function' as const,
-          function: {
-            name: 'tool_b',
-            arguments: JSON.stringify({ param: 'b' }),
-          },
-        },
-      ],
-    });
-
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Use multiple tools' },
-    });
-
-    // Should have invoked both tools
-    expect(mockMCPClient.invokeTool).toHaveBeenCalledTimes(2);
-  });
-
-  it('should publish status change events to event stream', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
-      content: '',
-      toolCalls: [],
-    });
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
-
-    // Should publish 3 events: evaluating-relevance, idle, generating, and idle
-    expect(mockEventStream.publish).toHaveBeenCalledTimes(4);
-  });
-
-  it('should not throw if event publish throws during status change', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
-
-    const throwingEventStream: EventStream = {
-      publish: vi.fn().mockImplementation(() => {
-        throw new Error('Publish failed');
-      }),
-      subscribe: vi.fn(),
-    };
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: throwingEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
-    });
-
-    await node.initialize();
+    },
+  ])('does nothing when $description', async ({ actionRequests }) => {
+    const node = createNode();
 
     await expect(
-      node.sendMessage({
-        workingMemory: { messages: [] },
-        broadcast: { role: 'broadcast' as const, content: 'Test' },
-      }),
+      node.sendMessage(message(actionRequests)),
     ).resolves.toBeUndefined();
+    expect(mcpClient.getAvailableTools).not.toHaveBeenCalled();
+    expect(provider.generateWithTools).not.toHaveBeenCalled();
   });
 
-  it('should proceed when relevance gate returns true', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(true);
-    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+  it('returns correlated afferent failures when tool loading fails', async () => {
+    vi.mocked(mcpClient.getAvailableTools).mockRejectedValue('offline');
+    const node = createNode();
+
+    const response = await node.sendMessage(
+      message([request('request-a'), request('request-b')]),
+    );
+
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-a',
+        stage: 'elaboration',
+        success: false,
+        error: 'ToolNode tool-files could not load its MCP tools: offline',
+      },
+      {
+        requestId: 'request-b',
+        stage: 'elaboration',
+        success: false,
+        error: 'ToolNode tool-files could not load its MCP tools: offline',
+      },
+    ]);
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to load tools before elaborating targeted intents.',
+      }),
+    );
+  });
+
+  it('repairs stale request hints before invoking MCP and preserves correlation', async () => {
+    const staleRequest = request('request-list', {
+      operation: 'list_directory',
+      arguments: { path: '.', recursive: false },
+    });
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
       content: '',
-      toolCalls: [],
+      toolCalls: [call('call-list')],
     });
-
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
+    vi.mocked(mcpClient.invokeTool).mockResolvedValue({
+      callId: 'call-list',
+      name: 'list_directory',
+      success: true,
+      result: { entries: ['README.md'] },
     });
+    const node = createNode(tools);
 
-    await node.initialize();
-    await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
+    const response = await node.sendMessage(message([staleRequest]));
+
+    expect(provider.generateWithTools).toHaveBeenCalledWith({
+      systemPrompt: node.preamble,
+      messages: [
+        {
+          role: 'tool-intent',
+          content: '',
+          actionRequests: [staleRequest],
+        },
+      ],
+      tools,
+      toolChoice: 'required',
     });
-
-    expect(mockProvider.generateWithTools).toHaveBeenCalled();
+    expect(mcpClient.invokeTool).toHaveBeenCalledWith(
+      'call-list',
+      'list_directory',
+      '{"path":"."}',
+    );
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-list',
+        stage: 'mcp',
+        callId: 'call-list',
+        name: 'list_directory',
+        success: true,
+        result: { entries: ['README.md'] },
+      },
+    ]);
+    expect(eventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/elaboration-completed',
+      data: {
+        nodeId: 'tool-files',
+        requestId: 'request-list',
+        success: true,
+        toolCalls: [{ callId: 'call-list', toolName: 'list_directory' }],
+        output: '',
+      },
+    });
+    expect(eventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/invocation-started',
+      data: {
+        nodeId: 'tool-files',
+        requestId: 'request-list',
+        callId: 'call-list',
+        toolName: 'list_directory',
+        arguments: '{"path":"."}',
+      },
+    });
+    expect(eventStream.publish).toHaveBeenCalledWith({
+      topicName: 'tool/invocation-completed',
+      data: {
+        nodeId: 'tool-files',
+        requestId: 'request-list',
+        callId: 'call-list',
+        toolName: 'list_directory',
+        success: true,
+        output: '{"entries":["README.md"]}',
+      },
+    });
   });
 
-  it('should return undefined when relevance gate returns false', async () => {
-    const tools: ToolDefinition[] = [{ name: 'test', parameters: {} }];
-    vi.mocked(mockMCPClient.getAvailableTools).mockResolvedValue(tools);
-    vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
+  it('elaborates requests independently with an identical cacheable prefix', async () => {
+    const first = request('request-first', { intent: 'List directory one.' });
+    const second = request('request-second', { intent: 'List directory two.' });
+    vi.mocked(provider.generateWithTools)
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [call('call-first-a'), call('call-first-b')],
+      })
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [call('call-second')],
+      });
+    vi.mocked(mcpClient.invokeTool).mockImplementation(
+      async (callId, name) => ({
+        callId,
+        name,
+        success: true,
+        result: callId,
+      }),
+    );
+    const node = createNode(tools);
 
-    const node = new ToolNode({
-      capabilityDescription: 'can use test tools.',
-      id: 'test-node',
-      provider: mockProvider,
-      eventStream: mockEventStream,
-      mcpClient:
-        mockMCPClient as unknown as import('../adapter/mcp-client.js').MCPClient,
-      relevanceGate: mockRelevanceGate,
+    const response = await node.sendMessage(message([first, second]));
+
+    const generationCalls = vi.mocked(provider.generateWithTools).mock.calls;
+    expect(generationCalls).toHaveLength(2);
+    expect(generationCalls[0]?.[0].systemPrompt).toBe(
+      generationCalls[1]?.[0].systemPrompt,
+    );
+    expect(generationCalls[0]?.[0].tools).toEqual(tools);
+    expect(generationCalls[0]?.[0].tools).toBe(generationCalls[1]?.[0].tools);
+    expect(generationCalls[0]?.[0].messages.at(-1)?.actionRequests).toEqual([
+      first,
+    ]);
+    expect(generationCalls[1]?.[0].messages.at(-1)?.actionRequests).toEqual([
+      second,
+    ]);
+    expect(
+      outcomes(response).map(({ requestId, callId }) => ({
+        requestId,
+        callId,
+      })),
+    ).toEqual([
+      { requestId: 'request-first', callId: 'call-first-a' },
+      { requestId: 'request-first', callId: 'call-first-b' },
+      { requestId: 'request-second', callId: 'call-second' },
+    ]);
+  });
+
+  it('returns provider exceptions as elaboration failures', async () => {
+    vi.mocked(provider.generateWithTools).mockRejectedValue(
+      new Error('model unavailable'),
+    );
+    const node = createNode(tools);
+
+    const response = await node.sendMessage(message([request('request-1')]));
+
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-1',
+        stage: 'elaboration',
+        success: false,
+        error:
+          'ToolNode tool-files could not elaborate the intent: model unavailable',
+      },
+    ]);
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: { requestId: 'request-1' } }),
+    );
+    expect(node.status).toBe('idle');
+  });
+
+  it.each([
+    {
+      description: 'an explanation',
+      content: 'The available tools cannot delete files.',
+      toolCalls: undefined,
+      error:
+        'ToolNode tool-files could not fulfill the intent: The available tools cannot delete files.',
+    },
+    {
+      description: 'an empty tool-call array',
+      content: '',
+      toolCalls: [] as ToolCall[],
+      error:
+        'ToolNode tool-files returned neither a tool call nor an explanation for the intent.',
+    },
+  ])(
+    'returns an afferent elaboration failure when the provider returns $description',
+    async ({ content, toolCalls, error }) => {
+      vi.mocked(provider.generateWithTools).mockResolvedValue({
+        content,
+        toolCalls,
+      });
+      const node = createNode(tools);
+
+      const response = await node.sendMessage(message([request('request-1')]));
+
+      expect(outcomes(response)).toEqual([
+        {
+          requestId: 'request-1',
+          stage: 'elaboration',
+          success: false,
+          error,
+        },
+      ]);
+      expect(eventStream.publish).toHaveBeenCalledWith({
+        topicName: 'tool/elaboration-completed',
+        data: {
+          nodeId: 'tool-files',
+          requestId: 'request-1',
+          success: false,
+          toolCalls: [],
+          output: error,
+        },
+      });
+      expect(mcpClient.invokeTool).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns malformed provider calls as elaboration failures without invocation events', async () => {
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [{ id: '', type: 'function' }] as unknown as ToolCall[],
+    });
+    const node = createNode(tools);
+
+    const response = await node.sendMessage(message([request('request-1')]));
+
+    expect(outcomes(response)[0]).toEqual(
+      expect.objectContaining({
+        requestId: 'request-1',
+        stage: 'elaboration',
+        success: false,
+        error: expect.stringContaining('malformed tool call'),
+      }),
+    );
+    expect(mcpClient.invokeTool).not.toHaveBeenCalled();
+    expect(eventStream.publish).not.toHaveBeenCalledWith(
+      expect.objectContaining({ topicName: 'tool/invocation-started' }),
+    );
+  });
+
+  it.each([
+    {
+      description: 'an unadvertised tool',
+      generatedCall: call('call-unknown', 'delete_everything', '{}'),
+      expectedError: 'Unknown MCP tool delete_everything.',
+    },
+    {
+      description: 'schema-invalid arguments',
+      generatedCall: call(
+        'call-schema',
+        'list_directory',
+        '{"path":".","recursive":false}',
+      ),
+      expectedError: 'Input validation error: recursive is not allowed.',
+    },
+    {
+      description: 'malformed JSON arguments',
+      generatedCall: call('call-json', 'list_directory', '{bad'),
+      expectedError: 'Invalid arguments JSON: {bad',
+    },
+  ])(
+    'delegates $description to MCP and returns its failure',
+    async ({ generatedCall, expectedError }) => {
+      vi.mocked(provider.generateWithTools).mockResolvedValue({
+        content: '',
+        toolCalls: [generatedCall],
+      });
+      vi.mocked(mcpClient.invokeTool).mockResolvedValue({
+        callId: generatedCall.id,
+        name: generatedCall.function.name,
+        success: false,
+        error: expectedError,
+      });
+      const node = createNode(tools);
+
+      const response = await node.sendMessage(message([request('request-1')]));
+
+      expect(mcpClient.invokeTool).toHaveBeenCalledWith(
+        generatedCall.id,
+        generatedCall.function.name,
+        generatedCall.function.arguments,
+      );
+      expect(outcomes(response)).toEqual([
+        {
+          requestId: 'request-1',
+          stage: 'mcp',
+          callId: generatedCall.id,
+          name: generatedCall.function.name,
+          success: false,
+          error: expectedError,
+        },
+      ]);
+    },
+  );
+
+  it('normalizes an unexpected MCP adapter exception and continues', async () => {
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [call('call-1')],
+    });
+    vi.mocked(mcpClient.invokeTool).mockRejectedValue('transport closed');
+    const node = createNode(tools);
+
+    const response = await node.sendMessage(message([request('request-1')]));
+
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-1',
+        stage: 'mcp',
+        callId: 'call-1',
+        name: 'list_directory',
+        success: false,
+        error: 'transport closed',
+      },
+    ]);
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          requestId: 'request-1',
+          callId: 'call-1',
+          toolName: 'list_directory',
+        },
+      }),
+    );
+  });
+
+  it('keeps processing when status and invocation event publication fail', async () => {
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [call('call-1')],
+    });
+    vi.mocked(mcpClient.invokeTool).mockResolvedValue({
+      callId: 'call-1',
+      name: 'list_directory',
+      success: true,
+      result: 'ok',
+    });
+    vi.mocked(eventStream.publish).mockImplementation(() => {
+      throw new Error('subscriber failed');
+    });
+    const node = createNode(tools);
+
+    const response = await node.sendMessage(message([request('request-1')]));
+
+    expect(outcomes(response)[0]).toEqual(
+      expect.objectContaining({ success: true, result: 'ok' }),
+    );
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to publish a node status change.',
+      }),
+    );
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to publish a tool elaboration completion event.',
+      }),
+    );
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to publish a tool invocation start event.',
+      }),
+    );
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to publish a tool invocation completion event.',
+      }),
+    );
+    expect(node.status).toBe('idle');
+  });
+
+  it('publishes observable generation status without a relevance pass', async () => {
+    const node = createNode(tools);
+    vi.mocked(provider.generateWithTools).mockImplementation(async () => {
+      expect(node.status).toBe('generating');
+      return { content: 'No tool can fulfill this.', toolCalls: undefined };
     });
 
-    await node.initialize();
-    const result = await node.sendMessage({
-      workingMemory: { messages: [] },
-      broadcast: { role: 'broadcast' as const, content: 'Test' },
-    });
+    await node.sendMessage(message([request('request-1')]));
 
-    // Should return undefined because neither relevance nor curiosity triggered
-    expect(result).toBeUndefined();
+    expect(eventStream.publish).not.toHaveBeenCalledWith({
+      topicName: 'node/status-change',
+      data: { nodeId: 'tool-files', status: 'evaluating-relevance' },
+    });
+    expect(eventStream.publish).toHaveBeenCalledWith({
+      topicName: 'node/status-change',
+      data: { nodeId: 'tool-files', status: 'generating' },
+    });
+    expect(node.status).toBe('idle');
   });
 });

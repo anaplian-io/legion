@@ -29,6 +29,7 @@ describe('action requests', () => {
           ACTION_REQUEST_TOOL_NAME,
           JSON.stringify({
             targetNodeId: ' tool-files ',
+            intent: ' List the workspace directory. ',
             operation: ' list_directory ',
             arguments: { path: '.' },
           }),
@@ -37,9 +38,31 @@ describe('action requests', () => {
     ).toEqual({
       id: 'call-1',
       targetNodeId: 'tool-files',
+      intent: 'List the workspace directory.',
       operation: 'list_directory',
       arguments: { path: '.' },
     });
+  });
+
+  it('accepts and formats an intent without non-authoritative hints', () => {
+    const parsed = actionRequestFromToolCall(
+      call(
+        ACTION_REQUEST_TOOL_NAME,
+        JSON.stringify({
+          targetNodeId: 'tool-files',
+          intent: 'List the workspace directory.',
+        }),
+      ),
+    );
+
+    expect(parsed).toEqual({
+      id: 'call-1',
+      targetNodeId: 'tool-files',
+      intent: 'List the workspace directory.',
+    });
+    expect(formatActionRequests(parsed === undefined ? [] : [parsed])).toBe(
+      '[ACTION REQUEST call-1] target=tool-files intent="List the workspace directory."',
+    );
   });
 
   it('ignores unrelated, malformed, and incomplete tool calls', () => {
@@ -52,11 +75,13 @@ describe('action requests', () => {
       null,
       [],
       {},
-      { targetNodeId: '', operation: 'run', arguments: {} },
-      { targetNodeId: 1, operation: 'run', arguments: {} },
-      { targetNodeId: 'tool', operation: '', arguments: {} },
-      { targetNodeId: 'tool', operation: 1, arguments: {} },
-      { targetNodeId: 'tool', operation: 'run', arguments: [] },
+      { targetNodeId: '', intent: 'Run it.' },
+      { targetNodeId: 1, intent: 'Run it.' },
+      { targetNodeId: 'tool', intent: '' },
+      { targetNodeId: 'tool', intent: 1 },
+      { targetNodeId: 'tool', intent: 'Run it.', operation: '' },
+      { targetNodeId: 'tool', intent: 'Run it.', operation: 1 },
+      { targetNodeId: 'tool', intent: 'Run it.', arguments: [] },
     ];
     invalidArguments.forEach((value) => {
       expect(
@@ -75,12 +100,13 @@ describe('action requests', () => {
         {
           id: 'request-1',
           targetNodeId: 'goal-manager',
+          intent: 'Clear the active goal.',
           operation: 'clear_active_goal',
           arguments: { goalId: 'goal-1' },
         },
       ]),
     ).toBe(
-      '[ACTION REQUEST request-1] target=goal-manager operation=clear_active_goal arguments={"goalId":"goal-1"}',
+      '[ACTION REQUEST request-1] target=goal-manager intent="Clear the active goal." operationHint=clear_active_goal argumentsHint={"goalId":"goal-1"}',
     );
   });
 
@@ -95,13 +121,14 @@ describe('action requests', () => {
           {
             id: 'request-2',
             targetNodeId: 'clock',
+            intent: 'Read the current time.',
             operation: 'read',
             arguments: {},
           },
         ],
       }),
     ).toBe(
-      '[ACTION REQUEST request-2] target=clock operation=read arguments={}',
+      '[ACTION REQUEST request-2] target=clock intent="Read the current time." operationHint=read argumentsHint={}',
     );
     expect(
       formatMessagePayload({

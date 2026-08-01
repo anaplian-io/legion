@@ -3,18 +3,23 @@ import type { GoalDecision } from './goal.js';
 export type MessageRole =
   | 'working-memory'
   | 'broadcast'
+  | 'tool-intent'
   | 'user-input'
   | 'afferent'
   | 'afferent-capability'
   | 'node-response';
 
-/** A machine-readable request for one afferent node to perform an operation. */
+/** A machine-readable intent for one afferent node to fulfill. */
 export interface ActionRequest {
   /** Stable request ID, normally inherited from the model's tool-call ID. */
   readonly id: string;
   readonly targetNodeId: string;
-  readonly operation: string;
-  readonly arguments: Readonly<Record<string, unknown>>;
+  /** Desired outcome stated without requiring knowledge of the target's schema. */
+  readonly intent: string;
+  /** Optional, non-authoritative hint that the target may repair or ignore. */
+  readonly operation?: string;
+  /** Optional, non-authoritative structured hints for fulfilling the intent. */
+  readonly arguments?: Readonly<Record<string, unknown>>;
 }
 
 export interface Message {

@@ -7,14 +7,12 @@ import {
 } from '../types/tool-node-factory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { MCPClient } from '../adapter/mcp-client.js';
-import { RelevanceGate } from '../types/relevance-gate.js';
 import { ToolDefinition } from '../types/tool.js';
 import { ErrorStream } from '../types/error-stream.js';
 
 export interface ConcreteToolNodeFactoryProps {
   readonly provider: Provider;
   readonly mcpClient: Client;
-  readonly relevanceGate: RelevanceGate;
   readonly capabilityDescription: string;
   readonly initialTools?: readonly ToolDefinition[];
   readonly errorStream?: ErrorStream;
@@ -23,9 +21,8 @@ export interface ConcreteToolNodeFactoryProps {
 export class ConcreteToolNodeFactory implements ToolNodeFactory {
   private readonly _provider: Provider;
   private readonly _mcpClient: MCPClient;
-  private readonly _relevanceGate: RelevanceGate;
   private readonly _capabilityDescription: string;
-  private readonly _initialTools: readonly ToolDefinition[];
+  private readonly _initialTools: readonly ToolDefinition[] | undefined;
 
   constructor(props: ConcreteToolNodeFactoryProps) {
     this._provider = props.provider;
@@ -35,9 +32,8 @@ export class ConcreteToolNodeFactory implements ToolNodeFactory {
         ? {}
         : { errorStream: props.errorStream }),
     });
-    this._relevanceGate = props.relevanceGate;
     this._capabilityDescription = props.capabilityDescription;
-    this._initialTools = props.initialTools ?? [];
+    this._initialTools = props.initialTools;
   }
 
   public readonly create = (props: CreateToolNodeProps): Node<'tool'> => {
@@ -47,9 +43,10 @@ export class ConcreteToolNodeFactory implements ToolNodeFactory {
       provider: this._provider,
       eventStream: props.eventStream,
       mcpClient: this._mcpClient,
-      relevanceGate: this._relevanceGate,
       capabilityDescription: this._capabilityDescription,
-      initialTools: this._initialTools,
+      ...(this._initialTools === undefined
+        ? {}
+        : { initialTools: this._initialTools }),
     });
   };
 }

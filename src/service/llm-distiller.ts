@@ -159,7 +159,7 @@ export class LlmDistiller implements Distiller {
     const generated = await this.props.provider.generateWithTools({
       systemPrompt: `You consolidate a bounded winning coalition into the next global-workspace broadcast. Capture only supported new facts, decisions, constraints, open questions, and concrete next actions. Address current user input when present. Resolve contradictions instead of blending them.
 
-Use only candidate indices, afferent indices, and action-request IDs shown below. Include an action request only when it remains the correct next operation and the prose announces that same action. When no action should execute, use actionDisposition "none", an empty actionSummary, and do not imply that an action is scheduled. Never rewrite, invent, or copy an action's target, operation, or arguments; Legion will recover the original structured request by ID.
+Use only candidate indices, afferent indices, and action-request IDs shown below. Include an action request only when its intent remains the correct next action and the prose announces that same action. When no action should execute, use actionDisposition "none", an empty actionSummary, and do not imply that an action is scheduled. Never rewrite, invent, or copy an action's target, intent, or optional hints; Legion will recover the original structured request by ID.
 
 Always make an explicit goal decision. Use "activate" for a bounded intention that should guide multiple epochs, "revise" for a compatible change to the current goal, "supersede" for a replacement, "complete" only when cited evidence satisfies the success criteria, "abandon" only with a concrete reason, and "unchanged" otherwise. A sustained external request is user-origin; ordinary one-step questions should remain unchanged. Autonomous goals must be bounded, observable, and supported by contributing cognitive evidence.
 
@@ -602,6 +602,7 @@ const requireMatchingActiveGoal = (
 const MESSAGE_ROLE_LABEL: Record<MessageRole, string> = {
   'working-memory': 'WORKING MEMORY',
   broadcast: 'BROADCAST',
+  'tool-intent': 'TOOL INTENT',
   'user-input': 'USER INPUT',
   afferent: 'AFFERENT',
   'afferent-capability': 'AFFERENT CAPABILITY',

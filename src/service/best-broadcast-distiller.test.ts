@@ -126,6 +126,7 @@ describe('BestBroadcastDistiller', () => {
         {
           id: 'request-1',
           targetNodeId: 'tool-files',
+          intent: 'List the workspace directory.',
           operation: 'list_directory',
           arguments: { path: '.' },
         },
@@ -150,7 +151,9 @@ describe('BestBroadcastDistiller', () => {
       expect.objectContaining({
         candidates: [
           'Wait.',
-          expect.stringContaining('target=tool-files operation=list_directory'),
+          expect.stringContaining(
+            'target=tool-files intent="List the workspace directory." operationHint=list_directory',
+          ),
         ],
       }),
     );

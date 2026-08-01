@@ -145,6 +145,7 @@ describe('OpenaiProvider', () => {
               {
                 id: 'request-1',
                 targetNodeId: 'clock',
+                intent: 'Read the current time.',
                 operation: 'read',
                 arguments: {},
               },
@@ -159,7 +160,7 @@ describe('OpenaiProvider', () => {
             expect.objectContaining({
               role: 'assistant',
               content: expect.stringContaining(
-                '[ACTION REQUEST request-1] target=clock operation=read',
+                '[ACTION REQUEST request-1] target=clock intent="Read the current time." operationHint=read',
               ),
             }),
           ]),
@@ -547,6 +548,66 @@ describe('OpenaiProvider', () => {
   });
 
   describe('generateWithTools', () => {
+    it('places one internal tool intent last without unrelated working memory or a runtime tick', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(null, [
+          {
+            id: 'call_read',
+            type: 'function',
+            function: {
+              name: 'read_file',
+              arguments: '{"path":"README.md"}',
+            },
+          },
+        ]),
+      );
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await provider.generateWithTools({
+        systemPrompt: 'Translate the routed intent.',
+        messages: [
+          {
+            role: 'tool-intent',
+            content: '',
+            actionRequests: [
+              {
+                id: 'request-read',
+                targetNodeId: 'tool-files',
+                intent: 'Read README.md.',
+              },
+            ],
+          },
+        ],
+        tools: [
+          {
+            name: 'read_file',
+            parameters: {
+              type: 'object',
+              properties: { path: { type: 'string' } },
+            },
+          },
+        ],
+        toolChoice: 'required',
+      });
+
+      const sentMessages =
+        mockClient.chat.completions.create.mock.calls[0]?.[0].messages;
+      expect(sentMessages).toEqual([
+        expect.objectContaining({
+          role: 'system',
+          content: expect.stringContaining('Translate the routed intent.'),
+        }),
+        {
+          role: 'user',
+          content:
+            '[TOOL INTENT — NOT HUMAN INPUT]\n[ACTION REQUEST request-read] target=tool-files intent="Read README.md."',
+        },
+      ]);
+    });
+
     it('should map tools (strict when eligible) and return function tool calls', async () => {
       vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
         completion(null, [

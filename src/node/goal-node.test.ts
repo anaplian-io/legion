@@ -13,6 +13,7 @@ const request = (
 ): ActionRequest => ({
   id: `request-${operation}`,
   targetNodeId: 'goal-manager',
+  intent: `Perform ${operation}.`,
   operation,
   arguments: args,
   ...overrides,
@@ -356,6 +357,18 @@ describe('GoalNode', () => {
         }),
         request('clear_active_goal', { goalId: 'stale-goal' }),
         request('unsupported', {}),
+        {
+          id: 'request-missing-operation',
+          targetNodeId: 'goal-manager',
+          intent: 'Clear the active goal.',
+          arguments: { goalId: 'goal-1' },
+        },
+        {
+          id: 'request-missing-arguments',
+          targetNodeId: 'goal-manager',
+          intent: 'Clear the active goal.',
+          operation: 'clear_active_goal',
+        },
       ]),
     );
     const parsed = JSON.parse(result?.content ?? '[]') as Array<{
@@ -368,7 +381,13 @@ describe('GoalNode', () => {
     expect(parsed[1]?.error).toContain('origin must be user or autonomous');
     expect(parsed[2]?.error).toContain('cannot clear goal stale-goal');
     expect(parsed[3]?.error).toContain('unsupported goal operation');
-    expect(eventStream.reportError).toHaveBeenCalledTimes(4);
+    expect(parsed[4]?.error).toContain(
+      'requires explicit operation and argument hints',
+    );
+    expect(parsed[5]?.error).toContain(
+      'requires explicit operation and argument hints',
+    );
+    expect(eventStream.reportError).toHaveBeenCalledTimes(6);
   });
 
   it('preserves a non-Error goal-store failure as text', async () => {

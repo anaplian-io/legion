@@ -57,8 +57,6 @@ export interface LegionSettings {
   readonly distillerStrategy?: 'synthesize' | 'select-best';
   readonly maxWorkingMemoryMessages?: number;
   readonly contextLengthThreshold?: number;
-  /** Fixed per-epoch curiosity probability used by tool nodes. */
-  readonly toolCuriosityProbability?: number;
   /** Fixed memory curiosity probability after a guaranteed first epoch. */
   readonly memoryCuriosityProbability?: number;
   /** Epochs a node must survive before it becomes eligible for pruning. */

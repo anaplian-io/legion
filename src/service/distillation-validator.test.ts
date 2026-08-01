@@ -9,6 +9,7 @@ import type { GoalDecision } from '../types/goal.js';
 const action = {
   id: 'request-1',
   targetNodeId: 'tool-files',
+  intent: 'Read the README.',
   operation: 'read_file',
   arguments: { path: 'README.md' },
 } as const;
@@ -197,6 +198,7 @@ describe('DistillationValidator', () => {
 
     for (const changedAction of [
       { ...action, targetNodeId: 'other-tool' },
+      { ...action, intent: 'Read another file.' },
       { ...action, operation: 'other-operation' },
       { ...action, arguments: { path: 'other' } },
       { ...action, id: 'invented' },

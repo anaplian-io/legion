@@ -96,6 +96,7 @@ const sameActionRequest = (
   right: ActionRequest,
 ): boolean =>
   left.targetNodeId === right.targetNodeId &&
+  left.intent === right.intent &&
   left.operation === right.operation &&
   JSON.stringify(left.arguments) === JSON.stringify(right.arguments);
 
