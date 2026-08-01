@@ -91,6 +91,7 @@ describe('LlmDistiller', () => {
         {
           id: 'request-1',
           targetNodeId: 'clock',
+          intent: 'Read the current time.',
           operation: 'read',
           arguments: {},
         },
@@ -133,6 +134,7 @@ describe('LlmDistiller', () => {
     const originalRequest = {
       id: 'request-1',
       targetNodeId: 'tool-files',
+      intent: 'List the workspace directory.',
       operation: 'list_directory',
       arguments: { path: '.' },
     };
@@ -167,6 +169,7 @@ describe('LlmDistiller', () => {
                 {
                   id: 'historical-request',
                   targetNodeId: 'clock',
+                  intent: 'Read the current time.',
                   operation: 'read',
                   arguments: {},
                 },
@@ -390,6 +393,7 @@ describe('LlmDistiller', () => {
     const duplicate = {
       id: 'same-id',
       targetNodeId: 'clock',
+      intent: 'Read the current time.',
       operation: 'read',
       arguments: {},
     };
@@ -436,6 +440,7 @@ describe('LlmDistiller', () => {
               {
                 id: 'request-b',
                 targetNodeId: 'clock',
+                intent: 'Read the current time.',
                 operation: 'read',
                 arguments: {},
               },

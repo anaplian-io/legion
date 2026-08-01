@@ -98,6 +98,7 @@ describe('WorkingMemoryBuffer', () => {
       id: 'request-1',
       targetNodeId: 'tool-files',
       operation: 'list_directory',
+      intent: 'List the workspace directory.',
       arguments: { path: '.' },
     };
     const buffer = new WorkingMemoryBuffer({
@@ -136,6 +137,7 @@ describe('WorkingMemoryBuffer', () => {
               {
                 id: 'older-request',
                 targetNodeId: 'clock',
+                intent: 'Read the current time.',
                 operation: 'read',
                 arguments: {},
               },
@@ -150,6 +152,7 @@ describe('WorkingMemoryBuffer', () => {
           {
             id: 'current-request',
             targetNodeId: 'search',
+            intent: 'Search for Legion.',
             operation: 'query',
             arguments: { q: 'Legion' },
           },

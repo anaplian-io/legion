@@ -7,7 +7,7 @@ export const ACTION_REQUEST_TOOL_NAME = 'request_node_action';
 export const ACTION_REQUEST_TOOL: ToolDefinition = {
   name: ACTION_REQUEST_TOOL_NAME,
   description:
-    'Attach a machine-readable operation request to this cognitive response. Use only when a specific available afferent node must act.',
+    'Attach a machine-readable intent to this cognitive response. Use only when a specific available afferent node must act.',
   parameters: {
     type: 'object',
     properties: {
@@ -15,17 +15,24 @@ export const ACTION_REQUEST_TOOL: ToolDefinition = {
         type: 'string',
         description: 'Exact node ID copied from available capabilities.',
       },
+      intent: {
+        type: 'string',
+        description:
+          'The outcome the target node should accomplish, including relevant constraints.',
+      },
       operation: {
         type: 'string',
-        description: 'Operation requested from the target node.',
+        description:
+          'Optional non-authoritative operation hint. Omit it unless the capability explicitly provides one.',
       },
       arguments: {
         type: 'object',
-        description: 'Structured arguments for the requested operation.',
+        description:
+          'Optional non-authoritative structured hints. The target may repair or ignore them.',
         additionalProperties: true,
       },
     },
-    required: ['targetNodeId', 'operation', 'arguments'],
+    required: ['targetNodeId', 'intent'],
     additionalProperties: false,
   },
 };
@@ -46,17 +53,25 @@ export const actionRequestFromToolCall = (
     !isRecord(parsed) ||
     typeof parsed['targetNodeId'] !== 'string' ||
     parsed['targetNodeId'].trim().length === 0 ||
-    typeof parsed['operation'] !== 'string' ||
-    parsed['operation'].trim().length === 0 ||
-    !isRecord(parsed['arguments'])
+    typeof parsed['intent'] !== 'string' ||
+    parsed['intent'].trim().length === 0 ||
+    (parsed['operation'] !== undefined &&
+      (typeof parsed['operation'] !== 'string' ||
+        parsed['operation'].trim().length === 0)) ||
+    (parsed['arguments'] !== undefined && !isRecord(parsed['arguments']))
   ) {
     return undefined;
   }
   return {
     id: call.id,
     targetNodeId: parsed['targetNodeId'].trim(),
-    operation: parsed['operation'].trim(),
-    arguments: parsed['arguments'],
+    intent: parsed['intent'].trim(),
+    ...(typeof parsed['operation'] === 'string'
+      ? { operation: parsed['operation'].trim() }
+      : {}),
+    ...(isRecord(parsed['arguments'])
+      ? { arguments: parsed['arguments'] }
+      : {}),
   };
 };
 
@@ -67,9 +82,18 @@ export const formatActionRequests = (
     return '';
   }
   return requests
-    .map(
-      (request) =>
-        `[ACTION REQUEST ${request.id}] target=${request.targetNodeId} operation=${request.operation} arguments=${JSON.stringify(request.arguments)}`,
+    .map((request) =>
+      [
+        `[ACTION REQUEST ${request.id}] target=${request.targetNodeId} intent=${JSON.stringify(request.intent)}`,
+        request.operation === undefined
+          ? ''
+          : `operationHint=${request.operation}`,
+        request.arguments === undefined
+          ? ''
+          : `argumentsHint=${JSON.stringify(request.arguments)}`,
+      ]
+        .filter((part) => part.length > 0)
+        .join(' '),
     )
     .join('\n');
 };

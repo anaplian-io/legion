@@ -3,7 +3,6 @@ import { ConcreteToolNodeFactory } from './concrete-tool-node-factory.js';
 import { ToolNode } from '../node/tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
-import type { RelevanceGate } from '../types/relevance-gate.js';
 import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
 
 // Mock MCP Client
@@ -15,7 +14,6 @@ describe('ConcreteToolNodeFactory', () => {
   let mockProvider: Provider;
   let mockEventStream: EventStream;
   let mockMcpClient: MockMcpClient;
-  let mockRelevanceGate: RelevanceGate;
 
   beforeEach(() => {
     mockProvider = {
@@ -31,9 +29,6 @@ describe('ConcreteToolNodeFactory', () => {
       subscribe: vi.fn(),
     };
     mockMcpClient = {};
-    mockRelevanceGate = {
-      isRelevant: vi.fn().mockResolvedValue(false),
-    };
   });
 
   it('should create a factory with the given props', () => {
@@ -42,7 +37,6 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
     });
 
     expect(typeof factory.create).toBe('function');
@@ -54,7 +48,6 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -73,7 +66,6 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -90,7 +82,6 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
     });
 
     const node = factory.create({
@@ -101,13 +92,12 @@ describe('ConcreteToolNodeFactory', () => {
     expect(node.kind).toBe('tool');
   });
 
-  it('should create nodes with the shared stateless relevance gate', async () => {
+  it('should create independent targeted tool nodes', async () => {
     const factory = new ConcreteToolNodeFactory({
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
     });
     const firstNode = factory.create({
       nodeId: 'tool-1',
@@ -122,13 +112,12 @@ describe('ConcreteToolNodeFactory', () => {
     expect(secondNode.kind).toBe('tool');
   });
 
-  it('should pass boot-fetched tools to its nodes', () => {
+  it('should pass boot-fetched tools to its nodes', async () => {
     const factory = new ConcreteToolNodeFactory({
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
       initialTools: [{ name: 'boot-tool', parameters: {} }],
     });
 
@@ -137,7 +126,31 @@ describe('ConcreteToolNodeFactory', () => {
       eventStream: mockEventStream,
     });
 
-    expect((node as ToolNode).preamble).toContain('boot-tool');
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: 'No matching tool.',
+      toolCalls: undefined,
+    });
+    await node.sendMessage({
+      workingMemory: { messages: [] },
+      broadcast: {
+        role: 'broadcast',
+        content: 'Use the boot tool.',
+        actionRequests: [
+          {
+            id: 'request-1',
+            targetNodeId: 'test-node',
+            intent: 'Use the boot tool.',
+          },
+        ],
+      },
+    });
+
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [{ name: 'boot-tool', parameters: {} }],
+      }),
+    );
+    expect((node as ToolNode).preamble).not.toContain('boot-tool');
   });
 
   it('passes an error stream through to its MCP client', () => {
@@ -146,7 +159,6 @@ describe('ConcreteToolNodeFactory', () => {
       provider: mockProvider,
       mcpClient:
         mockMcpClient as unknown as import('@modelcontextprotocol/sdk/client/index.js').Client,
-      relevanceGate: mockRelevanceGate,
       errorStream: new ConcreteErrorStream(),
     });
 

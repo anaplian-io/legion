@@ -105,6 +105,7 @@ describe('LlmRelevanceFilter', () => {
           {
             id: 'request-1',
             targetNodeId: 'current-time',
+            intent: 'Read the current time in UTC.',
             operation: 'read',
             arguments: { timezone: 'UTC' },
           },
@@ -126,7 +127,7 @@ describe('LlmRelevanceFilter', () => {
     expect(mockProvider.rankByRelevance).toHaveBeenCalledWith(
       '[MESSAGE 0]:Need the current time\n',
       [
-        'I will check.\n[ACTION REQUEST request-1] target=current-time operation=read arguments={"timezone":"UTC"}',
+        'I will check.\n[ACTION REQUEST request-1] target=current-time intent="Read the current time in UTC." operationHint=read argumentsHint={"timezone":"UTC"}',
         'Unrelated candidate',
       ],
     );
@@ -142,6 +143,7 @@ describe('LlmRelevanceFilter', () => {
             {
               id: 'historical-request',
               targetNodeId: 'clock',
+              intent: 'Read the current time.',
               operation: 'read',
               arguments: {},
             },
@@ -163,7 +165,7 @@ describe('LlmRelevanceFilter', () => {
     await filter.filter(workingMemory, candidates);
 
     expect(mockProvider.rankByRelevance).toHaveBeenCalledWith(
-      '[MESSAGE 0]:[ACTION REQUEST historical-request] target=clock operation=read arguments={}\n',
+      '[MESSAGE 0]:[ACTION REQUEST historical-request] target=clock intent="Read the current time." operationHint=read argumentsHint={}\n',
       ['A', 'B'],
     );
   });

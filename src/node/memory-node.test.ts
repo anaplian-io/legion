@@ -534,6 +534,7 @@ describe('MemoryNode', () => {
             name: 'request_node_action',
             arguments: JSON.stringify({
               targetNodeId: 'tool-files',
+              intent: 'List the workspace directory.',
               operation: 'list_directory',
               arguments: { path: '.' },
             }),
@@ -555,12 +556,13 @@ describe('MemoryNode', () => {
       {
         id: 'request-1',
         targetNodeId: 'tool-files',
+        intent: 'List the workspace directory.',
         operation: 'list_directory',
         arguments: { path: '.' },
       },
     ]);
     expect(node.context).toContain(
-      '[ACTION REQUEST request-1] target=tool-files operation=list_directory',
+      '[ACTION REQUEST request-1] target=tool-files intent="List the workspace directory." operationHint=list_directory',
     );
   });
 

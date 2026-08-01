@@ -709,6 +709,7 @@ describe('EpochOrchestrator', () => {
         {
           id: 'request-1',
           targetNodeId: 'tool-files',
+          intent: 'List the workspace directory.',
           operation: 'list_directory',
           arguments: { path: '.' },
         },
@@ -751,6 +752,7 @@ describe('EpochOrchestrator', () => {
         {
           id: 'request-1',
           targetNodeId: 'clock',
+          intent: 'Read the current time.',
           operation: 'read',
           arguments: {},
         },

@@ -115,6 +115,7 @@ describe('App', () => {
     const action = {
       id: 'request-1',
       targetNodeId: 'clock',
+      intent: 'Read the current time.',
       operation: 'read',
       arguments: {},
     };
@@ -139,7 +140,9 @@ describe('App', () => {
       />,
     );
 
-    expect(lastFrame() ?? '').toContain('target=clock operation=read');
+    expect(lastFrame() ?? '').toContain(
+      'target=clock intent="Read the current time." operationHint=read',
+    );
   });
 
   it('shows the initial broadcast before the loop is unpaused', () => {

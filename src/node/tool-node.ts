@@ -6,27 +6,30 @@ import {
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
-import { ToolDefinition } from '../types/tool.js';
+import { ToolCall, ToolDefinition } from '../types/tool.js';
 import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
-import { RelevanceGate } from '../types/relevance-gate.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
-import { Message } from '../types/message.js';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
-import {
-  hasDefinedProperty,
-  isRecord,
-  isToolCall,
-} from '../utilities/type-guards.js';
+import { ActionRequest } from '../types/message.js';
+import { isToolCall } from '../utilities/type-guards.js';
 
 export interface ToolNodeProps {
   readonly id: string;
   readonly provider: Provider;
   readonly eventStream: EventStream;
   readonly mcpClient: MCPClient;
-  readonly relevanceGate: RelevanceGate;
   readonly capabilityDescription: string;
   /** Tools fetched at boot while generating the MCP capability summary. */
   readonly initialTools?: readonly ToolDefinition[];
+}
+
+export interface ToolNodeOutcome {
+  readonly requestId: string;
+  readonly stage: 'elaboration' | 'mcp';
+  readonly success: boolean;
+  readonly callId?: string;
+  readonly name?: string;
+  readonly result?: unknown;
+  readonly error?: string;
 }
 
 export class ToolNode implements Node<'tool'> {
@@ -34,21 +37,27 @@ export class ToolNode implements Node<'tool'> {
   public readonly id: string;
   public readonly capabilityDescription: string;
   private _nodeStatus: NodeStatus = 'idle';
-  private readonly mcpClient: MCPClient;
-  private tools: ToolDefinition[] = [];
+  private readonly systemPrompt: string;
+  private tools: ToolDefinition[];
+  private initialized: boolean;
 
   constructor(private readonly props: ToolNodeProps) {
     this.id = props.id;
     this.capabilityDescription = props.capabilityDescription;
-    this.mcpClient = props.mcpClient;
     this.tools = [...(props.initialTools ?? [])];
+    this.initialized = props.initialTools !== undefined;
+    this.systemPrompt = `You are a tool invocation node in a collective reasoning system. You receive one structured intent already routed to your exact node ID.
+
+Your node ID: ${this.id}
+Your capability: ${this.capabilityDescription}
+
+Translate the intent into one or more calls to the supplied MCP tools. You must make at least one tool call. The request's operation and arguments are non-authoritative hints: they may be incomplete, stale, or wrong, so repair or ignore them using the supplied tool definitions. Choose the concrete tool and arguments yourself. MCP owns final validation and will return any execution failure to the collective.`;
   }
 
-  /**
-   * Initialize the node by fetching tools from the MCP server
-   */
+  /** Refresh the tools advertised by the MCP server. */
   public readonly initialize = async (): Promise<void> => {
-    this.tools = await this.mcpClient.getAvailableTools();
+    this.tools = await this.props.mcpClient.getAvailableTools();
+    this.initialized = true;
   };
 
   public get context(): string {
@@ -62,253 +71,294 @@ export class ToolNode implements Node<'tool'> {
   public readonly sendMessage = async (
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
-    const { provider } = this.props;
-    if (this.tools.length === 0) {
-      await this.initialize();
+    const targetedRequests =
+      broadcastMessage.broadcast.actionRequests?.filter(
+        (request) => request.targetNodeId === this.id,
+      ) ?? [];
+    if (targetedRequests.length === 0) {
+      return undefined;
     }
-    // Validate requests addressed to this node before model selection. Invalid
-    // requests become failures; valid requests continue independently.
-    const targetedRequests = broadcastMessage.broadcast.actionRequests?.filter(
-      (request) => request.targetNodeId === this.id,
-    );
-    const targetedRequestValidations = (targetedRequests ?? []).map(
-      (request) => ({
-        request,
-        error: this.validateToolSelection(request.operation, request.arguments),
-      }),
-    );
-    const invalidTargetedRequests = targetedRequestValidations.filter(
-      hasDefinedProperty('error'),
-    );
-    const validTargetedRequests = targetedRequestValidations
-      .filter(({ error }) => error === undefined)
-      .map(({ request }) => request);
-    let preflightFailures: ToolResult[] = [];
-    if (invalidTargetedRequests.length > 0) {
-      this.setStatus('generating');
-      preflightFailures = invalidTargetedRequests.map(({ request, error }) =>
-        this.rejectToolCall(
-          request.id,
-          request.operation,
-          JSON.stringify(request.arguments),
-          error,
+
+    try {
+      if (!this.initialized) {
+        await this.initialize();
+      }
+    } catch (error) {
+      this.reportElaborationError(
+        'Failed to load tools before elaborating targeted intents.',
+        error,
+      );
+      return this.toolResponse(
+        targetedRequests.map((request) =>
+          this.elaborationFailure(
+            request.id,
+            `ToolNode ${this.id} could not load its MCP tools: ${errorMessage(error)}`,
+          ),
         ),
       );
-      this.setStatus('idle');
-      if (validTargetedRequests.length === 0) {
-        return this.toolResponse(preflightFailures);
+    }
+
+    return this.withStatus('generating', async () => {
+      if (this.tools.length === 0) {
+        return this.toolResponse(
+          targetedRequests.map((request) =>
+            this.elaborationFailure(
+              request.id,
+              `ToolNode ${this.id} has no available MCP tools.`,
+            ),
+          ),
+        );
       }
-    }
-    const broadcast: Message = {
-      role: broadcastMessage.broadcast.role,
-      content: broadcastMessage.broadcast.content,
-      ...(broadcastMessage.broadcast.originatingNodeId === undefined
-        ? {}
-        : {
-            originatingNodeId: broadcastMessage.broadcast.originatingNodeId,
-          }),
-      ...(broadcastMessage.broadcast.contributingNodeIds === undefined
-        ? {}
-        : {
-            contributingNodeIds: broadcastMessage.broadcast.contributingNodeIds,
-          }),
-      ...(validTargetedRequests.length === 0
-        ? {}
-        : { actionRequests: validTargetedRequests }),
-    };
-    const messages = [...broadcastMessage.workingMemory.messages, broadcast];
-    const nodeBroadcastMessage: BroadcastMessage = {
-      ...broadcastMessage,
-      broadcast,
-    };
-    this.setStatus('evaluating-relevance');
-    const relevant = this.props.relevanceGate.isRelevant({
-      broadcastMessage: nodeBroadcastMessage,
-      nodeId: this.id,
-      epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
-      nodeContext: this.preamble,
+      const outcomes = await Promise.all(
+        targetedRequests.map((request) => this.elaborateAndInvoke(request)),
+      );
+      return this.toolResponse(outcomes.flat());
     });
-    if (!(await relevant)) {
-      this.setStatus('idle');
-      return preflightFailures.length === 0
-        ? undefined
-        : this.toolResponse(preflightFailures);
+  };
+
+  private readonly elaborateAndInvoke = async (
+    request: ActionRequest,
+  ): Promise<ToolNodeOutcome[]> => {
+    const messages = [
+      {
+        role: 'tool-intent' as const,
+        content: '',
+        actionRequests: [request],
+      },
+    ];
+    let response: Awaited<ReturnType<Provider['generateWithTools']>>;
+    try {
+      response = await this.props.provider.generateWithTools({
+        messages,
+        systemPrompt: this.preamble,
+        tools: this.tools,
+        toolChoice: 'required',
+      });
+    } catch (error) {
+      this.reportElaborationError(
+        `Failed to elaborate action request ${request.id}.`,
+        error,
+        request.id,
+      );
+      return [
+        this.elaborationFailure(
+          request.id,
+          `ToolNode ${this.id} could not elaborate the intent: ${errorMessage(error)}`,
+        ),
+      ];
     }
-    this.setStatus('idle');
-    this.setStatus('generating');
-    const response = await provider.generateWithTools({
-      messages,
-      systemPrompt: `${this.preamble}\nYou MUST make a tool call.`,
-      tools: this.tools,
-    });
-    if (!response.toolCalls || response.toolCalls.length === 0) {
-      this.setStatus('idle');
-      return preflightFailures.length === 0
-        ? undefined
-        : this.toolResponse(preflightFailures);
+
+    if (response.toolCalls === undefined || response.toolCalls.length === 0) {
+      const explanation = response.content.trim();
+      return [
+        this.elaborationFailure(
+          request.id,
+          explanation.length === 0
+            ? `ToolNode ${this.id} returned neither a tool call nor an explanation for the intent.`
+            : `ToolNode ${this.id} could not fulfill the intent: ${createToolOutputPreview(explanation)}`,
+        ),
+      ];
     }
-    const toolCallResponse = await Promise.all(
-      response.toolCalls.map((call) => this.invokeProviderToolCall(call)),
+
+    const calls = response.toolCalls.filter(isToolCall);
+    if (calls.length !== response.toolCalls.length) {
+      const malformedCall = response.toolCalls.find(
+        (call) => !isToolCall(call),
+      );
+      const error = `Provider returned a malformed tool call: ${createToolOutputPreview(malformedCall)}`;
+      this.reportElaborationError(
+        `Rejected malformed output for action request ${request.id}.`,
+        new Error(error),
+        request.id,
+      );
+      return [this.elaborationFailure(request.id, error)];
+    }
+
+    this.publishElaborationCompleted(
+      request.id,
+      true,
+      calls.map((call) => ({
+        callId: call.id,
+        toolName: call.function.name,
+      })),
+      response.content,
     );
-    this.setStatus('idle');
-    return this.toolResponse([...preflightFailures, ...toolCallResponse]);
+    return Promise.all(
+      calls.map((call) => this.invokeProviderToolCall(request, call)),
+    );
   };
 
   private readonly invokeProviderToolCall = async (
-    call: unknown,
-  ): Promise<ToolResult> => {
-    if (!isToolCall(call)) {
-      const details = malformedToolCallDetails(call);
-      return this.rejectToolCall(
-        details.callId,
-        details.name,
-        details.arguments,
-        `Provider returned a malformed tool call: ${createToolOutputPreview(call)}`,
-      );
-    }
+    request: ActionRequest,
+    call: ToolCall,
+  ): Promise<ToolNodeOutcome> => {
     const { id: callId, function: functionCall } = call;
     const { name, arguments: argumentsStr } = functionCall;
-    this.publishInvocationStarted(callId, name, argumentsStr);
+    this.publishInvocationStarted(request.id, callId, name, argumentsStr);
 
-    let parsedArguments: unknown;
+    let result: ToolResult;
     try {
-      parsedArguments = JSON.parse(argumentsStr) as unknown;
-    } catch {
-      return this.rejectStartedToolCall(
-        callId,
-        name,
-        `Tool ${name} arguments are not valid JSON.`,
-      );
-    }
-
-    const validationError = this.validateToolSelection(name, parsedArguments);
-    if (validationError !== undefined) {
-      return this.rejectStartedToolCall(callId, name, validationError);
-    }
-
-    try {
-      const result = await this.props.mcpClient.invokeTool(
+      result = await this.props.mcpClient.invokeTool(
         callId,
         name,
         argumentsStr,
       );
-      this.publishInvocationCompleted(
-        callId,
-        name,
-        result.success,
-        result.success ? result.result : result.error,
-      );
-      return result;
     } catch (error) {
+      const message = errorMessage(error);
       this.props.eventStream.reportError?.({
         source: `ToolNode ${this.id}`,
         message: `Tool ${name} threw during invocation.`,
         error,
-        metadata: { callId, toolName: name },
+        metadata: { requestId: request.id, callId, toolName: name },
       });
-      const errorMessage = String(error);
-      this.publishInvocationCompleted(callId, name, false, errorMessage);
-      return {
-        callId,
-        name,
-        success: false,
-        error: errorMessage,
-      };
+      result = { callId, name, success: false, error: message };
     }
+
+    this.publishInvocationCompleted(
+      request.id,
+      callId,
+      name,
+      result.success,
+      result.success ? result.result : result.error,
+    );
+    return {
+      requestId: request.id,
+      stage: 'mcp',
+      ...result,
+    };
   };
 
-  private readonly validateToolSelection = (
-    name: string,
-    argumentsValue: unknown,
-  ): string | undefined => {
-    const tool = this.tools.find((candidate) => candidate.name === name);
-    if (tool === undefined) {
-      const available = this.tools
-        .map((candidate) => candidate.name)
-        .join(', ');
-      return `Tool ${name} was not advertised by ToolNode ${this.id}. Available tools: ${available}.`;
-    }
-    if (!isRecord(argumentsValue)) {
-      return `Tool ${name} arguments must be a JSON object.`;
-    }
-    try {
-      const validation = new AjvJsonSchemaValidator().getValidator(
-        tool.parameters,
-      )(argumentsValue);
-      return validation.valid
-        ? undefined
-        : `Tool ${name} arguments do not match its advertised schema: ${validation.errorMessage}.`;
-    } catch (error) {
-      return `Tool ${name} has an invalid advertised schema: ${String(error)}.`;
-    }
-  };
-
-  private readonly rejectToolCall = (
-    callId: string,
-    name: string,
-    argumentsStr: string,
+  private readonly elaborationFailure = (
+    requestId: string,
     error: string,
-  ): ToolResult => {
-    this.publishInvocationStarted(callId, name, argumentsStr);
-    return this.rejectStartedToolCall(callId, name, error);
+  ): ToolNodeOutcome => {
+    this.publishElaborationCompleted(requestId, false, [], error);
+    return {
+      requestId,
+      stage: 'elaboration',
+      success: false,
+      error,
+    };
   };
 
-  private readonly rejectStartedToolCall = (
-    callId: string,
-    name: string,
-    error: string,
-  ): ToolResult => {
+  private readonly reportElaborationError = (
+    message: string,
+    error: unknown,
+    requestId?: string,
+  ): void => {
     this.props.eventStream.reportError?.({
       source: `ToolNode ${this.id}`,
-      message: `Rejected tool ${name} before MCP invocation.`,
-      error: new Error(error),
-      metadata: { callId, toolName: name },
+      message,
+      error,
+      ...(requestId === undefined ? {} : { metadata: { requestId } }),
     });
-    this.publishInvocationCompleted(callId, name, false, error);
-    return { callId, name, success: false, error };
   };
 
   private readonly publishInvocationStarted = (
+    requestId: string,
     callId: string,
     toolName: string,
     argumentsStr: string,
   ): void => {
-    this.props.eventStream.publish({
-      topicName: 'tool/invocation-started',
-      data: {
-        nodeId: this.id,
-        callId,
-        toolName,
-        arguments: argumentsStr,
-      },
-    });
+    try {
+      this.props.eventStream.publish({
+        topicName: 'tool/invocation-started',
+        data: {
+          nodeId: this.id,
+          requestId,
+          callId,
+          toolName,
+          arguments: argumentsStr,
+        },
+      });
+    } catch (error) {
+      this.props.eventStream.reportError?.({
+        source: `ToolNode ${this.id}`,
+        message: 'Failed to publish a tool invocation start event.',
+        error,
+        metadata: { requestId, callId, toolName },
+      });
+    }
+  };
+
+  private readonly publishElaborationCompleted = (
+    requestId: string,
+    success: boolean,
+    toolCalls: readonly {
+      readonly callId: string;
+      readonly toolName: string;
+    }[],
+    output: unknown,
+  ): void => {
+    try {
+      this.props.eventStream.publish({
+        topicName: 'tool/elaboration-completed',
+        data: {
+          nodeId: this.id,
+          requestId,
+          success,
+          toolCalls,
+          output: createToolOutputPreview(output),
+        },
+      });
+    } catch (error) {
+      this.props.eventStream.reportError?.({
+        source: `ToolNode ${this.id}`,
+        message: 'Failed to publish a tool elaboration completion event.',
+        error,
+        metadata: { requestId },
+      });
+    }
   };
 
   private readonly publishInvocationCompleted = (
+    requestId: string,
     callId: string,
     toolName: string,
     success: boolean,
     output: unknown,
   ): void => {
-    this.props.eventStream.publish({
-      topicName: 'tool/invocation-completed',
-      data: {
-        nodeId: this.id,
-        callId,
-        toolName,
-        success,
-        output: createToolOutputPreview(output),
-      },
-    });
+    try {
+      this.props.eventStream.publish({
+        topicName: 'tool/invocation-completed',
+        data: {
+          nodeId: this.id,
+          requestId,
+          callId,
+          toolName,
+          success,
+          output: createToolOutputPreview(output),
+        },
+      });
+    } catch (error) {
+      this.props.eventStream.reportError?.({
+        source: `ToolNode ${this.id}`,
+        message: 'Failed to publish a tool invocation completion event.',
+        error,
+        metadata: { requestId, callId, toolName },
+      });
+    }
   };
 
   private readonly toolResponse = (
-    results: readonly ToolResult[],
+    outcomes: readonly ToolNodeOutcome[],
   ): Exclude<NodeResponse, undefined> => ({
     role: 'afferent',
     originatingNodeId: this.id,
-    content: JSON.stringify(results),
+    content: JSON.stringify(outcomes),
   });
+
+  private readonly withStatus = async <T>(
+    status: Exclude<NodeStatus, 'idle'>,
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    this.setStatus(status);
+    try {
+      return await operation();
+    } finally {
+      this.setStatus('idle');
+    }
+  };
 
   private readonly setStatus = (newStatus: NodeStatus): void => {
     this._nodeStatus = newStatus;
@@ -317,50 +367,19 @@ export class ToolNode implements Node<'tool'> {
         topicName: 'node/status-change',
         data: { nodeId: this.id, status: newStatus },
       });
-    } catch (e) {
+    } catch (error) {
       this.props.eventStream.reportError?.({
         source: `ToolNode ${this.id}`,
         message: 'Failed to publish a node status change.',
-        error: e,
+        error,
       });
     }
   };
 
   public get preamble(): string {
-    return `You are a tool invocation node in a collective reasoning system. You contribute only by invoking tools when a broadcast names a task one of your tools can resolve.
-
-Your node ID: ${this.id}
-Your capability: ${this.capabilityDescription}
-
-Your available tools:
-${this.tools.map((tool) => JSON.stringify(tool)).join('\n')}
-`;
+    return this.systemPrompt;
   }
 }
 
-const malformedToolCallDetails = (
-  call: unknown,
-): {
-  readonly callId: string;
-  readonly name: string;
-  readonly arguments: string;
-} => {
-  const callRecord = isRecord(call) ? call : {};
-  const functionCall = isRecord(callRecord['function'])
-    ? callRecord['function']
-    : {};
-  return {
-    callId:
-      typeof callRecord['id'] === 'string'
-        ? callRecord['id']
-        : '[missing-call-id]',
-    name:
-      typeof functionCall['name'] === 'string'
-        ? functionCall['name']
-        : '[missing-tool-name]',
-    arguments:
-      typeof functionCall['arguments'] === 'string'
-        ? functionCall['arguments']
-        : createToolOutputPreview(functionCall['arguments']),
-  };
-};
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

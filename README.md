@@ -98,7 +98,7 @@ nothing.
 
 - **MemoryNode** (`src/node/memory-node.ts`) — the cognitive unit. Holds a
   specialized body of experience, decides relevance, generates, and can attach
-  machine-readable action requests for one exact afferent node.
+  machine-readable task intents for one exact afferent node.
 - **ToolNode** (`src/node/tool-node.ts`) — afferent. Invokes external tools over
   the [Model Context Protocol](https://modelcontextprotocol.io/); raw results
   become afferent context.
@@ -206,9 +206,12 @@ the two-wave epoch, relevance filtering, distillation, splitting, pruning,
 MCP tool calling, sensory input, and session persistence.
 
 Tool execution uses two-stage dispatch: a selected cognitive broadcast carries
-a typed action request, then the exact target afferent node validates and
-executes it during the next epoch. Structured requests remain part of broadcast
-history instead of collapsing into empty working-memory entries.
+a typed task intent, then the exact target ToolNode translates it into one or
+more calls using its authoritative MCP tool definitions. MCP validation and
+execution happen during the next epoch, and successes or failures return as
+afferent context. Structured requests remain part of broadcast history instead
+of collapsing into empty working-memory entries. ToolNodes execute only
+explicitly targeted intents; they do not make curiosity-driven calls.
 
 ## License
 

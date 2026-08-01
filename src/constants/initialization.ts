@@ -19,18 +19,17 @@ import { StaticNodePruner } from '../service/static-node-pruner.js';
 import { ConcreteMemoryNodeFactory } from '../factory/concrete-memory-node-factory.js';
 import { EventStream } from '../types/event-stream.js';
 import { Node } from '../types/node.js';
+import { Message } from '../types/message.js';
 import { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import { LoadedSession, SessionLoader } from '../utilities/session-loader.js';
 import { ConcreteEventStream } from '../service/concrete-event-stream.js';
 import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
 import { FirstEpochThenFixedCuriosityGate } from '../service/first-epoch-then-fixed-curiosity-gate.js';
-import { FixedProbabilityCuriosityGate } from '../service/fixed-probability-curiosity-gate.js';
 import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
 import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
 import { Provider } from '../types/provider.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
-import { TargetedActionRequestRelevanceGate } from '../service/targeted-action-request-relevance-gate.js';
 import { MCPClient } from '../adapter/mcp-client.js';
 import { ToolDefinition } from '../types/tool.js';
 import {
@@ -54,13 +53,10 @@ import { DistillationValidator } from '../service/distillation-validator.js';
 import { ValidatedDistiller } from '../service/validated-distiller.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
-const DEFAULT_TOOL_CURIOSITY_PROBABILITY = 0.02;
 const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;
 const DEFAULT_ATTENTION_GATE_N = 2;
 const MEMORY_RELEVANCE_QUESTION =
   'Given your experience above and the full message list below, can you add something the collective does not already have? If user input is present, answer yes when you can help acknowledge it, answer it, or preserve enough context to resume the prior inquiry. Otherwise answer yes only if your contribution would be specific and non-redundant.';
-const TOOL_RELEVANCE_QUESTION =
-  'Given your node ID, capability, tools, and the full message list below, will one or more tools make concrete progress on any unresolved need? Treat earlier messages as working memory and the final message as the current broadcast. If the final broadcast explicitly names your node ID or @nodeID with a concrete request, answer yes. Otherwise answer yes only if a tool call would make concrete progress.';
 
 export interface InitOptions {
   /** Reuse a process-level router; omitted callers get `saveLocation/logs`. */
@@ -151,20 +147,6 @@ export const init = async (options?: InitOptions) => {
       new AskYesNoQuestionRelevanceGate({
         provider,
         question: MEMORY_RELEVANCE_QUESTION,
-      }),
-    ],
-  });
-  const toolRelevanceGate = new SequencedCompositeRelevanceGate({
-    gates: [
-      new TargetedActionRequestRelevanceGate(),
-      new FixedProbabilityCuriosityGate({
-        probability:
-          settings.toolCuriosityProbability ??
-          DEFAULT_TOOL_CURIOSITY_PROBABILITY,
-      }),
-      new AskYesNoQuestionRelevanceGate({
-        provider,
-        question: TOOL_RELEVANCE_QUESTION,
       }),
     ],
   });
@@ -323,15 +305,16 @@ export const init = async (options?: InitOptions) => {
 
   // Create ToolNode factories for each MCP client
   const toolNodeFactories = mcpClients.map(
-    ({ client, capabilityDescription, tools }) =>
-      new ConcreteToolNodeFactory({
+    ({ name, client, capabilityDescription, tools }) => ({
+      name,
+      factory: new ConcreteToolNodeFactory({
         provider,
-        relevanceGate: toolRelevanceGate,
         mcpClient: client,
         capabilityDescription,
         initialTools: tools,
         errorStream,
       }),
+    }),
   );
 
   // Create sensory nodes from user-configured sensor providers
@@ -420,9 +403,9 @@ export const init = async (options?: InitOptions) => {
   }
 
   // Add tool nodes for each MCP client
-  for (const factory of toolNodeFactories) {
+  for (const { name, factory } of toolNodeFactories) {
     const toolNode = factory.create({
-      nodeId: `tool-${crypto.randomUUID().slice(0, 8)}`,
+      nodeId: `tool-${name}`,
       eventStream,
     });
     initialNodes.push(toolNode);
@@ -433,14 +416,56 @@ export const init = async (options?: InitOptions) => {
   initialNodes.push(activeGoalNode);
   initialNodes.push(goalManagerNode);
 
+  const liveNodeIds = new Set(initialNodes.map((node) => node.id));
+  const removeStaleToolRequests = (message: Message): Message => {
+    const actionRequests = message.actionRequests?.filter(
+      (request) =>
+        !request.targetNodeId.startsWith('tool-') ||
+        liveNodeIds.has(request.targetNodeId),
+    );
+    if (actionRequests?.length === message.actionRequests?.length) {
+      return message;
+    }
+    const messageWithoutActionRequests: Message = {
+      role: message.role,
+      content: message.content,
+      ...(message.originatingNodeId === undefined
+        ? {}
+        : { originatingNodeId: message.originatingNodeId }),
+      ...(message.contributingNodeIds === undefined
+        ? {}
+        : { contributingNodeIds: message.contributingNodeIds }),
+      ...(message.goalDecision === undefined
+        ? {}
+        : { goalDecision: message.goalDecision }),
+    };
+    return {
+      ...messageWithoutActionRequests,
+      ...(actionRequests === undefined || actionRequests.length === 0
+        ? {}
+        : { actionRequests }),
+    };
+  };
+
   // Use loaded working memory and broadcast if available, otherwise use defaults
-  const initialWorkingMemory = loadedSession?.workingMemory ?? { messages: [] };
-  const initialBroadcast =
-    loadedSession?.broadcast ??
-    ({
+  const initialWorkingMemory = loadedSession?.workingMemory
+    ? {
+        messages: loadedSession.workingMemory.messages.map(
+          removeStaleToolRequests,
+        ),
+      }
+    : { messages: [] };
+  const initialBroadcast = removeStaleToolRequests(
+    loadedSession?.broadcast ?? {
       role: 'broadcast',
       content: settings.initialBroadcastMessage,
-    } as const);
+    },
+  );
+  const initialNodeStats = new Map(
+    [...(loadedSession?.nodeStats ?? [])].filter(([nodeId]) =>
+      liveNodeIds.has(nodeId),
+    ),
+  );
 
   SessionSaver.watch({
     eventStream,
@@ -461,7 +486,7 @@ export const init = async (options?: InitOptions) => {
     memoryNodeFactory,
     eventStream,
     initialNodes,
-    initialNodeStats: loadedSession?.nodeStats,
+    initialNodeStats,
     userInputSensor,
     goalStore,
   });

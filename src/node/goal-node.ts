@@ -19,6 +19,11 @@ interface GoalActionResult {
   readonly error?: string;
 }
 
+interface GoalActionRequest extends ActionRequest {
+  readonly operation: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
 export interface GoalNodeProps {
   readonly id: string;
   readonly eventStream: EventStream;
@@ -82,24 +87,25 @@ export class GoalNode implements Node<'goal'> {
   private readonly invokeGoalAction = (
     request: ActionRequest,
   ): GoalActionResult => {
-    const serializedArguments = JSON.stringify(request.arguments);
+    const operation = request.operation ?? '[missing-operation-hint]';
+    const serializedArguments = JSON.stringify(request.arguments ?? {});
     this.props.eventStream.publish({
       topicName: 'tool/invocation-started',
       data: {
         nodeId: this.id,
         callId: request.id,
-        toolName: request.operation,
+        toolName: operation,
         arguments: serializedArguments,
       },
     });
     try {
-      const result = this.applyGoalAction(request);
+      const result = this.applyGoalAction(requireGoalActionRequest(request));
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
           nodeId: this.id,
           callId: request.id,
-          toolName: request.operation,
+          toolName: operation,
           success: true,
           output: createToolOutputPreview(result),
         },
@@ -110,23 +116,23 @@ export class GoalNode implements Node<'goal'> {
         error instanceof Error ? error.message : String(error);
       this.props.eventStream.reportError?.({
         source: `GoalNode ${this.id}`,
-        message: `Goal action ${request.operation} failed.`,
+        message: `Goal action ${operation} failed.`,
         error,
-        metadata: { callId: request.id, operation: request.operation },
+        metadata: { callId: request.id, operation },
       });
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
           nodeId: this.id,
           callId: request.id,
-          toolName: request.operation,
+          toolName: operation,
           success: false,
           output: createToolOutputPreview(errorMessage),
         },
       });
       return {
         callId: request.id,
-        name: request.operation,
+        name: operation,
         success: false,
         error: errorMessage,
       };
@@ -188,7 +194,7 @@ export class GoalNode implements Node<'goal'> {
   };
 
   private readonly applyGoalAction = (
-    request: ActionRequest,
+    request: GoalActionRequest,
   ): GoalActionResult => {
     switch (request.operation) {
       case 'set_active_goal': {
@@ -294,7 +300,18 @@ export class GoalNode implements Node<'goal'> {
   };
 }
 
-const requiredString = (request: ActionRequest, field: string): string => {
+const requireGoalActionRequest = (
+  request: ActionRequest,
+): GoalActionRequest => {
+  if (request.operation === undefined || request.arguments === undefined) {
+    throw new Error(
+      `[GoalNode] action intent ${request.id} requires explicit operation and argument hints`,
+    );
+  }
+  return request as GoalActionRequest;
+};
+
+const requiredString = (request: GoalActionRequest, field: string): string => {
   const value = request.arguments[field];
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(
@@ -304,7 +321,7 @@ const requiredString = (request: ActionRequest, field: string): string => {
   return value;
 };
 
-const requiredOrigin = (request: ActionRequest): GoalOrigin => {
+const requiredOrigin = (request: GoalActionRequest): GoalOrigin => {
   const value = requiredString(request, 'origin');
   if (value !== 'user' && value !== 'autonomous') {
     throw new Error(

@@ -35,8 +35,36 @@ export interface SubscribeNodeStatusChange {
   readonly receiver: (data: NodeStatusChangeData) => void | Promise<void>;
 }
 
+export interface ToolElaborationCallData {
+  readonly callId: string;
+  readonly toolName: string;
+}
+
+export interface ToolElaborationCompletedData {
+  readonly nodeId: string;
+  readonly requestId: string;
+  readonly success: boolean;
+  readonly toolCalls: readonly ToolElaborationCallData[];
+  /** Bounded, single-line model output or afferent failure preview. */
+  readonly output: string;
+}
+
+export interface PublishToolElaborationCompleted {
+  readonly topicName: 'tool/elaboration-completed';
+  readonly data: ToolElaborationCompletedData;
+}
+
+export interface SubscribeToolElaborationCompleted {
+  readonly topicName: PublishToolElaborationCompleted['topicName'];
+  readonly receiver: (
+    data: ToolElaborationCompletedData,
+  ) => void | Promise<void>;
+}
+
 export interface ToolInvocationStartedData {
   readonly nodeId: string;
+  /** Cognitive request that caused this call; absent for non-ToolNode actuators. */
+  readonly requestId?: string;
   readonly callId: string;
   readonly toolName: string;
   readonly arguments: string;
@@ -54,6 +82,8 @@ export interface SubscribeToolInvocationStarted {
 
 export interface ToolInvocationCompletedData {
   readonly nodeId: string;
+  /** Cognitive request that caused this call; absent for non-ToolNode actuators. */
+  readonly requestId?: string;
   readonly callId: string;
   readonly toolName: string;
   readonly success: boolean;
@@ -216,6 +246,7 @@ export type PublishProps =
   | PublishOrchestratorUserInputConsumed
   | PublishOrchestratorNodeStatsUpdated
   | PublishNodeStatusChange
+  | PublishToolElaborationCompleted
   | PublishToolInvocationStarted
   | PublishToolInvocationCompleted
   | PublishGoalUpdated;
@@ -231,6 +262,7 @@ export type SubscribeProps =
   | SubscribeOrchestratorUserInputConsumed
   | SubscribeOrchestratorNodeStatsUpdated
   | SubscribeNodeStatusChange
+  | SubscribeToolElaborationCompleted
   | SubscribeToolInvocationStarted
   | SubscribeToolInvocationCompleted
   | SubscribeGoalUpdated;
