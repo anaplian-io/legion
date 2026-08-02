@@ -44,9 +44,7 @@ import { GoalStore } from '../service/goal-store.js';
 import { GoalNode } from '../node/goal-node.js';
 import { ActiveGoalSensor } from '../sensor/active-goal-sensor.js';
 import type { ActiveGoal } from '../types/goal.js';
-import path from 'node:path';
 import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
-import { JsonlLogRouter } from '../service/jsonl-log-router.js';
 import { LogRouter } from '../types/logging.js';
 import { ErrorStream } from '../types/error-stream.js';
 import { DistillationValidator } from '../service/distillation-validator.js';
@@ -60,8 +58,8 @@ const MEMORY_RELEVANCE_QUESTION =
   'Given your experience above and the full message list below, can you add something the collective does not already have? If user input is present, answer yes when you can help acknowledge it, answer it, or preserve enough context to resume the prior inquiry. Otherwise answer yes only if your contribution would be specific and non-redundant.';
 
 export interface InitOptions {
-  /** Reuse a process-level router; omitted callers get `saveLocation/logs`. */
-  readonly logRouter?: LogRouter;
+  /** Process-owned router; the caller must close it during graceful shutdown. */
+  readonly logRouter: LogRouter;
   /** Reuse the process-level error stream, including for initialization errors. */
   readonly errorStream?: ErrorStream;
 }
@@ -86,17 +84,13 @@ const createSensoryNode = ({
       : { responseRole: definition.responseRole }),
   });
 
-export const init = async (options?: InitOptions) => {
+export const init = async (options: InitOptions) => {
   const settings: LegionSettings = rawSettings;
   const openAiTimeout = settings.openAiTimeout ?? DEFAULT_OPENAI_TIMEOUT_MS;
 
-  const logRouter =
-    options?.logRouter ??
-    new JsonlLogRouter({
-      directory: path.join(settings.saveLocation, 'logs'),
-    });
-  const errorStream = options?.errorStream ?? new ConcreteErrorStream();
-  if (options?.errorStream === undefined) {
+  const { logRouter } = options;
+  const errorStream = options.errorStream ?? new ConcreteErrorStream();
+  if (options.errorStream === undefined) {
     logRouter.consume(errorLogStream(errorStream));
   }
 

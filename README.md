@@ -180,6 +180,8 @@ Domain and error streams remain independent of durable storage. Small adapters
 expose them as `LoggableStream` values, and the process-level `LogRouter` owns
 subscriptions, rotation, flushing, and shutdown. New durable streams should use
 the same adapter boundary instead of adding filesystem concerns to publishers.
+Initialization callers must supply that process-owned router and close it during
+graceful shutdown.
 
 ## Development
 
