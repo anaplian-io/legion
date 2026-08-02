@@ -1,6 +1,8 @@
-import * as fs from 'node:fs';
+import { promises as fs } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { LoggableStream, LogRouter } from '../types/logging.js';
+import { Unsubscribe } from '../types/subscription.js';
 
 const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -19,15 +21,27 @@ interface DurableLogRecord {
   readonly entry: unknown;
 }
 
+interface StreamFileState {
+  readonly index: number;
+  readonly file: string;
+  readonly handle: FileHandle;
+  bytes: number;
+}
+
 /**
- * A synchronous JSON Lines sink. It appends while a file is below its size
- * limit, then continues in `stream.1.jsonl`, `stream.2.jsonl`, and so on.
- * JSONL is intentionally easy to tail, query, and recover after a crash.
+ * An ordered, buffered JSON Lines sink. Records are serialized when accepted,
+ * then written in publication order without blocking the publisher. Callers
+ * must close the router during graceful shutdown to drain writes and release
+ * file handles.
  */
 export class JsonlLogRouter implements LogRouter {
   private readonly directory: string;
   private readonly maxFileBytes: number;
   private readonly now: () => Date;
+  private readonly states = new Map<string, StreamFileState>();
+  private readonly unsubscribers = new Set<Unsubscribe>();
+  private pendingWrites: Promise<void> = Promise.resolve();
+  private closed = false;
 
   constructor(options: JsonlLogRouterOptions) {
     this.directory = path.normalize(options.directory);
@@ -36,48 +50,126 @@ export class JsonlLogRouter implements LogRouter {
   }
 
   public readonly consume = <Entry>(stream: LoggableStream<Entry>): void => {
-    stream.subscribeForLogging((entry) => {
-      this.write({
-        timestamp: this.now().toISOString(),
-        stream: stream.name,
-        entry: stream.serializeForLogging(entry),
-      });
-    });
-  };
-
-  private readonly write = (record: DurableLogRecord): void => {
-    try {
-      fs.mkdirSync(this.directory, { recursive: true });
-      const line = `${JSON.stringify(toJsonSafe(record))}\n`;
-      const file = this.fileFor(record.stream, Buffer.byteLength(line));
-      fs.appendFileSync(file, line);
-    } catch {
-      // Logging must never change the result of the operation being logged.
-      // There is no safer durable destination to report a logging I/O failure.
+    if (this.closed) {
+      return;
     }
+    const unsubscribe = stream.subscribeForLogging((entry) => {
+      if (this.closed) {
+        return;
+      }
+      try {
+        const record: DurableLogRecord = {
+          timestamp: this.now().toISOString(),
+          stream: stream.name,
+          entry: stream.serializeForLogging(entry),
+        };
+        const line = `${JSON.stringify(toJsonSafe(record))}\n`;
+        this.enqueue(stream.name, line);
+      } catch {
+        // Logging must never change the result of the operation being logged.
+      }
+    });
+    this.unsubscribers.add(unsubscribe);
   };
 
-  private readonly fileFor = (
-    streamName: string,
-    nextLineBytes: number,
-  ): string => {
-    let index = 0;
-    let file = path.join(this.directory, `${streamName}.${index}.jsonl`);
-    while (fs.existsSync(file)) {
-      try {
-        if (fs.statSync(file).size + nextLineBytes <= this.maxFileBytes) {
-          return file;
+  public readonly flush = async (): Promise<void> => {
+    await this.pendingWrites;
+  };
+
+  public readonly close = async (): Promise<void> => {
+    if (this.closed) {
+      await this.flush();
+      return;
+    }
+    this.closed = true;
+    this.unsubscribers.forEach((unsubscribe) => unsubscribe());
+    this.unsubscribers.clear();
+    await this.flush();
+    await Promise.all(
+      [...this.states.values()].map(async ({ handle }) => {
+        try {
+          await handle.close();
+        } catch {
+          // Closing diagnostics must never make application teardown fail.
         }
-      } catch {
-        // A raced deletion or inaccessible file is retried as the current file.
-        return file;
+      }),
+    );
+    this.states.clear();
+  };
+
+  private readonly enqueue = (streamName: string, line: string): void => {
+    this.pendingWrites = this.pendingWrites
+      .then(() => this.append(streamName, line))
+      .catch(() => {
+        // A failed write is isolated and does not poison later queued writes.
+      });
+  };
+
+  private readonly append = async (
+    streamName: string,
+    line: string,
+  ): Promise<void> => {
+    const nextLineBytes = Buffer.byteLength(line);
+    let state = this.states.get(streamName);
+    if (state === undefined) {
+      await fs.mkdir(this.directory, { recursive: true });
+      state = await this.openAvailableFile(streamName, 0, nextLineBytes);
+      this.states.set(streamName, state);
+    } else if (
+      state.bytes > 0 &&
+      state.bytes + nextLineBytes > this.maxFileBytes
+    ) {
+      await state.handle.close();
+      state = await this.openAvailableFile(
+        streamName,
+        state.index + 1,
+        nextLineBytes,
+      );
+      this.states.set(streamName, state);
+    }
+    await state.handle.write(line);
+    state.bytes += nextLineBytes;
+  };
+
+  private readonly openAvailableFile = async (
+    streamName: string,
+    startingIndex: number,
+    nextLineBytes: number,
+  ): Promise<StreamFileState> => {
+    let index = startingIndex;
+    while (true) {
+      const file = path.join(this.directory, `${streamName}.${index}.jsonl`);
+      try {
+        const { size } = await fs.stat(file);
+        if (size + nextLineBytes <= this.maxFileBytes) {
+          return {
+            index,
+            file,
+            handle: await fs.open(file, 'a'),
+            bytes: size,
+          };
+        }
+      } catch (error) {
+        if (isMissingFile(error)) {
+          return {
+            index,
+            file,
+            handle: await fs.open(file, 'a'),
+            bytes: 0,
+          };
+        }
+        throw error;
       }
       index += 1;
-      file = path.join(this.directory, `${streamName}.${index}.jsonl`);
     }
-    return file;
   };
 }
+
+const isMissingFile = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 'ENOENT';
 
 const toJsonSafe = (value: unknown, seen = new WeakSet<object>()): unknown => {
   if (

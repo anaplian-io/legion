@@ -51,6 +51,7 @@ import { LogRouter } from '../types/logging.js';
 import { ErrorStream } from '../types/error-stream.js';
 import { DistillationValidator } from '../service/distillation-validator.js';
 import { ValidatedDistiller } from '../service/validated-distiller.js';
+import { errorLogStream, eventLogStream } from '../service/loggable-streams.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;
@@ -94,8 +95,10 @@ export const init = async (options?: InitOptions) => {
     new JsonlLogRouter({
       directory: path.join(settings.saveLocation, 'logs'),
     });
-  const errorStream =
-    options?.errorStream ?? new ConcreteErrorStream({ logRouter });
+  const errorStream = options?.errorStream ?? new ConcreteErrorStream();
+  if (options?.errorStream === undefined) {
+    logRouter.consume(errorLogStream(errorStream));
+  }
 
   // Create OpenAI client and provider
   const openAi = new OpenAI({
@@ -117,7 +120,8 @@ export const init = async (options?: InitOptions) => {
   });
 
   // Create event stream for node communication
-  const eventStream = new ConcreteEventStream({ errorStream, logRouter });
+  const eventStream = new ConcreteEventStream({ errorStream });
+  logRouter.consume(eventLogStream(eventStream));
 
   let initialActiveGoal: ActiveGoal | undefined;
   try {

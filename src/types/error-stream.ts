@@ -1,3 +1,5 @@
+import { Unsubscribe } from './subscription.js';
+
 /** A structured error intended for durable diagnostics rather than terminal output. */
 export interface ErrorReport {
   /** The component that observed the failure. */
@@ -12,5 +14,5 @@ export interface ErrorReport {
 
 export interface ErrorStream {
   readonly publish: (report: ErrorReport) => void;
-  readonly subscribe: (receiver: (report: ErrorReport) => void) => void;
+  readonly subscribe: (receiver: (report: ErrorReport) => void) => Unsubscribe;
 }

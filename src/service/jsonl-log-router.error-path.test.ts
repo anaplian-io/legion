@@ -1,23 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { appendFileSync, existsSync, mkdirSync, statSync } = vi.hoisted(() => ({
-  appendFileSync: vi.fn(),
-  existsSync: vi.fn(),
-  mkdirSync: vi.fn(),
-  statSync: vi.fn(),
+const { close, mkdir, open, stat, write } = vi.hoisted(() => ({
+  close: vi.fn(),
+  mkdir: vi.fn(),
+  open: vi.fn(),
+  stat: vi.fn(),
+  write: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  statSync,
+  promises: { mkdir, open, stat },
 }));
 
 import { JsonlLogRouter } from './jsonl-log-router.js';
 import type { LoggableStream } from '../types/logging.js';
 
-const makeStream = (): {
+const makeStream = (
+  serializeForLogging: (entry: string) => unknown = (entry) => entry,
+): {
   readonly stream: LoggableStream<string>;
   readonly publish: (entry: string) => void;
 } => {
@@ -27,8 +27,11 @@ const makeStream = (): {
       name: 'events',
       subscribeForLogging: (nextReceiver) => {
         receiver = nextReceiver;
+        return () => {
+          receiver = undefined;
+        };
       },
-      serializeForLogging: (entry) => entry,
+      serializeForLogging,
     },
     publish: (entry) => receiver?.(entry),
   };
@@ -37,31 +40,94 @@ const makeStream = (): {
 describe('JsonlLogRouter I/O failures', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('continues when a rotation stat races with a file deletion', () => {
-    existsSync.mockReturnValue(true);
-    statSync.mockImplementation(() => {
-      throw new Error('raced deletion');
-    });
-    const { stream, publish } = makeStream();
-    new JsonlLogRouter({ directory: '/tmp/logs' }).consume(stream);
-
-    expect(() => publish('event')).not.toThrow();
-    expect(appendFileSync).toHaveBeenCalledWith(
-      '/tmp/logs/events.0.jsonl',
-      expect.stringContaining('event'),
+    mkdir.mockResolvedValue(undefined);
+    stat.mockRejectedValue(
+      Object.assign(new Error('missing'), { code: 'ENOENT' }),
     );
+    write.mockResolvedValue(undefined);
+    close.mockResolvedValue(undefined);
+    open.mockResolvedValue({ close, write });
   });
 
-  it('does not let logging I/O failures affect the publishing stream', () => {
-    mkdirSync.mockImplementation(() => {
-      throw new Error('read-only disk');
-    });
+  it('does not let an inaccessible rotation file affect the publishing stream', async () => {
+    stat.mockRejectedValue(
+      Object.assign(new Error('inaccessible'), { code: 'EACCES' }),
+    );
     const { stream, publish } = makeStream();
-    new JsonlLogRouter({ directory: '/tmp/logs' }).consume(stream);
+    const router = new JsonlLogRouter({ directory: '/tmp/logs' });
+    router.consume(stream);
 
     expect(() => publish('event')).not.toThrow();
-    expect(appendFileSync).not.toHaveBeenCalled();
+    await router.flush();
+
+    expect(open).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    await router.close();
+  });
+
+  it('isolates a failed write without poisoning later queued writes', async () => {
+    mkdir.mockRejectedValueOnce(new Error('read-only disk'));
+    const { stream, publish } = makeStream();
+    const router = new JsonlLogRouter({ directory: '/tmp/logs' });
+    router.consume(stream);
+
+    publish('first');
+    publish('second');
+    await router.flush();
+
+    expect(write).toHaveBeenCalledTimes(1);
+    await router.close();
+  });
+
+  it('isolates serialization and clock failures from publishers', async () => {
+    const brokenSerialization = makeStream(() => {
+      throw new Error('bad serializer');
+    });
+    const brokenClock = makeStream();
+    const serializerRouter = new JsonlLogRouter({ directory: '/tmp/logs' });
+    const clockRouter = new JsonlLogRouter({
+      directory: '/tmp/logs',
+      now: () => {
+        throw new Error('bad clock');
+      },
+    });
+    serializerRouter.consume(brokenSerialization.stream);
+    clockRouter.consume(brokenClock.stream);
+
+    expect(() => brokenSerialization.publish('event')).not.toThrow();
+    expect(() => brokenClock.publish('event')).not.toThrow();
+    await serializerRouter.close();
+    await clockRouter.close();
+
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('does not let file-handle close failures affect teardown', async () => {
+    close.mockRejectedValue(new Error('close failed'));
+    const { stream, publish } = makeStream();
+    const router = new JsonlLogRouter({ directory: '/tmp/logs' });
+    router.consume(stream);
+    publish('event');
+    await router.flush();
+
+    await expect(router.close()).resolves.toBeUndefined();
+  });
+
+  it('ignores late publication from a stream that fails to detach', async () => {
+    let receiver: ((entry: string) => void) | undefined;
+    const stream: LoggableStream<string> = {
+      name: 'events',
+      subscribeForLogging: (nextReceiver) => {
+        receiver = nextReceiver;
+        return () => undefined;
+      },
+      serializeForLogging: (entry) => entry,
+    };
+    const router = new JsonlLogRouter({ directory: '/tmp/logs' });
+    router.consume(stream);
+    await router.close();
+
+    expect(() => receiver?.('late')).not.toThrow();
+    expect(write).not.toHaveBeenCalled();
   });
 });

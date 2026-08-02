@@ -4,10 +4,8 @@ import { Node, NodeStatus } from '../types/node.js';
 import {
   SubscribeNodeStatusChange,
   SubscribeOrchestratorNodesChanged,
-  PublishProps,
 } from '../types/event-stream.js';
 import { ConcreteErrorStream } from './concrete-error-stream.js';
-import type { LoggableStream, LogRouter } from '../types/logging.js';
 
 describe('ConcreteEventStream', () => {
   let eventStream: ConcreteEventStream;
@@ -56,6 +54,49 @@ describe('ConcreteEventStream', () => {
 
     expect(receivedBy1).toEqual(['node1']);
     expect(receivedBy2).toEqual(['node1']);
+  });
+
+  it('stops delivering to topic and all-event subscribers after unsubscribe', () => {
+    const topicReceiver = vi.fn();
+    const allReceiver = vi.fn();
+    const unsubscribeTopic = eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: topicReceiver,
+    });
+    const unsubscribeAll = eventStream.subscribeAll(allReceiver);
+
+    unsubscribeTopic();
+    unsubscribeTopic();
+    unsubscribeAll();
+    eventStream.publish({
+      topicName: 'node/status-change',
+      data: { nodeId: 'detached', status: 'idle' },
+    });
+
+    expect(topicReceiver).not.toHaveBeenCalled();
+    expect(allReceiver).not.toHaveBeenCalled();
+  });
+
+  it('keeps a topic active while another subscriber remains', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const unsubscribeFirst = eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: first,
+    });
+    eventStream.subscribe({
+      topicName: 'node/status-change',
+      receiver: second,
+    });
+
+    unsubscribeFirst();
+    eventStream.publish({
+      topicName: 'node/status-change',
+      data: { nodeId: 'remaining', status: 'idle' },
+    });
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledOnce();
   });
 
   it('should create new subscription set when subscribing to a new topic', () => {
@@ -172,77 +213,6 @@ describe('ConcreteEventStream', () => {
         error: expect.any(Error),
       },
     ]);
-  });
-
-  it('automatically registers an all-event logging consumer', () => {
-    let loggedStream: LoggableStream<PublishProps> | undefined;
-    const router: LogRouter = {
-      consume: (stream) => {
-        loggedStream = stream as unknown as LoggableStream<PublishProps>;
-      },
-    };
-    eventStream = new ConcreteEventStream({ logRouter: router });
-
-    expect(loggedStream?.name).toBe('events');
-    const received = vi.fn();
-    loggedStream?.subscribeForLogging(received);
-    eventStream.publish({
-      topicName: 'system/notice',
-      data: { message: 'ready' },
-    });
-    expect(received).toHaveBeenCalledWith({
-      topicName: 'system/notice',
-      data: { message: 'ready' },
-    });
-    expect(
-      loggedStream?.serializeForLogging({
-        topicName: 'system/notice',
-        data: { message: 'ready' },
-      }),
-    ).toEqual({
-      topicName: 'system/notice',
-      data: { message: 'ready' },
-    });
-
-    const node = {
-      id: 'node-1',
-      kind: 'memory' as const,
-      status: 'idle' as const,
-      context: 'focused context',
-      sendMessage: async () => undefined,
-    };
-    expect(
-      loggedStream?.serializeForLogging({
-        topicName: 'orchestrator/nodes-changed',
-        data: { allNodes: [node] },
-      }),
-    ).toEqual({
-      topicName: 'orchestrator/nodes-changed',
-      data: {
-        allNodes: [
-          {
-            id: 'node-1',
-            kind: 'memory',
-            status: 'idle',
-            context: 'focused context',
-          },
-        ],
-      },
-    });
-    expect(
-      loggedStream?.serializeForLogging({
-        topicName: 'orchestrator/node-added',
-        data: { addedNodes: [node] },
-      }),
-    ).toMatchObject({
-      data: { addedNodes: [{ id: 'node-1' }] },
-    });
-    expect(
-      loggedStream?.serializeForLogging({
-        topicName: 'orchestrator/node-updated',
-        data: { node },
-      }),
-    ).toMatchObject({ data: { node: { id: 'node-1' } } });
   });
 
   it('forwards explicitly reported errors to its configured error stream', () => {

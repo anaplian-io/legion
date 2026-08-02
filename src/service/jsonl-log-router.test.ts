@@ -25,6 +25,9 @@ const makeStream = <Entry>(
       name,
       subscribeForLogging: (nextReceiver) => {
         receiver = nextReceiver;
+        return () => {
+          receiver = undefined;
+        };
       },
       serializeForLogging: (entry) => entry,
     },
@@ -40,7 +43,7 @@ afterEach(() => {
 });
 
 describe('JsonlLogRouter', () => {
-  it('writes safe, structured JSONL records for arbitrary stream entries', () => {
+  it('writes safe, structured JSONL records for arbitrary stream entries', async () => {
     const directory = makeDirectory();
     const router = new JsonlLogRouter({
       directory,
@@ -76,6 +79,7 @@ describe('JsonlLogRouter', () => {
       map: new Map([['key', 'value']]),
       set: new Set(['value']),
     });
+    await router.flush();
 
     const [line] = fs
       .readFileSync(path.join(directory, 'events.0.jsonl'), 'utf8')
@@ -113,21 +117,24 @@ describe('JsonlLogRouter', () => {
         set: ['value'],
       },
     });
+    await router.close();
   });
 
-  it('appends to the current file and rotates once it reaches the byte limit', () => {
+  it('appends to the current file and rotates once it reaches the byte limit', async () => {
     const directory = makeDirectory();
     const appendingRouter = new JsonlLogRouter({ directory });
     const appending = makeStream<string>('appending');
     appendingRouter.consume(appending.stream);
     appending.publish('first');
     appending.publish('second');
-    expect(
-      fs
-        .readFileSync(path.join(directory, 'appending.0.jsonl'), 'utf8')
-        .trim()
-        .split('\n'),
-    ).toHaveLength(2);
+    await appendingRouter.flush();
+    const appendedEntries = fs
+      .readFileSync(path.join(directory, 'appending.0.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { entry: string })
+      .map(({ entry }) => entry);
+    expect(appendedEntries).toEqual(['first', 'second']);
 
     const rotatingRouter = new JsonlLogRouter({
       directory,
@@ -138,8 +145,71 @@ describe('JsonlLogRouter', () => {
     rotatingRouter.consume(rotating.stream);
     rotating.publish('first');
     rotating.publish('second');
+    await rotatingRouter.flush();
 
     expect(fs.existsSync(path.join(directory, 'rotating.0.jsonl'))).toBe(true);
     expect(fs.existsSync(path.join(directory, 'rotating.1.jsonl'))).toBe(true);
+    await appendingRouter.close();
+    await rotatingRouter.close();
+  });
+
+  it('reopens the latest sequence file when it still has capacity', async () => {
+    const directory = makeDirectory();
+    const firstRouter = new JsonlLogRouter({ directory });
+    const first = makeStream<string>('events');
+    firstRouter.consume(first.stream);
+    first.publish('first process');
+    await firstRouter.close();
+
+    const secondRouter = new JsonlLogRouter({ directory });
+    const second = makeStream<string>('events');
+    secondRouter.consume(second.stream);
+    second.publish('second process');
+    await secondRouter.close();
+
+    const entries = fs
+      .readFileSync(path.join(directory, 'events.0.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { entry: string })
+      .map(({ entry }) => entry);
+    expect(entries).toEqual(['first process', 'second process']);
+  });
+
+  it('skips pre-existing sequence files that are already full', async () => {
+    const directory = makeDirectory();
+    fs.writeFileSync(path.join(directory, 'events.0.jsonl'), 'full');
+    const router = new JsonlLogRouter({
+      directory,
+      maxFileBytes: 1,
+    });
+    const events = makeStream<string>('events');
+    router.consume(events.stream);
+
+    events.publish('next');
+    await router.close();
+
+    expect(fs.existsSync(path.join(directory, 'events.1.jsonl'))).toBe(true);
+  });
+
+  it('detaches streams and safely supports repeated close calls', async () => {
+    const directory = makeDirectory();
+    const router = new JsonlLogRouter({ directory });
+    const attached = makeStream<string>('attached');
+    router.consume(attached.stream);
+    attached.publish('before close');
+
+    await router.close();
+    attached.publish('after close');
+    router.consume(makeStream<string>('ignored').stream);
+    await router.close();
+
+    const contents = fs.readFileSync(
+      path.join(directory, 'attached.0.jsonl'),
+      'utf8',
+    );
+    expect(contents).toContain('before close');
+    expect(contents).not.toContain('after close');
+    expect(fs.existsSync(path.join(directory, 'ignored.0.jsonl'))).toBe(false);
   });
 });

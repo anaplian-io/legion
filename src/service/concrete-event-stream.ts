@@ -8,20 +8,19 @@
  */
 
 import {
-  EventStream,
+  ObservableEventStream,
   PublishProps,
   SubscribeProps,
+  Topics,
 } from '../types/event-stream.js';
 import { ErrorReport, ErrorStream } from '../types/error-stream.js';
-import { LogRouter } from '../types/logging.js';
 import { ConcreteErrorStream } from './concrete-error-stream.js';
 
 export interface ConcreteEventStreamOptions {
   readonly errorStream?: ErrorStream;
-  readonly logRouter?: LogRouter;
 }
 
-export class ConcreteEventStream implements EventStream {
+export class ConcreteEventStream implements ObservableEventStream {
   private readonly subscriptions = new Map<
     string,
     Set<(data: unknown) => void | Promise<void>>
@@ -33,11 +32,6 @@ export class ConcreteEventStream implements EventStream {
 
   constructor(options?: ConcreteEventStreamOptions) {
     this.errorStream = options?.errorStream ?? new ConcreteErrorStream();
-    options?.logRouter?.consume({
-      name: 'events',
-      subscribeForLogging: this.subscribeAll,
-      serializeForLogging: serializePublishedEvent,
-    });
   }
 
   public readonly publish = (props: PublishProps): void => {
@@ -56,19 +50,31 @@ export class ConcreteEventStream implements EventStream {
     }
   };
 
-  public readonly subscribe = (props: SubscribeProps): void => {
+  public readonly subscribe = <Topic extends Topics>(
+    props: SubscribeProps<Topic>,
+  ): (() => void) => {
     let receivers = this.subscriptions.get(props.topicName);
     if (receivers === undefined) {
       receivers = new Set();
       this.subscriptions.set(props.topicName, receivers);
     }
-    receivers.add(props.receiver as (data: unknown) => void | Promise<void>);
+    const receiver = props.receiver as (data: unknown) => void | Promise<void>;
+    receivers.add(receiver);
+    return () => {
+      receivers.delete(receiver);
+      if (receivers.size === 0) {
+        this.subscriptions.delete(props.topicName);
+      }
+    };
   };
 
   public readonly subscribeAll = (
     receiver: (props: PublishProps) => void | Promise<void>,
-  ): void => {
+  ): (() => void) => {
     this.allSubscribers.add(receiver);
+    return () => {
+      this.allSubscribers.delete(receiver);
+    };
   };
 
   public readonly reportError = (report: ErrorReport): void => {
@@ -102,37 +108,3 @@ export class ConcreteEventStream implements EventStream {
     }
   };
 }
-
-const serializeNode = (node: {
-  readonly id: string;
-  readonly kind: string;
-  readonly status: string;
-  readonly context: string;
-}): Record<string, string> => ({
-  id: node.id,
-  kind: node.kind,
-  status: node.status,
-  context: node.context,
-});
-
-const serializePublishedEvent = (props: PublishProps): unknown => {
-  switch (props.topicName) {
-    case 'orchestrator/nodes-changed':
-      return {
-        topicName: props.topicName,
-        data: { allNodes: props.data.allNodes.map(serializeNode) },
-      };
-    case 'orchestrator/node-added':
-      return {
-        topicName: props.topicName,
-        data: { addedNodes: props.data.addedNodes.map(serializeNode) },
-      };
-    case 'orchestrator/node-updated':
-      return {
-        topicName: props.topicName,
-        data: { node: serializeNode(props.data.node) },
-      };
-    default:
-      return props;
-  }
-};

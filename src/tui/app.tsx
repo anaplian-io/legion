@@ -159,140 +159,147 @@ export const App: React.FC<AppProps> = ({
 
   // Wire up event subscriptions once. Node statuses drive the phase pipeline.
   useEffect(() => {
-    eventStream.subscribe({
-      topicName: 'orchestrator/nodes-changed',
-      receiver: ({ allNodes }) => {
-        const next = new Map<string, NodeView>();
-        for (const node of allNodes) {
-          next.set(node.id, {
-            id: node.id,
-            kind: node.kind,
-            status: nodesRef.current.get(node.id)?.status ?? node.status,
-          });
-        }
-        nodesRef.current = next;
-        setNodes(next);
-      },
-    });
-
-    eventStream.subscribe({
-      topicName: 'orchestrator/node-added',
-      receiver: ({ addedNodes }) => {
-        for (const node of addedNodes) {
-          appendLog(`+ spawned ${shortId(node.id)} (${node.kind})`, 'green');
-        }
-      },
-    });
-
-    eventStream.subscribe({
-      topicName: 'orchestrator/node-removed',
-      receiver: ({ removedNodeIds }) => {
-        for (const id of removedNodeIds) {
-          appendLog(`- pruned/split ${shortId(id)}`, 'red');
-        }
-      },
-    });
-
-    eventStream.subscribe({
-      topicName: 'node/status-change',
-      receiver: ({ nodeId, status }) => {
-        const existing = nodesRef.current.get(nodeId);
-        if (existing) {
-          const next = new Map(nodesRef.current);
-          next.set(nodeId, { ...existing, status });
+    const unsubscribers = [
+      eventStream.subscribe({
+        topicName: 'orchestrator/nodes-changed',
+        receiver: ({ allNodes }) => {
+          const next = new Map<string, NodeView>();
+          for (const node of allNodes) {
+            next.set(node.id, {
+              id: node.id,
+              kind: node.kind,
+              status: nodesRef.current.get(node.id)?.status ?? node.status,
+            });
+          }
           nodesRef.current = next;
           setNodes(next);
-        }
-        if (status === 'generating') {
-          /* v8 ignore next -- the consolidate-preserving arm depends on React update ordering and can't be hit deterministically */
-          setPhase((p) =>
-            p === 'consolidate'
-              ? p
-              : existing?.kind === 'memory'
-                ? 'cognitive'
-                : 'afferent',
-          );
-        } else if (status === 'evaluating-relevance') {
-          setPhase('attention');
-        }
-      },
-    });
+        },
+      }),
 
-    eventStream.subscribe({
-      topicName: 'orchestrator/working-memory-updated',
-      receiver: ({ workingMemory: wm, broadcast: next }) => {
-        setWorkingMemory(wm.messages.map(formatMessagePayload));
-        setBroadcast(formatMessagePayload(next));
-        setPhase('consolidate');
-        appendLog('✦ distilled new broadcast into working memory', 'magenta');
-      },
-    });
-
-    eventStream.subscribe({
-      topicName: 'orchestrator/user-input-received',
-      receiver: ({ content }) => {
-        setUserInputs((prev) => [
-          ...trimUserInputHistory(prev),
-          {
-            id: (prev[prev.length - 1]?.id ?? 0) + 1,
-            content,
-            status: 'pending',
-          },
-        ]);
-      },
-    });
-
-    eventStream.subscribe({
-      topicName: 'orchestrator/user-input-consumed',
-      receiver: ({ content }) => {
-        setUserInputs((prev) => {
-          const index = prev.findIndex(
-            (input) => input.status === 'pending' && input.content === content,
-          );
-          if (index < 0) {
-            return prev;
+      eventStream.subscribe({
+        topicName: 'orchestrator/node-added',
+        receiver: ({ addedNodes }) => {
+          for (const node of addedNodes) {
+            appendLog(`+ spawned ${shortId(node.id)} (${node.kind})`, 'green');
           }
-          return trimUserInputHistory(
-            prev.map((input, i) =>
-              i === index ? { ...input, status: 'consumed' } : input,
-            ),
+        },
+      }),
+
+      eventStream.subscribe({
+        topicName: 'orchestrator/node-removed',
+        receiver: ({ removedNodeIds }) => {
+          for (const id of removedNodeIds) {
+            appendLog(`- pruned/split ${shortId(id)}`, 'red');
+          }
+        },
+      }),
+
+      eventStream.subscribe({
+        topicName: 'node/status-change',
+        receiver: ({ nodeId, status }) => {
+          const existing = nodesRef.current.get(nodeId);
+          if (existing) {
+            const next = new Map(nodesRef.current);
+            next.set(nodeId, { ...existing, status });
+            nodesRef.current = next;
+            setNodes(next);
+          }
+          if (status === 'generating') {
+            /* v8 ignore next -- the consolidate-preserving arm depends on React update ordering and can't be hit deterministically */
+            setPhase((p) =>
+              p === 'consolidate'
+                ? p
+                : existing?.kind === 'memory'
+                  ? 'cognitive'
+                  : 'afferent',
+            );
+          } else if (status === 'evaluating-relevance') {
+            setPhase('attention');
+          }
+        },
+      }),
+
+      eventStream.subscribe({
+        topicName: 'orchestrator/working-memory-updated',
+        receiver: ({ workingMemory: wm, broadcast: next }) => {
+          setWorkingMemory(wm.messages.map(formatMessagePayload));
+          setBroadcast(formatMessagePayload(next));
+          setPhase('consolidate');
+          appendLog('✦ distilled new broadcast into working memory', 'magenta');
+        },
+      }),
+
+      eventStream.subscribe({
+        topicName: 'orchestrator/user-input-received',
+        receiver: ({ content }) => {
+          setUserInputs((prev) => [
+            ...trimUserInputHistory(prev),
+            {
+              id: (prev[prev.length - 1]?.id ?? 0) + 1,
+              content,
+              status: 'pending',
+            },
+          ]);
+        },
+      }),
+
+      eventStream.subscribe({
+        topicName: 'orchestrator/user-input-consumed',
+        receiver: ({ content }) => {
+          setUserInputs((prev) => {
+            const index = prev.findIndex(
+              (input) =>
+                input.status === 'pending' && input.content === content,
+            );
+            if (index < 0) {
+              return prev;
+            }
+            return trimUserInputHistory(
+              prev.map((input, i) =>
+                i === index ? { ...input, status: 'consumed' } : input,
+              ),
+            );
+          });
+        },
+      }),
+
+      eventStream.subscribe({
+        topicName: 'tool/invocation-started',
+        receiver: ({ nodeId, toolName, arguments: toolArguments }) => {
+          appendLog(
+            `⚙ ${shortId(nodeId)} → ${toolName} ${toolArguments}`,
+            'cyan',
           );
-        });
-      },
-    });
+        },
+      }),
 
-    eventStream.subscribe({
-      topicName: 'tool/invocation-started',
-      receiver: ({ nodeId, toolName, arguments: toolArguments }) => {
-        appendLog(
-          `⚙ ${shortId(nodeId)} → ${toolName} ${toolArguments}`,
-          'cyan',
-        );
-      },
-    });
+      eventStream.subscribe({
+        topicName: 'tool/invocation-completed',
+        receiver: ({ nodeId, toolName, success, output }) => {
+          const outputPreview = createToolOutputPreview(output);
+          appendLog(
+            `${success ? '✓' : '✗'} ${shortId(nodeId)} ${toolName}${outputPreview.length === 0 ? '' : ` → ${outputPreview}`}`,
+            success ? 'green' : 'red',
+          );
+        },
+      }),
 
-    eventStream.subscribe({
-      topicName: 'tool/invocation-completed',
-      receiver: ({ nodeId, toolName, success, output }) => {
-        const outputPreview = createToolOutputPreview(output);
-        appendLog(
-          `${success ? '✓' : '✗'} ${shortId(nodeId)} ${toolName}${outputPreview.length === 0 ? '' : ` → ${outputPreview}`}`,
-          success ? 'green' : 'red',
-        );
-      },
-    });
+      eventStream.subscribe({
+        topicName: 'goal/updated',
+        receiver: ({ activeGoal }) => {
+          appendLog(
+            activeGoal === undefined
+              ? '◎ active collective goal cleared'
+              : `◎ active goal: ${activeGoal.objective}`,
+            'magenta',
+          );
+        },
+      }),
+    ];
 
-    eventStream.subscribe({
-      topicName: 'goal/updated',
-      receiver: ({ activeGoal }) => {
-        appendLog(
-          activeGoal === undefined
-            ? '◎ active collective goal cleared'
-            : `◎ active goal: ${activeGoal.objective}`,
-          'magenta',
-        );
-      },
-    });
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
   }, [eventStream]);
 
   // Drive the epoch loop. The TUI boots paused; unpausing starts epochs.

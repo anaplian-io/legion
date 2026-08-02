@@ -172,13 +172,14 @@ Legion writes structured JSON Lines logs beneath `saveLocation/logs` (therefore
 recorded in `events.0.jsonl`; recoverable failures are recorded in
 `errors.0.jsonl`. Files append across restarts and rotate at 10 MiB into
 `events.1.jsonl`, `errors.1.jsonl`, and so on. Each line is an independent JSON
-record, so logs are safe to tail or process incrementally with standard JSONL
-tools.
+record, so logs are easy to tail or process incrementally with standard JSONL
+tools. Writes are queued in publication order rather than blocking cognitive
+work on filesystem I/O, and the TUI drains the queue during graceful shutdown.
 
-Streams register their own logging consumer when constructed with Legion's log
-router. New stream implementations should use the same `LoggableStream` /
-`LogRouter` constructor pattern so durable logging is automatic rather than a
-separate boot-time task.
+Domain and error streams remain independent of durable storage. Small adapters
+expose them as `LoggableStream` values, and the process-level `LogRouter` owns
+subscriptions, rotation, flushing, and shutdown. New durable streams should use
+the same adapter boundary instead of adding filesystem concerns to publishers.
 
 ## Development
 
