@@ -45,10 +45,7 @@ afterEach(() => {
 describe('JsonlLogRouter', () => {
   it('writes safe, structured JSONL records for arbitrary stream entries', async () => {
     const directory = makeDirectory();
-    const router = new JsonlLogRouter({
-      directory,
-      now: () => new Date('2026-07-19T12:00:00.000Z'),
-    });
+    const router = new JsonlLogRouter({ directory });
     const { stream, publish } = makeStream<Record<string, unknown>>('events');
     router.consume(stream);
 
@@ -59,6 +56,9 @@ describe('JsonlLogRouter', () => {
     const errorWithCause = new Error('outer', { cause: new Error('inner') });
     const errorWithoutStack = new Error('no stack');
     Object.defineProperty(errorWithoutStack, 'stack', { value: undefined });
+    const shared = ['candidate-1'];
+    const circularError = new Error('circular cause');
+    circularError.cause = circularError;
 
     publish({
       nil: null,
@@ -78,6 +78,9 @@ describe('JsonlLogRouter', () => {
       array: ['item'],
       map: new Map([['key', 'value']]),
       set: new Set(['value']),
+      sharedFirst: shared,
+      sharedSecond: shared,
+      circularError,
     });
     await router.flush();
 
@@ -86,35 +89,39 @@ describe('JsonlLogRouter', () => {
       .trim()
       .split('\n');
     expect(JSON.parse(line ?? '')).toEqual({
-      timestamp: '2026-07-19T12:00:00.000Z',
-      stream: 'events',
-      entry: {
-        nil: null,
-        text: 'hello',
-        bool: true,
-        finite: 3,
-        infinite: 'Infinity',
-        big: '9',
-        missing: '[undefined]',
-        named: '[Function named]',
-        nameless: '[Function anonymous]',
-        symbol: 'Symbol(stream)',
-        errorWithCause: {
+      nil: null,
+      text: 'hello',
+      bool: true,
+      finite: 3,
+      infinite: 'Infinity',
+      big: '9',
+      missing: '[undefined]',
+      named: '[Function named]',
+      nameless: '[Function anonymous]',
+      symbol: 'Symbol(stream)',
+      errorWithCause: {
+        name: 'Error',
+        message: 'outer',
+        stack: expect.any(String),
+        cause: {
           name: 'Error',
-          message: 'outer',
+          message: 'inner',
           stack: expect.any(String),
-          cause: {
-            name: 'Error',
-            message: 'inner',
-            stack: expect.any(String),
-          },
         },
-        errorWithoutStack: { name: 'Error', message: 'no stack' },
-        date: '2026-07-19T00:00:00.000Z',
-        circular: { self: '[Circular]' },
-        array: ['item'],
-        map: { key: 'value' },
-        set: ['value'],
+      },
+      errorWithoutStack: { name: 'Error', message: 'no stack' },
+      date: '2026-07-19T00:00:00.000Z',
+      circular: { self: '[Circular]' },
+      array: ['item'],
+      map: { key: 'value' },
+      set: ['value'],
+      sharedFirst: ['candidate-1'],
+      sharedSecond: ['candidate-1'],
+      circularError: {
+        name: 'Error',
+        message: 'circular cause',
+        stack: expect.any(String),
+        cause: '[Circular]',
       },
     });
     await router.close();
@@ -132,14 +139,12 @@ describe('JsonlLogRouter', () => {
       .readFileSync(path.join(directory, 'appending.0.jsonl'), 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as { entry: string })
-      .map(({ entry }) => entry);
+      .map((line) => JSON.parse(line) as string);
     expect(appendedEntries).toEqual(['first', 'second']);
 
     const rotatingRouter = new JsonlLogRouter({
       directory,
       maxFileBytes: 1,
-      now: () => new Date('2026-07-19T12:00:00.000Z'),
     });
     const rotating = makeStream<string>('rotating');
     rotatingRouter.consume(rotating.stream);
@@ -171,8 +176,7 @@ describe('JsonlLogRouter', () => {
       .readFileSync(path.join(directory, 'events.0.jsonl'), 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as { entry: string })
-      .map(({ entry }) => entry);
+      .map((line) => JSON.parse(line) as string);
     expect(entries).toEqual(['first process', 'second process']);
   });
 

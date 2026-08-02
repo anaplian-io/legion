@@ -19,10 +19,14 @@ export class AskYesNoQuestionRelevanceGate implements RelevanceGate {
       ...(broadcastMessage.afferentContext ?? []),
       broadcastMessage.broadcast,
     ];
-    return this.props.provider.askYesNoQuestion({
+    const questionProps = {
       systemPrompt: nodeContext ?? '',
       messages,
       question: this.props.question,
+    };
+    return this.props.provider.askYesNoQuestion(questionProps, {
+      stage: 'node-relevance',
+      ...broadcastMessage.telemetry,
     });
   };
 }

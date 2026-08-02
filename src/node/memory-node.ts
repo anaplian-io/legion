@@ -52,7 +52,7 @@ export class MemoryNode implements Node<'memory'> {
       ...(broadcastMessage.afferentContext ?? []),
       broadcastMessage.broadcast,
     ];
-    await this.setStatus('evaluating-relevance');
+    await this.setStatus('evaluating-relevance', broadcastMessage.telemetry);
     const relevant = await this.props.relevanceGate.isRelevant({
       broadcastMessage,
       nodeId: this.id,
@@ -60,22 +60,26 @@ export class MemoryNode implements Node<'memory'> {
       nodeContext: this.preamble,
     });
     if (!relevant) {
-      await this.setStatus('idle');
+      await this.setStatus('idle', broadcastMessage.telemetry);
       return undefined;
     }
-    await this.setStatus('idle');
-    await this.setStatus('generating');
-    const generated = await provider.generateWithTools({
+    await this.setStatus('idle', broadcastMessage.telemetry);
+    await this.setStatus('generating', broadcastMessage.telemetry);
+    const generationProps = {
       messages,
       systemPrompt: this.preamble,
       tools: [ACTION_REQUEST_TOOL],
-      toolChoice: 'auto',
+      toolChoice: 'auto' as const,
+    };
+    const generated = await provider.generateWithTools(generationProps, {
+      stage: 'node-generation',
+      ...broadcastMessage.telemetry,
     });
     const actionRequests = (generated.toolCalls ?? [])
       .map(actionRequestFromToolCall)
       .filter(isDefined);
     if (generated.content.trim().length === 0 && actionRequests.length === 0) {
-      await this.setStatus('idle');
+      await this.setStatus('idle', broadcastMessage.telemetry);
       return undefined;
     }
     const response: NodeResponse = {
@@ -83,8 +87,10 @@ export class MemoryNode implements Node<'memory'> {
       originatingNodeId: this.id,
       content: generated.content,
       ...(actionRequests.length === 0 ? {} : { actionRequests }),
+      candidateId: broadcastMessage.telemetry.candidateId,
+      inputIds: broadcastMessage.telemetry.inputIds,
     };
-    await this.setStatus('idle');
+    await this.setStatus('idle', broadcastMessage.telemetry);
     this._context =
       this._context +
       `\n\n` +
@@ -115,7 +121,10 @@ ${this.context}
 `;
   }
 
-  private readonly setStatus = async (newStatus: NodeStatus): Promise<void> => {
+  private readonly setStatus = async (
+    newStatus: NodeStatus,
+    telemetry: BroadcastMessage['telemetry'],
+  ): Promise<void> => {
     this._nodeStatus = newStatus;
     try {
       this.props.eventStream.publish({
@@ -127,6 +136,7 @@ ${this.context}
         source: `MemoryNode ${this.id}`,
         message: 'Failed to publish a node status change.',
         error: e,
+        telemetry,
       });
     }
   };

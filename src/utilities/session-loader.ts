@@ -13,6 +13,10 @@ import {
 } from '../types/mcp-server-summary.js';
 import { ACTIVE_GOAL_FILE_NAME, ActiveGoal } from '../types/goal.js';
 import { isRecord } from './type-guards.js';
+import {
+  classifyTelemetryError,
+  TelemetryRecorder,
+} from '../telemetry/telemetry-recorder.js';
 
 export interface LoadedSession {
   readonly nodes: Node<'memory'>[];
@@ -26,6 +30,7 @@ export const SessionLoader = {
     readonly directory: string;
     readonly eventStream: EventStream;
     readonly memoryNodeFactory: MemoryNodeFactory;
+    readonly telemetry: TelemetryRecorder;
   }): LoadedSession | undefined => {
     const { directory, memoryNodeFactory, eventStream } = props;
     const normalizedDirectory = path.normalize(directory);
@@ -38,7 +43,11 @@ export const SessionLoader = {
         .filter((file) => file.endsWith('.json'));
       nodeFiles.forEach((file) => {
         const filePath = path.join(nodesDir, file);
-        const content = fs.readFileSync(filePath, 'utf-8');
+        const content = readPersistedFile(
+          props.telemetry,
+          'memory-node',
+          filePath,
+        );
         const nodeData = JSON.parse(content);
         nodes.push(
           memoryNodeFactory.create({
@@ -56,7 +65,11 @@ export const SessionLoader = {
     let broadcast: LoadedSession['broadcast'];
     const wmFilePath = path.join(normalizedDirectory, 'working-memory.json');
     if (fs.existsSync(wmFilePath)) {
-      const content = fs.readFileSync(wmFilePath, 'utf-8');
+      const content = readPersistedFile(
+        props.telemetry,
+        'working-memory',
+        wmFilePath,
+      );
       const event = JSON.parse(content) as {
         readonly workingMemory: WorkingMemory;
         readonly broadcast: Message;
@@ -73,7 +86,7 @@ export const SessionLoader = {
     const statsFilePath = path.join(normalizedDirectory, 'stats.json');
     if (fs.existsSync(statsFilePath)) {
       const entries = JSON.parse(
-        fs.readFileSync(statsFilePath, 'utf-8'),
+        readPersistedFile(props.telemetry, 'node-stats', statsFilePath),
       ) as NodeStatsEntry[];
       entries.forEach(({ nodeId, stats }) =>
         nodeStats.set(nodeId, normalizeNodeStats(stats)),
@@ -89,6 +102,7 @@ export const SessionLoader = {
   },
   loadMcpServerSummaries: (props: {
     readonly directory: string;
+    readonly telemetry: TelemetryRecorder;
   }): PersistedMcpServerSummaries => {
     const filePath = path.join(
       path.normalize(props.directory),
@@ -98,11 +112,12 @@ export const SessionLoader = {
       return {};
     }
     return JSON.parse(
-      fs.readFileSync(filePath, 'utf-8'),
+      readPersistedFile(props.telemetry, 'mcp-server-summaries', filePath),
     ) as PersistedMcpServerSummaries;
   },
   loadActiveGoal: (props: {
     readonly directory: string;
+    readonly telemetry: TelemetryRecorder;
   }): ActiveGoal | undefined => {
     const filePath = path.join(
       path.normalize(props.directory),
@@ -111,7 +126,9 @@ export const SessionLoader = {
     if (!fs.existsSync(filePath)) {
       return undefined;
     }
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+    const parsed = JSON.parse(
+      readPersistedFile(props.telemetry, 'active-goal', filePath),
+    ) as unknown;
     if (!isRecord(parsed) || !('activeGoal' in parsed)) {
       throw new Error('[SessionLoader] active goal file has invalid shape');
     }
@@ -148,6 +165,41 @@ export const SessionLoader = {
       revision: requiredPositiveInteger(activeGoal, 'revision'),
     };
   },
+};
+
+const readPersistedFile = (
+  telemetry: TelemetryRecorder,
+  target: string,
+  file: string,
+): string => {
+  const startedAtMs = telemetry.monotonicNow();
+  try {
+    const result = fs.readFileSync(file, 'utf-8');
+    telemetry.record(
+      'persistence.completed',
+      {
+        operation: 'read',
+        target,
+        durationMs: telemetry.durationSince(startedAtMs),
+        outcome: 'success',
+      },
+      telemetry.currentEpochContext ?? {},
+    );
+    return result;
+  } catch (error) {
+    telemetry.record(
+      'persistence.completed',
+      {
+        operation: 'read',
+        target,
+        durationMs: telemetry.durationSince(startedAtMs),
+        outcome: 'failure',
+        errorCategory: classifyTelemetryError(error),
+      },
+      telemetry.currentEpochContext ?? {},
+    );
+    throw error;
+  }
 };
 
 const normalizeNodeStats = (stats: unknown): NodeStats => {

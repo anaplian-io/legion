@@ -24,9 +24,11 @@ vi.mock('node:fs', () => ({
 import { SessionLoader } from './session-loader.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
+import { createTestTelemetry } from '../telemetry/test-context.fixture.js';
 
 describe('SessionLoader', () => {
   const mockDirectory = '/tmp/test-session-loader';
+  const telemetry = createTestTelemetry();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,12 +47,47 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
     });
 
     expect(result).toBeUndefined();
+  });
+
+  it('records read failures both inside and outside an epoch', () => {
+    const mockEventStream: EventStream = {
+      subscribe: vi.fn(),
+      publish: vi.fn(),
+    };
+    const mockMemoryNodeFactory: MemoryNodeFactory = { create: vi.fn() };
+    existsSync.mockReturnValue(true);
+    readdirSync.mockReturnValue(['node-1.json']);
+    readFileSync.mockImplementation(() => {
+      throw new TypeError('read failed');
+    });
+
+    [false, true].forEach((insideEpoch) => {
+      const failureTelemetry = createTestTelemetry();
+      const received: import('../types/telemetry.js').TelemetryEvent[] = [];
+      failureTelemetry.subscribe((event) => received.push(event));
+      const epoch = insideEpoch ? failureTelemetry.beginEpoch() : undefined;
+
+      expect(() =>
+        SessionLoader.load({
+          telemetry: failureTelemetry,
+          directory: mockDirectory,
+          eventStream: mockEventStream,
+          memoryNodeFactory: mockMemoryNodeFactory,
+        }),
+      ).toThrow('read failed');
+      expect(received.at(-1)).toMatchObject({
+        event: 'persistence.completed',
+        ...(epoch === undefined ? {} : { epochId: epoch.epochId }),
+        data: { outcome: 'failure', errorCategory: 'TypeError' },
+      });
+    });
   });
 
   it('should load nodes and working memory from disk', () => {
@@ -106,6 +143,7 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -180,6 +218,7 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -214,6 +253,7 @@ describe('SessionLoader', () => {
 
     expect(() =>
       SessionLoader.load({
+        telemetry,
         directory: mockDirectory,
         eventStream: mockEventStream,
         memoryNodeFactory: mockMemoryNodeFactory,
@@ -244,6 +284,7 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -274,6 +315,7 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -316,6 +358,7 @@ describe('SessionLoader', () => {
 
     expect(() =>
       SessionLoader.load({
+        telemetry,
         directory: mockDirectory,
         eventStream: mockEventStream,
         memoryNodeFactory: mockMemoryNodeFactory,
@@ -343,6 +386,7 @@ describe('SessionLoader', () => {
 
     expect(() =>
       SessionLoader.load({
+        telemetry,
         directory: mockDirectory,
         eventStream: mockEventStream,
         memoryNodeFactory: mockMemoryNodeFactory,
@@ -385,6 +429,7 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -427,6 +472,7 @@ describe('SessionLoader', () => {
 
     expect(
       SessionLoader.load({
+        telemetry,
         directory: mockDirectory,
         eventStream,
         memoryNodeFactory,
@@ -451,6 +497,7 @@ describe('SessionLoader', () => {
       });
       expect(() =>
         SessionLoader.load({
+          telemetry,
           directory: mockDirectory,
           eventStream,
           memoryNodeFactory,
@@ -476,6 +523,7 @@ describe('SessionLoader', () => {
     };
 
     SessionLoader.load({
+      telemetry,
       directory: dirWithExtraSlashes,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -513,6 +561,7 @@ describe('SessionLoader', () => {
     };
 
     const result = SessionLoader.load({
+      telemetry,
       directory: mockDirectory,
       eventStream: mockEventStream,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -525,7 +574,10 @@ describe('SessionLoader', () => {
     existsSync.mockReturnValue(false);
 
     expect(
-      SessionLoader.loadMcpServerSummaries({ directory: mockDirectory }),
+      SessionLoader.loadMcpServerSummaries({
+        directory: mockDirectory,
+        telemetry,
+      }),
     ).toEqual({});
   });
 
@@ -540,7 +592,10 @@ describe('SessionLoader', () => {
     readFileSync.mockReturnValue(JSON.stringify(summaries));
 
     expect(
-      SessionLoader.loadMcpServerSummaries({ directory: mockDirectory }),
+      SessionLoader.loadMcpServerSummaries({
+        directory: mockDirectory,
+        telemetry,
+      }),
     ).toEqual(summaries);
     expect(readFileSync).toHaveBeenCalledWith(
       path.join(mockDirectory, 'mcp-server-summaries.json'),
@@ -552,7 +607,7 @@ describe('SessionLoader', () => {
     existsSync.mockReturnValue(false);
 
     expect(
-      SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+      SessionLoader.loadActiveGoal({ directory: mockDirectory, telemetry }),
     ).toBeUndefined();
   });
 
@@ -566,7 +621,9 @@ describe('SessionLoader', () => {
       )
       .mockReturnValueOnce(JSON.stringify({ activeGoal: null }));
 
-    expect(SessionLoader.loadActiveGoal({ directory: mockDirectory })).toEqual({
+    expect(
+      SessionLoader.loadActiveGoal({ directory: mockDirectory, telemetry }),
+    ).toEqual({
       id: 'goal-1',
       objective: 'Explore sensors',
       successCriteria:
@@ -575,7 +632,7 @@ describe('SessionLoader', () => {
       revision: 1,
     });
     expect(
-      SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+      SessionLoader.loadActiveGoal({ directory: mockDirectory, telemetry }),
     ).toBeUndefined();
     expect(readFileSync).toHaveBeenCalledWith(
       path.join(mockDirectory, 'active-goal.json'),
@@ -594,9 +651,9 @@ describe('SessionLoader', () => {
     };
     readFileSync.mockReturnValue(JSON.stringify({ activeGoal }));
 
-    expect(SessionLoader.loadActiveGoal({ directory: mockDirectory })).toEqual(
-      activeGoal,
-    );
+    expect(
+      SessionLoader.loadActiveGoal({ directory: mockDirectory, telemetry }),
+    ).toEqual(activeGoal);
   });
 
   it('rejects malformed active-goal file shapes', () => {
@@ -606,7 +663,7 @@ describe('SessionLoader', () => {
     invalidShapes.forEach((content) => {
       readFileSync.mockReturnValue(content);
       expect(() =>
-        SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+        SessionLoader.loadActiveGoal({ directory: mockDirectory, telemetry }),
       ).toThrow('[SessionLoader] active goal file has invalid shape');
     });
   });
@@ -659,7 +716,7 @@ describe('SessionLoader', () => {
     invalidGoals.forEach((content) => {
       readFileSync.mockReturnValue(content);
       expect(() =>
-        SessionLoader.loadActiveGoal({ directory: mockDirectory }),
+        SessionLoader.loadActiveGoal({ directory: mockDirectory, telemetry }),
       ).toThrow('[SessionLoader] active goal file has invalid goal data');
     });
   });

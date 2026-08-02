@@ -45,14 +45,16 @@ import { GoalNode } from '../node/goal-node.js';
 import { ActiveGoalSensor } from '../sensor/active-goal-sensor.js';
 import type { ActiveGoal } from '../types/goal.js';
 import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
-import { LogRouter } from '../types/logging.js';
 import { ErrorStream } from '../types/error-stream.js';
 import { DistillationValidator } from '../distillation/distillation-validator.js';
 import { ValidatedDistiller } from '../distillation/validated-distiller.js';
 import {
-  errorLogStream,
-  eventLogStream,
+  connectErrorTelemetry,
+  connectNoticeTelemetry,
 } from '../stream/logging/loggable-streams.js';
+import { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
+import { InstrumentedProvider } from '../provider/instrumented-provider.js';
+import { InstrumentedDistiller } from '../distillation/instrumented-distiller.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;
@@ -61,10 +63,10 @@ const MEMORY_RELEVANCE_QUESTION =
   'Given your experience above and the full message list below, can you add something the collective does not already have? If user input is present, answer yes when you can help acknowledge it, answer it, or preserve enough context to resume the prior inquiry. Otherwise answer yes only if your contribution would be specific and non-redundant.';
 
 export interface InitOptions {
-  /** Process-owned router; the caller must close it during graceful shutdown. */
-  readonly logRouter: LogRouter;
   /** Reuse the process-level error stream, including for initialization errors. */
   readonly errorStream?: ErrorStream;
+  /** Process-owned recorder shared by every runtime component. */
+  readonly telemetry: TelemetryRecorder;
 }
 
 const createSensoryNode = ({
@@ -91,10 +93,10 @@ export const init = async (options: InitOptions) => {
   const settings: LegionSettings = rawSettings;
   const openAiTimeout = settings.openAiTimeout ?? DEFAULT_OPENAI_TIMEOUT_MS;
 
-  const { logRouter } = options;
+  const { telemetry } = options;
   const errorStream = options.errorStream ?? new ConcreteErrorStream();
   if (options.errorStream === undefined) {
-    logRouter.consume(errorLogStream(errorStream));
+    connectErrorTelemetry(errorStream, telemetry);
   }
 
   // Create OpenAI client and provider
@@ -106,7 +108,7 @@ export const init = async (options: InitOptions) => {
   });
 
   const model = settings.model;
-  const provider = new OpenaiProvider({
+  const rawProvider = new OpenaiProvider({
     model,
     client: new QueuingOpenAi({
       client: openAi,
@@ -115,15 +117,20 @@ export const init = async (options: InitOptions) => {
       totalTimeout: openAiTimeout,
     }),
   });
+  const provider = new InstrumentedProvider({
+    provider: rawProvider,
+    telemetry,
+  });
 
   // Create event stream for node communication
   const eventStream = new ConcreteEventStream({ errorStream });
-  logRouter.consume(eventLogStream(eventStream));
+  connectNoticeTelemetry(eventStream, telemetry);
 
   let initialActiveGoal: ActiveGoal | undefined;
   try {
     initialActiveGoal = SessionLoader.loadActiveGoal({
       directory: settings.saveLocation,
+      telemetry,
     });
   } catch (error) {
     eventStream.reportError?.({
@@ -168,6 +175,7 @@ export const init = async (options: InitOptions) => {
       directory: settings.saveLocation,
       eventStream,
       memoryNodeFactory,
+      telemetry,
     });
     if (loadedSession) {
       eventStream.publish({
@@ -190,6 +198,7 @@ export const init = async (options: InitOptions) => {
   try {
     persistedMcpServerSummaries = SessionLoader.loadMcpServerSummaries({
       directory: settings.saveLocation,
+      telemetry,
     });
   } catch (e) {
     eventStream.reportError?.({
@@ -294,6 +303,7 @@ export const init = async (options: InitOptions) => {
           ...persistedMcpServerSummaries,
           ...generatedMcpServerSummaries,
         },
+        telemetry,
       });
     } catch (e) {
       eventStream.reportError?.({
@@ -314,6 +324,7 @@ export const init = async (options: InitOptions) => {
         capabilityDescription,
         initialTools: tools,
         errorStream,
+        telemetry,
       }),
     }),
   );
@@ -336,16 +347,24 @@ export const init = async (options: InitOptions) => {
   const relevanceFilter = new LlmRelevanceFilter({
     provider,
     attentionGate,
+    telemetry,
   });
 
   const bestBroadcastDistiller = new BestBroadcastDistiller({ provider });
+  const validator = new DistillationValidator();
   const distiller =
     settings.distillerStrategy === 'select-best'
-      ? bestBroadcastDistiller
+      ? new InstrumentedDistiller({
+          delegate: bestBroadcastDistiller,
+          validator,
+          telemetry,
+          strategy: 'select-best',
+        })
       : new ValidatedDistiller({
           primary: new LlmDistiller({ provider }),
           fallback: bestBroadcastDistiller,
-          validator: new DistillationValidator(),
+          validator,
+          telemetry,
         });
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
@@ -379,6 +398,7 @@ export const init = async (options: InitOptions) => {
     id: 'goal-manager',
     eventStream,
     goalStore,
+    telemetry,
   });
 
   const nodeSplitter = new MemoryNodeSplitter({
@@ -386,6 +406,7 @@ export const init = async (options: InitOptions) => {
     newNodeProvider: provider,
     memoryNodeFactory,
     eventStream,
+    telemetry,
   });
 
   const nodePruner = new StaticNodePruner({
@@ -471,6 +492,7 @@ export const init = async (options: InitOptions) => {
   SessionSaver.watch({
     eventStream,
     directory: settings.saveLocation,
+    telemetry,
   });
 
   // Create orchestrator
@@ -490,6 +512,7 @@ export const init = async (options: InitOptions) => {
     initialNodeStats,
     userInputSensor,
     goalStore,
+    telemetry,
   });
 
   return {

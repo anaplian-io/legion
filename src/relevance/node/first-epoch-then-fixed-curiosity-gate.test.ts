@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { FirstEpochThenFixedCuriosityGate } from './first-epoch-then-fixed-curiosity-gate.js';
 import type { RelevanceGateProps } from '../../types/relevance-gate.js';
+import { TEST_NODE_TELEMETRY } from '../../telemetry/test-context.fixture.js';
 
 const gateProps = (epochsAlive: number): RelevanceGateProps => ({
   broadcastMessage: {
+    telemetry: TEST_NODE_TELEMETRY,
     workingMemory: { messages: [] },
     broadcast: { role: 'broadcast', content: 'Explore.' },
   },

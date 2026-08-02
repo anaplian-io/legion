@@ -2,15 +2,15 @@ import { Provider } from '../types/provider.js';
 import {
   DistillationProps,
   DistillationResult,
+  DistillationTelemetryContext,
   Distiller,
 } from '../types/distiller.js';
-import { Message, MessageRole } from '../types/message.js';
+import { CandidateMessage, Message, MessageRole } from '../types/message.js';
 import { ToolCall, ToolDefinition } from '../types/tool.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
 import { ActiveGoal, GoalDecision, GoalOrigin } from '../types/goal.js';
 import type { EvidenceReference } from '../types/evidence.js';
 import {
-  isDefined,
   isRecord,
   isUniqueIntegerArray,
   isUniqueStringArray,
@@ -145,6 +145,7 @@ export class LlmDistiller implements Distiller {
 
   public readonly distill = async (
     props: DistillationProps,
+    telemetry: DistillationTelemetryContext,
   ): Promise<DistillationResult | undefined> => {
     const {
       workingMemory,
@@ -156,7 +157,7 @@ export class LlmDistiller implements Distiller {
       return undefined;
     }
 
-    const generated = await this.props.provider.generateWithTools({
+    const generationProps = {
       systemPrompt: `You consolidate a bounded winning coalition into the next global-workspace broadcast. Capture only supported new facts, decisions, constraints, open questions, and concrete next actions. Address current user input when present. Resolve contradictions instead of blending them.
 
 Use only candidate indices, afferent indices, and action-request IDs shown below. Include an action request only when its intent remains the correct next action and the prose announces that same action. When no action should execute, use actionDisposition "none", an empty actionSummary, and do not imply that an action is scheduled. Never rewrite, invent, or copy an action's target, intent, or optional hints; Legion will recover the original structured request by ID.
@@ -167,7 +168,7 @@ Authoritative goal state:
 ${formatActiveGoal(activeGoal)}`,
       messages: [
         {
-          role: 'node-response',
+          role: 'node-response' as const,
           content: formatDistillationContext(
             workingMemory.messages,
             afferentContext,
@@ -176,8 +177,15 @@ ${formatActiveGoal(activeGoal)}`,
         },
       ],
       tools: [SYNTHESIZE_BROADCAST_TOOL],
-      toolChoice: 'required',
-    });
+      toolChoice: 'required' as const,
+    };
+    const generated = await this.props.provider.generateWithTools(
+      generationProps,
+      {
+        stage: telemetry.inferenceStage,
+        ...telemetry,
+      },
+    );
 
     return resultFromToolCall(
       exactlyOneSynthesisCall(generated.toolCalls),
@@ -191,7 +199,7 @@ ${formatActiveGoal(activeGoal)}`,
 const formatDistillationContext = (
   workingMemory: readonly Message[],
   afferentContext: readonly Message[],
-  broadcasts: readonly Message[],
+  broadcasts: readonly CandidateMessage[],
 ): string => `Working memory:
 ${workingMemory.map((message, index) => formatMessage(message, index)).join('\n')}
 
@@ -202,7 +210,7 @@ This step's surviving candidates:
 ${broadcasts
   .map(
     (broadcast, index) =>
-      `[CANDIDATE ${index}${broadcast.originatingNodeId === undefined ? '' : ` from ${broadcast.originatingNodeId}`}]: ${formatMessagePayload(broadcast)}`,
+      `[CANDIDATE ${index} from ${broadcast.originatingNodeId}]: ${formatMessagePayload(broadcast)}`,
   )
   .join('\n')}`;
 
@@ -233,7 +241,7 @@ const exactlyOneSynthesisCall = (
 
 const resultFromToolCall = (
   call: ToolCall,
-  broadcasts: readonly Message[],
+  broadcasts: readonly CandidateMessage[],
   afferentContext: readonly Message[],
   activeGoal: ActiveGoal | undefined,
 ): DistillationResult => {
@@ -320,9 +328,7 @@ const resultFromToolCall = (
 
   const contributingNodeIds = Array.from(
     new Set(
-      contributorIndices
-        .map((index) => broadcasts[index]?.originatingNodeId)
-        .filter(isDefined),
+      contributorIndices.map((index) => broadcasts[index]!.originatingNodeId),
     ),
   );
 
@@ -349,7 +355,7 @@ const resultFromToolCall = (
     broadcast: {
       role: 'broadcast',
       content: content.trim(),
-      ...(contributingNodeIds.length === 0 ? {} : { contributingNodeIds }),
+      contributingNodeIds,
       ...(actionRequests.length === 0 ? {} : { actionRequests }),
     },
     supportingEvidence,

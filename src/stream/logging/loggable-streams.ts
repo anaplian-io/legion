@@ -1,77 +1,67 @@
-import { ErrorReport, ErrorStream } from '../../types/error-stream.js';
+import type { ErrorReport, ErrorStream } from '../../types/error-stream.js';
+import type { ObservableEventStream } from '../../types/event-stream.js';
+import type { LoggableStream } from '../../types/logging.js';
+import type { TelemetryEvent } from '../../types/telemetry.js';
 import {
-  ObservableEventStream,
-  PublishProps,
-} from '../../types/event-stream.js';
-import { LoggableStream } from '../../types/logging.js';
+  classifyTelemetryError,
+  TelemetryRecorder,
+} from '../../telemetry/telemetry-recorder.js';
 
-/** Adapts domain events to the existing forensic event-log representation. */
-export const eventLogStream = (
-  eventStream: ObservableEventStream,
-): LoggableStream<PublishProps> => ({
-  name: 'events',
-  subscribeForLogging: eventStream.subscribeAll,
-  serializeForLogging: serializePublishedEvent,
+/** The sole durable application log contract. Records are already flat JSON. */
+export const telemetryLogStream = (
+  telemetry: TelemetryRecorder,
+): LoggableStream<TelemetryEvent> => ({
+  name: 'telemetry',
+  subscribeForLogging: telemetry.subscribe,
+  serializeForLogging: (event) => event,
 });
 
-/** Adapts recoverable errors to their durable diagnostic representation. */
-export const errorLogStream = (
+/** Converts recoverable application errors into the unified telemetry stream. */
+export const connectErrorTelemetry = (
   errorStream: ErrorStream,
-): LoggableStream<ErrorReport> => ({
-  name: 'errors',
-  subscribeForLogging: errorStream.subscribe,
-  serializeForLogging: (report) => ({
-    source: report.source,
-    message: report.message,
-    ...(report.error === undefined ? {} : { error: report.error }),
-    ...(report.metadata === undefined ? {} : { metadata: report.metadata }),
-  }),
-});
+  telemetry: TelemetryRecorder,
+): (() => void) =>
+  errorStream.subscribe((report) => {
+    const diagnostics = telemetry.diagnosticValue(errorDetails(report));
+    telemetry.record(
+      'error.reported',
+      {
+        source: report.source,
+        message: telemetry.sanitizeText(report.message),
+        errorCategory: classifyTelemetryError(report.error),
+        ...(diagnostics === undefined ? {} : { diagnostics }),
+      },
+      report.telemetry ?? telemetry.currentEpochContext ?? {},
+    );
+  });
 
-const serializeNode = (node: {
-  readonly id: string;
-  readonly kind: string;
-  readonly status: string;
-  readonly context: string;
-}): Record<string, string> => ({
-  id: node.id,
-  kind: node.kind,
-  status: node.status,
-  context: node.context,
-});
+/** Correlates explicit system notices without serializing every domain event. */
+export const connectNoticeTelemetry = (
+  eventStream: ObservableEventStream,
+  telemetry: TelemetryRecorder,
+): (() => void) =>
+  eventStream.subscribe({
+    topicName: 'system/notice',
+    receiver: ({ message, metadata }) => {
+      const sanitizedMetadata = telemetry.diagnosticValue(metadata);
+      telemetry.record(
+        'system.notice',
+        {
+          message: telemetry.sanitizeText(message),
+          ...(sanitizedMetadata === undefined
+            ? {}
+            : {
+                metadata: sanitizedMetadata as Readonly<
+                  Record<string, unknown>
+                >,
+              }),
+        },
+        telemetry.currentEpochContext ?? {},
+      );
+    },
+  });
 
-/**
- * This switch is deliberately exhaustive: a new domain event cannot silently
- * fall through to logging an unbounded payload.
- */
-const serializePublishedEvent = (props: PublishProps): unknown => {
-  switch (props.topicName) {
-    case 'orchestrator/nodes-changed':
-      return {
-        topicName: props.topicName,
-        data: { allNodes: props.data.allNodes.map(serializeNode) },
-      };
-    case 'orchestrator/node-added':
-      return {
-        topicName: props.topicName,
-        data: { addedNodes: props.data.addedNodes.map(serializeNode) },
-      };
-    case 'orchestrator/node-updated':
-      return {
-        topicName: props.topicName,
-        data: { node: serializeNode(props.data.node) },
-      };
-    case 'system/notice':
-    case 'node/status-change':
-    case 'tool/elaboration-completed':
-    case 'tool/invocation-started':
-    case 'tool/invocation-completed':
-    case 'goal/updated':
-    case 'orchestrator/node-removed':
-    case 'orchestrator/working-memory-updated':
-    case 'orchestrator/user-input-received':
-    case 'orchestrator/user-input-consumed':
-    case 'orchestrator/node-stats-updated':
-      return props;
-  }
-};
+const errorDetails = (report: ErrorReport): unknown => ({
+  error: report.error,
+  metadata: report.metadata,
+});

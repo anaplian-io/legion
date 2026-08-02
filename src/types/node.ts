@@ -1,8 +1,13 @@
 import { Message } from './message.js';
 import { NodeStats } from './node-stats.js';
 import { WorkingMemory } from './working-memory.js';
+import type { CandidateTelemetryContext } from './telemetry.js';
 
 export type NodeResponse = Message | undefined;
+
+export interface NodeTelemetryContext extends CandidateTelemetryContext {
+  readonly inputIds: readonly string[];
+}
 
 export interface BroadcastMessage {
   readonly workingMemory: WorkingMemory;
@@ -14,6 +19,8 @@ export interface BroadcastMessage {
    * nodes themselves ignore this field.
    */
   readonly afferentContext?: readonly Message[] | undefined;
+  /** Explicit async-safe correlation for work performed by this node call. */
+  readonly telemetry: NodeTelemetryContext;
 }
 
 export type NodeStatus = 'idle' | 'generating' | 'evaluating-relevance';

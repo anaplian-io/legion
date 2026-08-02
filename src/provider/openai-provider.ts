@@ -16,6 +16,7 @@ import {
 import { isStrictEligible } from '../utilities/is-strict-eligible.js';
 import { Message, MessageRole } from '../types/message.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
+import { requireCompleteRanking } from '../utilities/complete-ranking.js';
 
 export interface OpenAiProviderProps {
   readonly model: string;
@@ -262,10 +263,15 @@ ${items.map((item, i) => `${i}: ${item}`).join('\n')}`,
       },
     });
 
-    return parseJsonOutput<{ rankedIndices: number[] }>(
+    const { rankedIndices } = parseJsonOutput<{ rankedIndices: number[] }>(
       this.firstContent(response),
       'rankByRelevance',
-    ).rankedIndices;
+    );
+    return requireCompleteRanking(
+      rankedIndices,
+      items.length,
+      'OpenaiProvider.rankByRelevance',
+    );
   };
 
   public readonly askYesNoQuestion = async (

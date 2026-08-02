@@ -3,6 +3,7 @@ import {
   Node,
   NodeResponse,
   NodeStatus,
+  NodeTelemetryContext,
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
 import { Provider } from '../types/provider.js';
@@ -11,6 +12,12 @@ import { MCPClient, ToolResult } from '../adapter/mcp-client.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
 import { ActionRequest } from '../types/message.js';
 import { isToolCall } from '../utilities/type-guards.js';
+import {
+  classifyTelemetryError,
+  TelemetryRecorder,
+} from '../telemetry/telemetry-recorder.js';
+import { evidenceDescriptor } from '../telemetry/content-evidence.js';
+import type { EvidenceDescriptor } from '../types/evidence.js';
 
 export interface ToolNodeProps {
   readonly id: string;
@@ -20,6 +27,7 @@ export interface ToolNodeProps {
   readonly capabilityDescription: string;
   /** Tools fetched at boot while generating the MCP capability summary. */
   readonly initialTools?: readonly ToolDefinition[];
+  readonly telemetry: TelemetryRecorder;
 }
 
 export interface ToolNodeOutcome {
@@ -30,6 +38,7 @@ export interface ToolNodeOutcome {
   readonly name?: string;
   readonly result?: unknown;
   readonly error?: string;
+  readonly evidence?: EvidenceDescriptor;
 }
 
 export class ToolNode implements Node<'tool'> {
@@ -87,38 +96,67 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
       this.reportElaborationError(
         'Failed to load tools before elaborating targeted intents.',
         error,
+        broadcastMessage.telemetry,
       );
       return this.toolResponse(
-        targetedRequests.map((request) =>
-          this.elaborationFailure(
+        targetedRequests.map((request) => {
+          const failure = this.elaborationFailure(
             request.id,
             `ToolNode ${this.id} could not load its MCP tools: ${errorMessage(error)}`,
-          ),
-        ),
+            broadcastMessage.telemetry,
+          );
+          this.recordElaboration(
+            request.id,
+            [],
+            'failure',
+            broadcastMessage.telemetry,
+            0,
+            classifyTelemetryError(error),
+          );
+          return failure;
+        }),
       );
     }
 
-    return this.withStatus('generating', async () => {
-      if (this.tools.length === 0) {
-        return this.toolResponse(
+    return this.withStatus(
+      'generating',
+      broadcastMessage.telemetry,
+      async () => {
+        if (this.tools.length === 0) {
+          return this.toolResponse(
+            targetedRequests.map((request) => {
+              const failure = this.elaborationFailure(
+                request.id,
+                `ToolNode ${this.id} has no available MCP tools.`,
+                broadcastMessage.telemetry,
+              );
+              this.recordElaboration(
+                request.id,
+                [],
+                'failure',
+                broadcastMessage.telemetry,
+                0,
+                'no-tools',
+              );
+              return failure;
+            }),
+          );
+        }
+        const outcomes = await Promise.all(
           targetedRequests.map((request) =>
-            this.elaborationFailure(
-              request.id,
-              `ToolNode ${this.id} has no available MCP tools.`,
-            ),
+            this.elaborateAndInvoke(request, broadcastMessage.telemetry),
           ),
         );
-      }
-      const outcomes = await Promise.all(
-        targetedRequests.map((request) => this.elaborateAndInvoke(request)),
-      );
-      return this.toolResponse(outcomes.flat());
-    });
+        return this.toolResponse(outcomes.flat());
+      },
+    );
   };
 
   private readonly elaborateAndInvoke = async (
     request: ActionRequest,
+    telemetryContext: NodeTelemetryContext,
   ): Promise<ToolNodeOutcome[]> => {
+    const startedAtMs = this.props.telemetry.monotonicNow();
     const messages = [
       {
         role: 'tool-intent' as const,
@@ -128,36 +166,59 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
     ];
     let response: Awaited<ReturnType<Provider['generateWithTools']>>;
     try {
-      response = await this.props.provider.generateWithTools({
+      const generationProps = {
         messages,
         systemPrompt: this.preamble,
         tools: this.tools,
-        toolChoice: 'required',
+        toolChoice: 'required' as const,
+      };
+      response = await this.props.provider.generateWithTools(generationProps, {
+        stage: 'tool-elaboration',
+        ...telemetryContext,
+        nodeId: this.id,
+        parentSpanId: request.id,
       });
     } catch (error) {
       this.reportElaborationError(
         `Failed to elaborate action request ${request.id}.`,
         error,
+        telemetryContext,
         request.id,
       );
-      return [
-        this.elaborationFailure(
-          request.id,
-          `ToolNode ${this.id} could not elaborate the intent: ${errorMessage(error)}`,
-        ),
-      ];
+      const failure = this.elaborationFailure(
+        request.id,
+        `ToolNode ${this.id} could not elaborate the intent: ${errorMessage(error)}`,
+        telemetryContext,
+      );
+      this.recordElaboration(
+        request.id,
+        [],
+        'failure',
+        telemetryContext,
+        this.elapsed(startedAtMs),
+        classifyTelemetryError(error),
+      );
+      return [failure];
     }
 
     if (response.toolCalls === undefined || response.toolCalls.length === 0) {
       const explanation = response.content.trim();
-      return [
-        this.elaborationFailure(
-          request.id,
-          explanation.length === 0
-            ? `ToolNode ${this.id} returned neither a tool call nor an explanation for the intent.`
-            : `ToolNode ${this.id} could not fulfill the intent: ${createToolOutputPreview(explanation)}`,
-        ),
-      ];
+      const failure = this.elaborationFailure(
+        request.id,
+        explanation.length === 0
+          ? `ToolNode ${this.id} returned neither a tool call nor an explanation for the intent.`
+          : `ToolNode ${this.id} could not fulfill the intent: ${createToolOutputPreview(explanation)}`,
+        telemetryContext,
+      );
+      this.recordElaboration(
+        request.id,
+        [],
+        'failure',
+        telemetryContext,
+        this.elapsed(startedAtMs),
+        'no-tool-call',
+      );
+      return [failure];
     }
 
     const calls = response.toolCalls.filter(isToolCall);
@@ -169,9 +230,23 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
       this.reportElaborationError(
         `Rejected malformed output for action request ${request.id}.`,
         new Error(error),
+        telemetryContext,
         request.id,
       );
-      return [this.elaborationFailure(request.id, error)];
+      const failure = this.elaborationFailure(
+        request.id,
+        error,
+        telemetryContext,
+      );
+      this.recordElaboration(
+        request.id,
+        [],
+        'failure',
+        telemetryContext,
+        this.elapsed(startedAtMs),
+        'malformed-tool-call',
+      );
+      return [failure];
     }
 
     this.publishElaborationCompleted(
@@ -182,19 +257,37 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
         toolName: call.function.name,
       })),
       response.content,
+      telemetryContext,
+    );
+    this.recordElaboration(
+      request.id,
+      calls.map(({ id }) => id),
+      'success',
+      telemetryContext,
+      this.elapsed(startedAtMs),
     );
     return Promise.all(
-      calls.map((call) => this.invokeProviderToolCall(request, call)),
+      calls.map((call) =>
+        this.invokeProviderToolCall(request, call, telemetryContext),
+      ),
     );
   };
 
   private readonly invokeProviderToolCall = async (
     request: ActionRequest,
     call: ToolCall,
+    telemetryContext: NodeTelemetryContext,
   ): Promise<ToolNodeOutcome> => {
+    const startedAtMs = this.props.telemetry.monotonicNow();
     const { id: callId, function: functionCall } = call;
     const { name, arguments: argumentsStr } = functionCall;
-    this.publishInvocationStarted(request.id, callId, name, argumentsStr);
+    this.publishInvocationStarted(
+      request.id,
+      callId,
+      name,
+      argumentsStr,
+      telemetryContext,
+    );
 
     let result: ToolResult;
     try {
@@ -210,6 +303,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
         message: `Tool ${name} threw during invocation.`,
         error,
         metadata: { requestId: request.id, callId, toolName: name },
+        telemetry: telemetryContext,
       });
       result = { callId, name, success: false, error: message };
     }
@@ -220,19 +314,43 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
       name,
       result.success,
       result.success ? result.result : result.error,
+      telemetryContext,
+    );
+    const evidence = result.success
+      ? evidenceDescriptor(`tool-result:${callId}`, result.result)
+      : undefined;
+    this.props.telemetry.record(
+      'tool.invocation-completed',
+      {
+        requestId: request.id,
+        callId,
+        toolName: name,
+        durationMs: this.elapsed(startedAtMs),
+        outcome: result.success ? 'success' : 'failure',
+        ...(evidence === undefined ? {} : { evidence }),
+        ...(result.success ? {} : { errorCategory: 'tool-invocation-failure' }),
+      },
+      {
+        ...telemetryContext,
+        nodeId: this.id,
+        parentSpanId: request.id,
+      },
+      callId,
     );
     return {
       requestId: request.id,
       stage: 'mcp',
       ...result,
+      ...(evidence === undefined ? {} : { evidence }),
     };
   };
 
   private readonly elaborationFailure = (
     requestId: string,
     error: string,
+    telemetry: NodeTelemetryContext,
   ): ToolNodeOutcome => {
-    this.publishElaborationCompleted(requestId, false, [], error);
+    this.publishElaborationCompleted(requestId, false, [], error, telemetry);
     return {
       requestId,
       stage: 'elaboration',
@@ -244,6 +362,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
   private readonly reportElaborationError = (
     message: string,
     error: unknown,
+    telemetry: NodeTelemetryContext,
     requestId?: string,
   ): void => {
     this.props.eventStream.reportError?.({
@@ -251,6 +370,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
       message,
       error,
       ...(requestId === undefined ? {} : { metadata: { requestId } }),
+      telemetry,
     });
   };
 
@@ -259,6 +379,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
     callId: string,
     toolName: string,
     argumentsStr: string,
+    telemetry: NodeTelemetryContext,
   ): void => {
     try {
       this.props.eventStream.publish({
@@ -277,6 +398,11 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
         message: 'Failed to publish a tool invocation start event.',
         error,
         metadata: { requestId, callId, toolName },
+        telemetry: {
+          ...telemetry,
+          nodeId: this.id,
+          parentSpanId: requestId,
+        },
       });
     }
   };
@@ -289,6 +415,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
       readonly toolName: string;
     }[],
     output: unknown,
+    telemetry: NodeTelemetryContext,
   ): void => {
     try {
       this.props.eventStream.publish({
@@ -307,6 +434,11 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
         message: 'Failed to publish a tool elaboration completion event.',
         error,
         metadata: { requestId },
+        telemetry: {
+          ...telemetry,
+          nodeId: this.id,
+          parentSpanId: requestId,
+        },
       });
     }
   };
@@ -317,6 +449,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
     toolName: string,
     success: boolean,
     output: unknown,
+    telemetry: NodeTelemetryContext,
   ): void => {
     try {
       this.props.eventStream.publish({
@@ -336,6 +469,11 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
         message: 'Failed to publish a tool invocation completion event.',
         error,
         metadata: { requestId, callId, toolName },
+        telemetry: {
+          ...telemetry,
+          nodeId: this.id,
+          parentSpanId: requestId,
+        },
       });
     }
   };
@@ -345,22 +483,54 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
   ): Exclude<NodeResponse, undefined> => ({
     role: 'afferent',
     originatingNodeId: this.id,
-    content: JSON.stringify(outcomes),
+    content: JSON.stringify(outcomes.map(withoutEvidence)),
+    evidence: outcomes.flatMap((outcome) =>
+      outcome.evidence === undefined ? [] : [outcome.evidence],
+    ),
   });
+
+  private readonly elapsed = (startedAtMs: number): number =>
+    this.props.telemetry.durationSince(startedAtMs);
+
+  private readonly recordElaboration = (
+    requestId: string,
+    callIds: readonly string[],
+    outcome: 'success' | 'failure',
+    context: NodeTelemetryContext,
+    durationMs: number,
+    errorCategory?: string,
+  ): void => {
+    this.props.telemetry.record(
+      'tool.elaboration-completed',
+      {
+        requestId,
+        durationMs,
+        outcome,
+        callIds,
+        ...(errorCategory === undefined ? {} : { errorCategory }),
+      },
+      { ...context, nodeId: this.id },
+      requestId,
+    );
+  };
 
   private readonly withStatus = async <T>(
     status: Exclude<NodeStatus, 'idle'>,
+    telemetry: NodeTelemetryContext,
     operation: () => Promise<T>,
   ): Promise<T> => {
-    this.setStatus(status);
+    this.setStatus(status, telemetry);
     try {
       return await operation();
     } finally {
-      this.setStatus('idle');
+      this.setStatus('idle', telemetry);
     }
   };
 
-  private readonly setStatus = (newStatus: NodeStatus): void => {
+  private readonly setStatus = (
+    newStatus: NodeStatus,
+    telemetry: NodeTelemetryContext,
+  ): void => {
     this._nodeStatus = newStatus;
     try {
       this.props.eventStream.publish({
@@ -372,6 +542,7 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
         source: `ToolNode ${this.id}`,
         message: 'Failed to publish a node status change.',
         error,
+        telemetry,
       });
     }
   };
@@ -383,3 +554,18 @@ Translate the intent into one or more calls to the supplied MCP tools. You must 
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const withoutEvidence = (
+  outcome: ToolNodeOutcome,
+): Omit<ToolNodeOutcome, 'evidence'> => {
+  const { requestId, stage, success, callId, name, result, error } = outcome;
+  return {
+    requestId,
+    stage,
+    success,
+    ...(callId === undefined ? {} : { callId }),
+    ...(name === undefined ? {} : { name }),
+    ...(result === undefined ? {} : { result }),
+    ...(error === undefined ? {} : { error }),
+  };
+};

@@ -1,13 +1,17 @@
 import { Provider } from '../types/provider.js';
 import { Sensor } from '../types/sensor.js';
+import type { BroadcastMessage } from '../types/node.js';
 
 export class WikipediaSensor implements Sensor {
   constructor(private readonly provider: Provider) {}
 
-  public async sense(): Promise<string> {
+  public async sense(broadcastMessage: BroadcastMessage): Promise<string> {
     const articleTitle = await this.fetchRandomWikiArticle();
     const articleContent = await this.fetchWikiContent(articleTitle);
-    const summary = await this.summarizeArticle(articleContent);
+    const summary = await this.summarizeArticle(
+      articleContent,
+      broadcastMessage,
+    );
 
     return `Wikipedia Article: ${articleTitle}\n\nSummary:\n${summary}`;
   }
@@ -43,7 +47,10 @@ export class WikipediaSensor implements Sensor {
     ).extract;
   }
 
-  private async summarizeArticle(content: string): Promise<string> {
+  private async summarizeArticle(
+    content: string,
+    broadcastMessage: BroadcastMessage,
+  ): Promise<string> {
     const systemPrompt = `You are an expert editor and summarizer. Your task is to read a Wikipedia article excerpt and provide a thorough, well-structured summary that captures all key information while remaining concise and readable.
 
 Requirements:
@@ -63,6 +70,9 @@ ${content}`,
       },
     ];
 
-    return await this.provider.generate({ systemPrompt, messages });
+    return this.provider.generate(
+      { systemPrompt, messages },
+      { stage: 'sensor-generation', ...broadcastMessage.telemetry },
+    );
   }
 }

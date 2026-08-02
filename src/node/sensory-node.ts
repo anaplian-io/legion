@@ -40,7 +40,7 @@ export class SensoryNode implements Node<'sensory'> {
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
     const { sensor } = this.props;
-    await this.setStatus('generating');
+    await this.setStatus('generating', broadcastMessage.telemetry);
     let content: string;
     try {
       content = await sensor.sense(broadcastMessage);
@@ -49,12 +49,13 @@ export class SensoryNode implements Node<'sensory'> {
         source: `SensoryNode ${this.id}`,
         message: 'Sensor failed while sensing a broadcast.',
         error,
+        telemetry: broadcastMessage.telemetry,
       });
-      await this.setStatus('idle');
+      await this.setStatus('idle', broadcastMessage.telemetry);
       return undefined;
     }
     if (content.trim().length === 0) {
-      await this.setStatus('idle');
+      await this.setStatus('idle', broadcastMessage.telemetry);
       return undefined;
     }
     const response: NodeResponse = {
@@ -62,11 +63,14 @@ export class SensoryNode implements Node<'sensory'> {
       originatingNodeId: this.id,
       content,
     };
-    await this.setStatus('idle');
+    await this.setStatus('idle', broadcastMessage.telemetry);
     return response;
   };
 
-  private readonly setStatus = async (newStatus: NodeStatus): Promise<void> => {
+  private readonly setStatus = async (
+    newStatus: NodeStatus,
+    telemetry: BroadcastMessage['telemetry'],
+  ): Promise<void> => {
     this._nodeStatus = newStatus;
     try {
       this.props.eventStream.publish({
@@ -78,6 +82,7 @@ export class SensoryNode implements Node<'sensory'> {
         source: `SensoryNode ${this.id}`,
         message: 'Failed to publish a node status change.',
         error: e,
+        telemetry,
       });
     }
   };

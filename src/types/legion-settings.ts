@@ -67,4 +67,8 @@ export interface LegionSettings {
   readonly pruneMaxFilterRate?: number;
   /** Floor on the memory-node population; pruning never drops below this. */
   readonly pruneMinMemoryNodes?: number;
+  /** Include bounded and redacted diagnostic metadata in telemetry records. */
+  readonly telemetryDiagnostics?: boolean;
+  /** Maximum diagnostic string length before truncation. */
+  readonly telemetryMaxTextLength?: number;
 }

@@ -4,6 +4,10 @@ import { ToolNode } from '../node/tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
 import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
+import {
+  createTestTelemetry,
+  TEST_NODE_TELEMETRY,
+} from '../telemetry/test-context.fixture.js';
 
 // Mock MCP Client
 interface MockMcpClient {
@@ -14,6 +18,7 @@ describe('ConcreteToolNodeFactory', () => {
   let mockProvider: Provider;
   let mockEventStream: EventStream;
   let mockMcpClient: MockMcpClient;
+  const telemetry = createTestTelemetry();
 
   beforeEach(() => {
     mockProvider = {
@@ -33,6 +38,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should create a factory with the given props', () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
@@ -44,6 +50,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should create a tool node with provided id', async () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
@@ -62,6 +69,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should generate a random id if none provided', async () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
@@ -78,6 +86,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should use the same provider instance', async () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
@@ -94,6 +103,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should create independent targeted tool nodes', async () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
@@ -114,6 +124,7 @@ describe('ConcreteToolNodeFactory', () => {
 
   it('should pass boot-fetched tools to its nodes', async () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can use factory test tools.',
       provider: mockProvider,
       mcpClient:
@@ -131,6 +142,7 @@ describe('ConcreteToolNodeFactory', () => {
       toolCalls: undefined,
     });
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: {
         role: 'broadcast',
@@ -149,12 +161,14 @@ describe('ConcreteToolNodeFactory', () => {
       expect.objectContaining({
         tools: [{ name: 'boot-tool', parameters: {} }],
       }),
+      expect.objectContaining({ stage: 'tool-elaboration' }),
     );
     expect((node as ToolNode).preamble).not.toContain('boot-tool');
   });
 
   it('passes an error stream through to its MCP client', () => {
     const factory = new ConcreteToolNodeFactory({
+      telemetry,
       capabilityDescription: 'can report MCP failures.',
       provider: mockProvider,
       mcpClient:

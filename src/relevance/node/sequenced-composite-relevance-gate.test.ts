@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SequencedCompositeRelevanceGate } from './sequenced-composite-relevance-gate.js';
 import type { RelevanceGate } from '../../types/relevance-gate.js';
+import { TEST_NODE_TELEMETRY } from '../../telemetry/test-context.fixture.js';
 
 describe('SequencedCompositeRelevanceGate', () => {
   const relevanceProps = {
     broadcastMessage: {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     },

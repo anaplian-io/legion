@@ -3,12 +3,18 @@ import { MemoryNodeSplitter } from './memory-node-splitter.js';
 import type { Provider } from '../../types/provider.js';
 import type { MemoryNodeFactory } from '../../types/memory-node-factory.js';
 import { ConcreteEventStream } from '../../stream/concrete-event-stream.js';
+import {
+  createTestTelemetry,
+  TEST_EPOCH_TELEMETRY,
+} from '../../telemetry/test-context.fixture.js';
+import type { TelemetryEvent } from '../../types/telemetry.js';
 
 describe('MemoryNodeSplitter', () => {
   let mockSplittingProvider: Provider;
   let mockNewNodeProvider: Provider;
   let mockMemoryNodeFactory: MemoryNodeFactory;
   let eventStream: ConcreteEventStream;
+  const telemetry = createTestTelemetry();
 
   beforeEach(() => {
     mockSplittingProvider = {
@@ -35,6 +41,7 @@ describe('MemoryNodeSplitter', () => {
 
   it('should create a splitter with the given props', () => {
     const splitter = new MemoryNodeSplitter({
+      telemetry,
       splittingProvider: mockSplittingProvider,
       newNodeProvider: mockNewNodeProvider,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -65,6 +72,7 @@ describe('MemoryNodeSplitter', () => {
       .mockReturnValueOnce(rightNode);
 
     const splitter = new MemoryNodeSplitter({
+      telemetry,
       splittingProvider: mockSplittingProvider,
       newNodeProvider: mockNewNodeProvider,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -84,10 +92,15 @@ describe('MemoryNodeSplitter', () => {
       sendMessage: vi.fn(),
     };
 
-    const result = await splitter.split(node);
+    const result = await splitter.split(node, TEST_EPOCH_TELEMETRY);
 
     expect(mockSplittingProvider.splitString).toHaveBeenCalledWith(
       'Original context',
+      expect.objectContaining({
+        epochId: TEST_EPOCH_TELEMETRY.epochId,
+        stage: 'node-splitting',
+        nodeId: 'node-a',
+      }),
     );
 
     expect(mockMemoryNodeFactory.create).toHaveBeenNthCalledWith(1, {
@@ -133,6 +146,7 @@ describe('MemoryNodeSplitter', () => {
     });
 
     const splitter = new MemoryNodeSplitter({
+      telemetry,
       splittingProvider: mockSplittingProvider,
       newNodeProvider: mockNewNodeProvider,
       memoryNodeFactory: mockMemoryNodeFactory,
@@ -152,9 +166,45 @@ describe('MemoryNodeSplitter', () => {
       sendMessage: vi.fn(),
     };
 
-    await splitter.split(node);
+    await splitter.split(node, TEST_EPOCH_TELEMETRY);
 
     expect(capturedLeftEventStream).toBe(eventStream);
     expect(capturedRightEventStream).toBe(eventStream);
+  });
+
+  it('records failed splits before rethrowing', async () => {
+    const failureTelemetry = createTestTelemetry();
+    const events: TelemetryEvent[] = [];
+    failureTelemetry.subscribe((event) => events.push(event));
+    vi.mocked(mockSplittingProvider.splitString).mockRejectedValue(
+      new TypeError('split failed'),
+    );
+    const splitter = new MemoryNodeSplitter({
+      telemetry: failureTelemetry,
+      splittingProvider: mockSplittingProvider,
+      newNodeProvider: mockNewNodeProvider,
+      memoryNodeFactory: mockMemoryNodeFactory,
+      eventStream,
+    });
+    const node = {
+      id: 'node-a',
+      kind: 'memory' as const,
+      status: 'idle' as const,
+      context: 'Original context',
+      sendMessage: vi.fn(),
+    };
+
+    await expect(splitter.split(node, TEST_EPOCH_TELEMETRY)).rejects.toThrow(
+      'split failed',
+    );
+    expect(events[0]).toMatchObject({
+      event: 'node.split-completed',
+      spanId: expect.any(String),
+      data: {
+        outcome: 'failure',
+        childNodeIds: [],
+        errorCategory: 'TypeError',
+      },
+    });
   });
 });

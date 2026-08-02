@@ -292,6 +292,20 @@ describe('OpenaiProvider', () => {
       );
       expect(result).toEqual([0, 2, 1]);
     });
+
+    it('rejects an incomplete model ranking', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion(JSON.stringify({ rankedIndices: [0, 1] })),
+      );
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await expect(
+        provider.rankByRelevance('fruit', ['apple', 'carrot', 'banana']),
+      ).rejects.toThrow('expected 3 ranked indices');
+    });
   });
 
   describe('selectBest', () => {

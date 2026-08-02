@@ -11,14 +11,6 @@ export interface JsonlLogRouterOptions {
   readonly directory: string;
   /** Maximum size of one sequence file before a new numbered file is used. */
   readonly maxFileBytes?: number;
-  /** Injectable clock keeps timestamps deterministic in tests. */
-  readonly now?: () => Date;
-}
-
-interface DurableLogRecord {
-  readonly timestamp: string;
-  readonly stream: string;
-  readonly entry: unknown;
 }
 
 interface StreamFileState {
@@ -37,7 +29,6 @@ interface StreamFileState {
 export class JsonlLogRouter implements LogRouter {
   private readonly directory: string;
   private readonly maxFileBytes: number;
-  private readonly now: () => Date;
   private readonly states = new Map<string, StreamFileState>();
   private readonly unsubscribers = new Set<Unsubscribe>();
   private pendingWrites: Promise<void> = Promise.resolve();
@@ -46,7 +37,6 @@ export class JsonlLogRouter implements LogRouter {
   constructor(options: JsonlLogRouterOptions) {
     this.directory = path.normalize(options.directory);
     this.maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
-    this.now = options.now ?? (() => new Date());
   }
 
   public readonly consume = <Entry>(stream: LoggableStream<Entry>): void => {
@@ -58,12 +48,9 @@ export class JsonlLogRouter implements LogRouter {
         return;
       }
       try {
-        const record: DurableLogRecord = {
-          timestamp: this.now().toISOString(),
-          stream: stream.name,
-          entry: stream.serializeForLogging(entry),
-        };
-        const line = `${JSON.stringify(toJsonSafe(record))}\n`;
+        const line = `${JSON.stringify(
+          toJsonSafe(stream.serializeForLogging(entry)),
+        )}\n`;
         this.enqueue(stream.name, line);
       } catch {
         // Logging must never change the result of the operation being logged.
@@ -194,39 +181,43 @@ const toJsonSafe = (value: unknown, seen = new WeakSet<object>()): unknown => {
   if (typeof value === 'symbol') {
     return value.toString();
   }
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: value.message,
-      ...(value.stack === undefined ? {} : { stack: value.stack }),
-      ...('cause' in value ? { cause: toJsonSafe(value.cause, seen) } : {}),
-    };
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
   if (seen.has(value)) {
     return '[Circular]';
   }
   seen.add(value);
-  if (Array.isArray(value)) {
-    return value.map((item) => toJsonSafe(item, seen));
-  }
-  if (value instanceof Map) {
-    return Object.fromEntries(
-      [...value.entries()].map(([key, item]) => [
-        String(key),
-        toJsonSafe(item, seen),
-      ]),
-    );
-  }
-  if (value instanceof Set) {
-    return [...value].map((item) => toJsonSafe(item, seen));
-  }
+  try {
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+        ...(value.stack === undefined ? {} : { stack: value.stack }),
+        ...('cause' in value ? { cause: toJsonSafe(value.cause, seen) } : {}),
+      };
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => toJsonSafe(item, seen));
+    }
+    if (value instanceof Map) {
+      return Object.fromEntries(
+        [...value.entries()].map(([key, item]) => [
+          String(key),
+          toJsonSafe(item, seen),
+        ]),
+      );
+    }
+    if (value instanceof Set) {
+      return [...value].map((item) => toJsonSafe(item, seen));
+    }
 
-  const result: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    result[key] = toJsonSafe(item, seen);
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      result[key] = toJsonSafe(item, seen);
+    }
+    return result;
+  } finally {
+    seen.delete(value);
   }
-  return result;
 };

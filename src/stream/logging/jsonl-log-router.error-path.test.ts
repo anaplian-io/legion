@@ -79,25 +79,15 @@ describe('JsonlLogRouter I/O failures', () => {
     await router.close();
   });
 
-  it('isolates serialization and clock failures from publishers', async () => {
+  it('isolates serialization failures from publishers', async () => {
     const brokenSerialization = makeStream(() => {
       throw new Error('bad serializer');
     });
-    const brokenClock = makeStream();
     const serializerRouter = new JsonlLogRouter({ directory: '/tmp/logs' });
-    const clockRouter = new JsonlLogRouter({
-      directory: '/tmp/logs',
-      now: () => {
-        throw new Error('bad clock');
-      },
-    });
     serializerRouter.consume(brokenSerialization.stream);
-    clockRouter.consume(brokenClock.stream);
 
     expect(() => brokenSerialization.publish('event')).not.toThrow();
-    expect(() => brokenClock.publish('event')).not.toThrow();
     await serializerRouter.close();
-    await clockRouter.close();
 
     expect(write).not.toHaveBeenCalled();
   });

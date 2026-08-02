@@ -24,6 +24,8 @@ Begin by surveying what you can perceive and choosing one modest thing to learn 
   memoryCuriosityProbability: 0.03,
   attentionGateN: 2,
   distillerStrategy: 'synthesize',
+  telemetryDiagnostics: false,
+  telemetryMaxTextLength: 512,
   sensorProviders: [
     () => ({
       sensor: new CurrentTimeSensor(),
