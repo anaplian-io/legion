@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { McpServerSummarySupplier } from '../types/legion-settings.js';
+import { McpServerSummarySupplier } from '../../types/legion-settings.js';
 import {
   PersistedMcpServerSummaries,
   PersistedMcpServerSummary,
-} from '../types/mcp-server-summary.js';
-import { Provider } from '../types/provider.js';
-import { ToolDefinition } from '../types/tool.js';
+} from '../../types/mcp-server-summary.js';
+import { Provider } from '../../types/provider.js';
+import { ToolDefinition } from '../../types/tool.js';
 
 export const defaultMcpServerCapabilityDescription = (name: string): string =>
   `can use the ${name} MCP server for external actions or information retrieval.`;

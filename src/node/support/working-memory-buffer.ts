@@ -1,6 +1,6 @@
-import { WorkingMemory } from '../types/working-memory.js';
-import { Message } from '../types/message.js';
-import { EventStream } from '../types/event-stream.js';
+import { WorkingMemory } from '../../types/working-memory.js';
+import { Message } from '../../types/message.js';
+import { EventStream } from '../../types/event-stream.js';
 
 export interface WorkingMemoryBufferProps {
   readonly maxMessages: number;

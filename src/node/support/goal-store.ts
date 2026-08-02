@@ -1,5 +1,5 @@
-import { EventStream } from '../types/event-stream.js';
-import { ActiveGoal, GoalOrigin } from '../types/goal.js';
+import { EventStream } from '../../types/event-stream.js';
+import { ActiveGoal, GoalOrigin } from '../../types/goal.js';
 
 export interface GoalDefinition {
   readonly objective: string;

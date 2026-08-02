@@ -1,8 +1,8 @@
-import { Node } from '../types/node.js';
-import { MemoryNode } from '../node/memory-node.js';
-import { NodeStats } from '../types/node-stats.js';
-import { EventStream } from '../types/event-stream.js';
-import { isMemoryNode } from '../utilities/type-guards.js';
+import { Node } from '../../types/node.js';
+import { MemoryNode } from '../memory-node.js';
+import { NodeStats } from '../../types/node-stats.js';
+import { EventStream } from '../../types/event-stream.js';
+import { isMemoryNode } from '../../utilities/type-guards.js';
 
 const ZERO_STATS: NodeStats = {
   epochsAlive: 0,

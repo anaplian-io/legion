@@ -1,7 +1,7 @@
-import { NodePruner } from '../types/node-pruner.js';
-import { NodeStats } from '../types/node-stats.js';
-import { Node } from '../types/node.js';
-import { hasDefinedProperty } from '../utilities/type-guards.js';
+import { NodePruner } from '../../types/node-pruner.js';
+import { NodeStats } from '../../types/node-stats.js';
+import { Node } from '../../types/node.js';
+import { hasDefinedProperty } from '../../utilities/type-guards.js';
 
 export interface StaticNodePrunerProps {
   /**

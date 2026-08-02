@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GoalNode } from './goal-node.js';
-import { GoalStore } from '../service/goal-store.js';
+import { GoalStore } from './support/goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { BroadcastMessage } from '../types/node.js';
 import type { ActionRequest } from '../types/message.js';

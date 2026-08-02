@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { StaticNodePruner } from './static-node-pruner.js';
-import { NodeStats } from '../types/node-stats.js';
-import { MemoryNode } from '../node/memory-node.js';
+import { NodeStats } from '../../types/node-stats.js';
+import { MemoryNode } from '../memory-node.js';
 
 // A MemoryNode stand-in; the pruner only reads `id`.
 const node = (id: string): MemoryNode => ({ id }) as unknown as MemoryNode;

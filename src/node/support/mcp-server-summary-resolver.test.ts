@@ -4,9 +4,9 @@ import {
   mcpServerToolSignature,
   resolveMcpServerCapabilityDescription,
 } from './mcp-server-summary-resolver.js';
-import type { McpServerSummarySupplier } from '../types/legion-settings.js';
-import type { Provider } from '../types/provider.js';
-import type { ToolDefinition } from '../types/tool.js';
+import type { McpServerSummarySupplier } from '../../types/legion-settings.js';
+import type { Provider } from '../../types/provider.js';
+import type { ToolDefinition } from '../../types/tool.js';
 
 const tools: ToolDefinition[] = [
   {

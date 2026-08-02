@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WorkingMemoryBuffer } from './working-memory-buffer.js';
-import { ConcreteEventStream } from './concrete-event-stream.js';
-import type { WorkingMemoryUpdatedData } from '../types/event-stream.js';
+import { ConcreteEventStream } from '../../stream/concrete-event-stream.js';
+import type { WorkingMemoryUpdatedData } from '../../types/event-stream.js';
 
 describe('WorkingMemoryBuffer', () => {
   let eventStream: ConcreteEventStream;

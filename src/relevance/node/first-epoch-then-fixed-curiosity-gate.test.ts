@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { FirstEpochThenFixedCuriosityGate } from './first-epoch-then-fixed-curiosity-gate.js';
-import type { RelevanceGateProps } from '../types/relevance-gate.js';
+import type { RelevanceGateProps } from '../../types/relevance-gate.js';
 
 const gateProps = (epochsAlive: number): RelevanceGateProps => ({
   broadcastMessage: {

@@ -13,7 +13,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import { JsonlLogRouter } from './jsonl-log-router.js';
-import type { LoggableStream } from '../types/logging.js';
+import type { LoggableStream } from '../../types/logging.js';
 
 const makeStream = (
   serializeForLogging: (entry: string) => unknown = (entry) => entry,

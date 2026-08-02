@@ -2,10 +2,10 @@ import path from 'node:path';
 import { render } from 'ink';
 import rawSettings from '../../settings.js';
 import { init } from '../constants/initialization.js';
-import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
-import { JsonlLogRouter } from '../service/jsonl-log-router.js';
+import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
+import { JsonlLogRouter } from '../stream/logging/jsonl-log-router.js';
 import { App } from './app.js';
-import { errorLogStream } from '../service/loggable-streams.js';
+import { errorLogStream } from '../stream/logging/loggable-streams.js';
 
 export const main = async (): Promise<void> => {
   const logRouter = new JsonlLogRouter({

@@ -23,8 +23,8 @@ vi.mock('node:fs', () => ({
 }));
 
 import * as fs from 'node:fs';
-import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
-import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
+import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import { SessionSaver } from './session-saver.js';
 import type { NodeStatus, Node } from '../types/node.js';
 

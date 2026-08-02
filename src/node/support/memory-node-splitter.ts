@@ -1,8 +1,8 @@
-import { NodeSplitter } from '../types/node-splitter.js';
-import { Node } from '../types/node.js';
-import { Provider } from '../types/provider.js';
-import { MemoryNodeFactory } from '../types/memory-node-factory.js';
-import { EventStream } from '../types/event-stream.js';
+import { NodeSplitter } from '../../types/node-splitter.js';
+import { Node } from '../../types/node.js';
+import { Provider } from '../../types/provider.js';
+import { MemoryNodeFactory } from '../../types/memory-node-factory.js';
+import { EventStream } from '../../types/event-stream.js';
 
 export interface MemoryNodeSplitterProps {
   readonly splittingProvider: Provider;

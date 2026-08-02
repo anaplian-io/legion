@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LlmRelevanceFilter } from './llm-relevance-filter.js';
-import type { Provider } from '../types/provider.js';
-import type { AttentionGate } from '../types/attention-gate.js';
-import type { WorkingMemory } from '../types/working-memory.js';
-import type { Message } from '../types/message.js';
+import type { Provider } from '../../types/provider.js';
+import type { AttentionGate } from '../../types/attention-gate.js';
+import type { WorkingMemory } from '../../types/working-memory.js';
+import type { Message } from '../../types/message.js';
 
 describe('LlmRelevanceFilter', () => {
   let mockProvider: Provider;

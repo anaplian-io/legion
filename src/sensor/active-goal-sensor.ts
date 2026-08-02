@@ -1,4 +1,4 @@
-import { GoalStore } from '../service/goal-store.js';
+import { GoalStore } from '../node/support/goal-store.js';
 import { Sensor } from '../types/sensor.js';
 
 export interface ActiveGoalSensorProps {

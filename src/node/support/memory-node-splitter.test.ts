@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryNodeSplitter } from './memory-node-splitter.js';
-import type { Provider } from '../types/provider.js';
-import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
-import { ConcreteEventStream } from './concrete-event-stream.js';
+import type { Provider } from '../../types/provider.js';
+import type { MemoryNodeFactory } from '../../types/memory-node-factory.js';
+import { ConcreteEventStream } from '../../stream/concrete-event-stream.js';
 
 describe('MemoryNodeSplitter', () => {
   let mockSplittingProvider: Provider;

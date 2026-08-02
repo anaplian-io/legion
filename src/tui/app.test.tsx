@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'ink-testing-library';
 import { App } from './app.js';
-import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import type { Node } from '../types/node.js';
 import type { Message } from '../types/message.js';

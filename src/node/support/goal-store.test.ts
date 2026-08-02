@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GoalStore } from './goal-store.js';
-import type { EventStream } from '../types/event-stream.js';
-import type { ActiveGoal } from '../types/goal.js';
+import type { EventStream } from '../../types/event-stream.js';
+import type { ActiveGoal } from '../../types/goal.js';
 
 const restoredGoal: ActiveGoal = {
   id: 'restored-goal',

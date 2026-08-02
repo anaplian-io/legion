@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PublishProps } from '../types/event-stream.js';
-import { ConcreteErrorStream } from './concrete-error-stream.js';
-import { ConcreteEventStream } from './concrete-event-stream.js';
+import { PublishProps } from '../../types/event-stream.js';
+import { ConcreteErrorStream } from '../concrete-error-stream.js';
+import { ConcreteEventStream } from '../concrete-event-stream.js';
 import { errorLogStream, eventLogStream } from './loggable-streams.js';
 
 describe('loggable stream adapters', () => {

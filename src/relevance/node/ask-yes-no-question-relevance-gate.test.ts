@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AskYesNoQuestionRelevanceGate } from './ask-yes-no-question-relevance-gate.js';
-import type { Provider } from '../types/provider.js';
+import type { Provider } from '../../types/provider.js';
 
 describe('AskYesNoQuestionRelevanceGate', () => {
   const provider = (): Provider => ({

@@ -10,24 +10,24 @@ import {
 import { OpenaiProvider } from '../provider/openai-provider.js';
 import { SensoryNode } from '../node/sensory-node.js';
 import { ConcreteToolNodeFactory } from '../factory/concrete-tool-node-factory.js';
-import { LlmRelevanceFilter } from '../service/llm-relevance-filter.js';
-import { StaticAttentionGate } from '../service/static-attention-gate.js';
-import { BestBroadcastDistiller } from '../service/best-broadcast-distiller.js';
-import { LlmDistiller } from '../service/llm-distiller.js';
-import { MemoryNodeSplitter } from '../service/memory-node-splitter.js';
-import { StaticNodePruner } from '../service/static-node-pruner.js';
+import { LlmRelevanceFilter } from '../relevance/message/llm-relevance-filter.js';
+import { StaticAttentionGate } from '../attention/static-attention-gate.js';
+import { BestBroadcastDistiller } from '../distillation/best-broadcast-distiller.js';
+import { LlmDistiller } from '../distillation/llm-distiller.js';
+import { MemoryNodeSplitter } from '../node/support/memory-node-splitter.js';
+import { StaticNodePruner } from '../node/support/static-node-pruner.js';
 import { ConcreteMemoryNodeFactory } from '../factory/concrete-memory-node-factory.js';
 import { EventStream } from '../types/event-stream.js';
 import { Node } from '../types/node.js';
 import { Message } from '../types/message.js';
 import { EpochOrchestrator } from '../orchestration/epoch-orchestrator.js';
 import { LoadedSession, SessionLoader } from '../utilities/session-loader.js';
-import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import { SessionSaver } from '../utilities/session-saver.js';
 import { QueuingOpenAi } from '../adapter/queuing-open-ai.js';
-import { FirstEpochThenFixedCuriosityGate } from '../service/first-epoch-then-fixed-curiosity-gate.js';
-import { AskYesNoQuestionRelevanceGate } from '../service/ask-yes-no-question-relevance-gate.js';
-import { SequencedCompositeRelevanceGate } from '../service/sequenced-composite-relevance-gate.js';
+import { FirstEpochThenFixedCuriosityGate } from '../relevance/node/first-epoch-then-fixed-curiosity-gate.js';
+import { AskYesNoQuestionRelevanceGate } from '../relevance/node/ask-yes-no-question-relevance-gate.js';
+import { SequencedCompositeRelevanceGate } from '../relevance/node/sequenced-composite-relevance-gate.js';
 import { Provider } from '../types/provider.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { MCPClient } from '../adapter/mcp-client.js';
@@ -39,17 +39,20 @@ import {
 import {
   defaultMcpServerCapabilityDescription,
   resolveMcpServerCapabilityDescription,
-} from '../service/mcp-server-summary-resolver.js';
-import { GoalStore } from '../service/goal-store.js';
+} from '../node/support/mcp-server-summary-resolver.js';
+import { GoalStore } from '../node/support/goal-store.js';
 import { GoalNode } from '../node/goal-node.js';
 import { ActiveGoalSensor } from '../sensor/active-goal-sensor.js';
 import type { ActiveGoal } from '../types/goal.js';
-import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
+import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
 import { LogRouter } from '../types/logging.js';
 import { ErrorStream } from '../types/error-stream.js';
-import { DistillationValidator } from '../service/distillation-validator.js';
-import { ValidatedDistiller } from '../service/validated-distiller.js';
-import { errorLogStream, eventLogStream } from '../service/loggable-streams.js';
+import { DistillationValidator } from '../distillation/distillation-validator.js';
+import { ValidatedDistiller } from '../distillation/validated-distiller.js';
+import {
+  errorLogStream,
+  eventLogStream,
+} from '../stream/logging/loggable-streams.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;

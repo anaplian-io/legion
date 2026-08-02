@@ -1,6 +1,6 @@
-import { Message } from '../types/message.js';
-import { Provider } from '../types/provider.js';
-import { RelevanceGate } from '../types/relevance-gate.js';
+import { Message } from '../../types/message.js';
+import { Provider } from '../../types/provider.js';
+import { RelevanceGate } from '../../types/relevance-gate.js';
 
 export interface AskYesNoQuestionRelevanceGateProps {
   readonly provider: Provider;

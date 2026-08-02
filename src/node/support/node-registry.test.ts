@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NodeRegistry } from './node-registry.js';
-import { ConcreteEventStream } from './concrete-event-stream.js';
-import type { Node } from '../types/node.js';
+import { ConcreteEventStream } from '../../stream/concrete-event-stream.js';
+import type { Node } from '../../types/node.js';
 
 const memoryNode = (id: string): Node<'memory'> => ({
   id,

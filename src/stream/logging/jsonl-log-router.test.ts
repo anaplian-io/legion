@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JsonlLogRouter } from './jsonl-log-router.js';
-import type { LoggableStream } from '../types/logging.js';
+import type { LoggableStream } from '../../types/logging.js';
 
 const temporaryDirectories: string[] = [];
 

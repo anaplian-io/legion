@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
-import { LoggableStream, LogRouter } from '../types/logging.js';
-import { Unsubscribe } from '../types/subscription.js';
+import { LoggableStream, LogRouter } from '../../types/logging.js';
+import { Unsubscribe } from '../../types/subscription.js';
 
 const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 

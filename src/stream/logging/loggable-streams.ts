@@ -1,6 +1,9 @@
-import { ErrorReport, ErrorStream } from '../types/error-stream.js';
-import { ObservableEventStream, PublishProps } from '../types/event-stream.js';
-import { LoggableStream } from '../types/logging.js';
+import { ErrorReport, ErrorStream } from '../../types/error-stream.js';
+import {
+  ObservableEventStream,
+  PublishProps,
+} from '../../types/event-stream.js';
+import { LoggableStream } from '../../types/logging.js';
 
 /** Adapts domain events to the existing forensic event-log representation. */
 export const eventLogStream = (

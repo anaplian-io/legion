@@ -3,7 +3,7 @@ import { ConcreteToolNodeFactory } from './concrete-tool-node-factory.js';
 import { ToolNode } from '../node/tool-node.js';
 import type { Provider } from '../types/provider.js';
 import type { EventStream } from '../types/event-stream.js';
-import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
+import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
 
 // Mock MCP Client
 interface MockMcpClient {

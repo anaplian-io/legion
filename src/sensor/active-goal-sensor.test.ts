@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ActiveGoalSensor } from './active-goal-sensor.js';
-import { GoalStore } from '../service/goal-store.js';
+import { GoalStore } from '../node/support/goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { BroadcastMessage } from '../types/node.js';
 

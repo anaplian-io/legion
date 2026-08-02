@@ -1,10 +1,10 @@
-import { RelevanceFilter } from '../types/relevance-filter.js';
-import { Provider } from '../types/provider.js';
-import { AttentionGate } from '../types/attention-gate.js';
-import { Message } from '../types/message.js';
-import { WorkingMemory } from '../types/working-memory.js';
-import { isDefined } from '../utilities/type-guards.js';
-import { formatMessagePayload } from '../utilities/action-request.js';
+import { RelevanceFilter } from '../../types/relevance-filter.js';
+import { Provider } from '../../types/provider.js';
+import { AttentionGate } from '../../types/attention-gate.js';
+import { Message } from '../../types/message.js';
+import { WorkingMemory } from '../../types/working-memory.js';
+import { isDefined } from '../../utilities/type-guards.js';
+import { formatMessagePayload } from '../../utilities/action-request.js';
 
 export interface LlmRelevanceFilterProps {
   readonly provider: Provider;

@@ -1,4 +1,4 @@
-import { RelevanceGate } from '../types/relevance-gate.js';
+import { RelevanceGate } from '../../types/relevance-gate.js';
 
 export interface FirstEpochThenFixedCuriosityGateProps {
   readonly probability?: number;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SequencedCompositeRelevanceGate } from './sequenced-composite-relevance-gate.js';
-import type { RelevanceGate } from '../types/relevance-gate.js';
+import type { RelevanceGate } from '../../types/relevance-gate.js';
 
 describe('SequencedCompositeRelevanceGate', () => {
   const relevanceProps = {

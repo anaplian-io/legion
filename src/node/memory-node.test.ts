@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryNode } from './memory-node.js';
 import type { Provider } from '../types/provider.js';
 import type { BroadcastMessage } from '../types/node.js';
-import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
 
 describe('MemoryNode', () => {
