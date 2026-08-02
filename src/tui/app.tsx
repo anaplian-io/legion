@@ -12,8 +12,8 @@ export interface AppProps {
   readonly eventStream: EventStream;
   /** Delay between epochs, in ms. */
   readonly epochDelayMs?: number;
-  /** Called once the UI has exited so the caller can tear down. */
-  readonly onExit: () => void;
+  /** Completes graceful teardown before the UI exits. */
+  readonly onExit: () => void | Promise<void>;
 }
 
 interface NodeView {
@@ -135,6 +135,7 @@ export const App: React.FC<AppProps> = ({
   const [userInputExpanded, setUserInputExpanded] = useState<boolean>(false);
   // Expanded, full-width, fully-readable working-memory view.
   const [wmExpanded, setWmExpanded] = useState<boolean>(false);
+  const exitingRef = useRef(false);
 
   const appendLog = (text: string, color = 'white'): void => {
     setLogs((prev) => {
@@ -310,7 +311,7 @@ export const App: React.FC<AppProps> = ({
       // Guards the race where the timer fires during effect teardown. The
       // cleanup clears this timer, so the guard is effectively unreachable.
       /* v8 ignore next 1 */
-      if (cancelled) return;
+      if (cancelled || exitingRef.current) return;
       setPhase('broadcast');
       appendLog(`▶ epoch ${epoch}: broadcasting into afferent wave`, 'cyan');
       try {
@@ -380,8 +381,16 @@ export const App: React.FC<AppProps> = ({
 
     // Command mode.
     if (input === 'q' || (key.ctrl && input === 'c')) {
-      onExit();
-      exit();
+      if (!exitingRef.current) {
+        exitingRef.current = true;
+        setPaused(true);
+        void Promise.resolve()
+          .then(onExit)
+          .then(
+            () => exit(),
+            () => exit(),
+          );
+      }
       return;
     }
     if (input === 'i') {

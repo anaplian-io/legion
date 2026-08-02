@@ -27,6 +27,7 @@ import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import { SessionSaver } from './session-saver.js';
 import type { NodeStatus, Node } from '../types/node.js';
+import { createTestTelemetry } from '../telemetry/test-context.fixture.js';
 
 // Type alias for memory node interface
 type MemoryNode = Node<'memory'>;
@@ -44,6 +45,7 @@ function createMemoryNode(id: string, context: string = 'initial'): MemoryNode {
 
 describe('SessionSaver', () => {
   const mockDirectory = '/tmp/test-session-saver';
+  const telemetry = createTestTelemetry();
   let eventStream: ConcreteEventStream;
 
   beforeEach(() => {
@@ -75,6 +77,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -119,6 +122,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -182,6 +186,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -209,6 +214,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -239,6 +245,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(dirWithExtraSlashes, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: dirWithExtraSlashes,
       });
@@ -275,6 +282,7 @@ describe('SessionSaver', () => {
       fs.writeFileSync(filePath, '{"id":"test"}');
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -300,6 +308,7 @@ describe('SessionSaver', () => {
       });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -327,6 +336,7 @@ describe('SessionSaver', () => {
       existsSync.mockReturnValue(false); // File doesn't exist
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -347,7 +357,7 @@ describe('SessionSaver', () => {
       const errors = new ConcreteErrorStream();
       errors.subscribe((report) => reports.push(report));
       eventStream = new ConcreteEventStream({ errorStream: errors });
-      SessionSaver.watch({ eventStream, directory: mockDirectory });
+      SessionSaver.watch({ eventStream, directory: mockDirectory, telemetry });
       unlinkSync.mockImplementationOnce(() => {
         throw { code: 'ENOENT' };
       });
@@ -374,6 +384,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -395,6 +406,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -430,6 +442,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -468,6 +481,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -532,6 +546,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -553,6 +568,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -591,6 +607,7 @@ describe('SessionSaver', () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
       SessionSaver.watch({
+        telemetry,
         eventStream,
         directory: mockDirectory,
       });
@@ -622,7 +639,7 @@ describe('SessionSaver', () => {
     it('should persist node stats to stats.json', async () => {
       fs.mkdirSync(mockDirectory, { recursive: true });
 
-      SessionSaver.watch({ eventStream, directory: mockDirectory });
+      SessionSaver.watch({ eventStream, directory: mockDirectory, telemetry });
 
       const nodeStats = [
         {
@@ -650,7 +667,7 @@ describe('SessionSaver', () => {
 
   describe('goal/updated event', () => {
     it('persists a set or cleared active goal independently of a memory session', () => {
-      SessionSaver.watch({ eventStream, directory: mockDirectory });
+      SessionSaver.watch({ eventStream, directory: mockDirectory, telemetry });
 
       eventStream.publish({
         topicName: 'goal/updated',
@@ -703,6 +720,7 @@ describe('SessionSaver', () => {
     };
 
     SessionSaver.saveMcpServerSummaries({
+      telemetry,
       directory: mockDirectory,
       summaries,
     });

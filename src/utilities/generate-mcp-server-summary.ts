@@ -6,12 +6,15 @@ const SUMMARY_SYSTEM_PROMPT =
 export const generateSummary =
   (): McpServerSummarySupplier =>
   async ({ provider, tools }) =>
-    provider.generate({
-      systemPrompt: SUMMARY_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user-input',
-          content: `MCP tools:\n${JSON.stringify(tools)}`,
-        },
-      ],
-    });
+    provider.generate(
+      {
+        systemPrompt: SUMMARY_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: 'user-input',
+            content: `MCP tools:\n${JSON.stringify(tools)}`,
+          },
+        ],
+      },
+      { stage: 'startup-summary' },
+    );

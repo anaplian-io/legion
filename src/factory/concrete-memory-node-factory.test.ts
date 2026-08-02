@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteMemoryNodeFactory } from './concrete-memory-node-factory.js';
 import type { Provider } from '../types/provider.js';
+import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
 
@@ -66,6 +67,7 @@ describe('ConcreteMemoryNodeFactory', () => {
       eventStream,
     });
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     });
@@ -112,10 +114,12 @@ describe('ConcreteMemoryNodeFactory', () => {
     });
 
     await firstNode.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     });
     await secondNode.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     });

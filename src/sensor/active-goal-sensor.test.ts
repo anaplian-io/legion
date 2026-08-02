@@ -3,8 +3,10 @@ import { ActiveGoalSensor } from './active-goal-sensor.js';
 import { GoalStore } from '../node/support/goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { BroadcastMessage } from '../types/node.js';
+import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
 
 const broadcastMessage: BroadcastMessage = {
+  telemetry: TEST_NODE_TELEMETRY,
   workingMemory: { messages: [] },
   broadcast: { role: 'broadcast', content: 'Continue.' },
 };

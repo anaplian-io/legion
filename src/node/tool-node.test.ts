@@ -5,6 +5,10 @@ import type { EventStream } from '../types/event-stream.js';
 import type { ToolCall, ToolDefinition } from '../types/tool.js';
 import type { ActionRequest, Message } from '../types/message.js';
 import type { MCPClient, ToolResult } from '../adapter/mcp-client.js';
+import {
+  createTestTelemetry,
+  TEST_NODE_TELEMETRY,
+} from '../telemetry/test-context.fixture.js';
 
 interface MockMcpClient {
   readonly getAvailableTools: () => Promise<ToolDefinition[]>;
@@ -52,6 +56,7 @@ const message = (
   actionRequests?: readonly ActionRequest[],
   broadcastOverrides: Partial<Message> = {},
 ) => ({
+  telemetry: TEST_NODE_TELEMETRY,
   workingMemory: {
     messages: [{ role: 'working-memory' as const, content: 'Prior context.' }],
   },
@@ -80,6 +85,7 @@ describe('ToolNode', () => {
       provider,
       eventStream,
       mcpClient: mcpClient as unknown as MCPClient,
+      telemetry: createTestTelemetry(),
       ...(initialTools === undefined ? {} : { initialTools }),
     });
 
@@ -220,18 +226,21 @@ describe('ToolNode', () => {
 
     const response = await node.sendMessage(message([staleRequest]));
 
-    expect(provider.generateWithTools).toHaveBeenCalledWith({
-      systemPrompt: node.preamble,
-      messages: [
-        {
-          role: 'tool-intent',
-          content: '',
-          actionRequests: [staleRequest],
-        },
-      ],
-      tools,
-      toolChoice: 'required',
-    });
+    expect(provider.generateWithTools).toHaveBeenCalledWith(
+      {
+        systemPrompt: node.preamble,
+        messages: [
+          {
+            role: 'tool-intent',
+            content: '',
+            actionRequests: [staleRequest],
+          },
+        ],
+        tools,
+        toolChoice: 'required',
+      },
+      expect.objectContaining({ stage: 'tool-elaboration' }),
+    );
     expect(mcpClient.invokeTool).toHaveBeenCalledWith(
       'call-list',
       'list_directory',

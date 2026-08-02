@@ -1,166 +1,91 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PublishProps } from '../../types/event-stream.js';
+import { TelemetryRecorder } from '../../telemetry/telemetry-recorder.js';
 import { ConcreteErrorStream } from '../concrete-error-stream.js';
 import { ConcreteEventStream } from '../concrete-event-stream.js';
-import { errorLogStream, eventLogStream } from './loggable-streams.js';
+import {
+  connectErrorTelemetry,
+  connectNoticeTelemetry,
+  telemetryLogStream,
+} from './loggable-streams.js';
 
-describe('loggable stream adapters', () => {
-  it('adapts domain publication and preserves subscription cleanup', () => {
-    const events = new ConcreteEventStream();
-    const stream = eventLogStream(events);
+describe('telemetry logging adapters', () => {
+  it('exposes telemetry as the sole flat durable stream', () => {
+    const telemetry = new TelemetryRecorder({ runId: 'run-1' });
+    const stream = telemetryLogStream(telemetry);
     const received = vi.fn();
     const unsubscribe = stream.subscribeForLogging(received);
-    const notice: PublishProps<'system/notice'> = {
-      topicName: 'system/notice',
-      data: { message: 'ready' },
-    };
-
-    events.publish(notice);
+    telemetry.startRun();
     unsubscribe();
-    events.publish(notice);
+    telemetry.completeRun('success');
 
-    expect(stream.name).toBe('events');
+    expect(stream.name).toBe('telemetry');
     expect(received).toHaveBeenCalledTimes(1);
-    expect(received).toHaveBeenCalledWith(notice);
+    const event = received.mock.calls[0]![0];
+    expect(stream.serializeForLogging(event)).toBe(event);
   });
 
-  it('serializes node snapshots explicitly', () => {
-    const stream = eventLogStream(new ConcreteEventStream());
-    const node = {
-      id: 'node-1',
-      kind: 'memory' as const,
-      status: 'idle' as const,
-      context: 'focused context',
-      sendMessage: async () => undefined,
-    };
-
-    expect(
-      stream.serializeForLogging({
-        topicName: 'orchestrator/nodes-changed',
-        data: { allNodes: [node] },
-      }),
-    ).toEqual({
-      topicName: 'orchestrator/nodes-changed',
-      data: {
-        allNodes: [
-          {
-            id: 'node-1',
-            kind: 'memory',
-            status: 'idle',
-            context: 'focused context',
-          },
-        ],
-      },
-    });
-    expect(
-      stream.serializeForLogging({
-        topicName: 'orchestrator/node-added',
-        data: { addedNodes: [node] },
-      }),
-    ).toMatchObject({ data: { addedNodes: [{ id: 'node-1' }] } });
-    expect(
-      stream.serializeForLogging({
-        topicName: 'orchestrator/node-updated',
-        data: { node },
-      }),
-    ).toMatchObject({ data: { node: { id: 'node-1' } } });
-  });
-
-  it('explicitly serializes every bounded domain-event payload', () => {
-    const stream = eventLogStream(new ConcreteEventStream());
-    const events: PublishProps[] = [
-      { topicName: 'system/notice', data: { message: 'notice' } },
-      {
-        topicName: 'node/status-change',
-        data: { nodeId: 'node-1', status: 'idle' },
-      },
-      {
-        topicName: 'tool/elaboration-completed',
-        data: {
-          nodeId: 'tool-1',
-          requestId: 'request-1',
-          success: true,
-          toolCalls: [],
-          output: '',
-        },
-      },
-      {
-        topicName: 'tool/invocation-started',
-        data: {
-          nodeId: 'tool-1',
-          callId: 'call-1',
-          toolName: 'lookup',
-          arguments: '{}',
-        },
-      },
-      {
-        topicName: 'tool/invocation-completed',
-        data: {
-          nodeId: 'tool-1',
-          callId: 'call-1',
-          toolName: 'lookup',
-          success: true,
-          output: 'done',
-        },
-      },
-      { topicName: 'goal/updated', data: { activeGoal: undefined } },
-      {
-        topicName: 'orchestrator/node-removed',
-        data: { removedNodeIds: ['node-1'] },
-      },
-      {
-        topicName: 'orchestrator/working-memory-updated',
-        data: {
-          workingMemory: { messages: [] },
-          broadcast: { role: 'broadcast', content: 'next' },
-        },
-      },
-      {
-        topicName: 'orchestrator/user-input-received',
-        data: { content: 'hello' },
-      },
-      {
-        topicName: 'orchestrator/user-input-consumed',
-        data: { content: 'hello' },
-      },
-      {
-        topicName: 'orchestrator/node-stats-updated',
-        data: { nodeStats: [] },
-      },
-    ];
-
-    events.forEach((event) => {
-      expect(stream.serializeForLogging(event)).toBe(event);
-    });
-  });
-
-  it('adapts minimal and detailed error reports', () => {
+  it('bridges errors and notices with cleanup', () => {
+    const telemetry = new TelemetryRecorder({ runId: 'run-1' });
     const errors = new ConcreteErrorStream();
-    const stream = errorLogStream(errors);
-    const received = vi.fn();
-    const unsubscribe = stream.subscribeForLogging(received);
-    const report = { source: 'test', message: 'published' };
+    const events = new ConcreteEventStream();
+    const received: string[] = [];
+    telemetry.subscribe((event) => received.push(event.event));
+    const disconnectErrors = connectErrorTelemetry(errors, telemetry);
+    const disconnectNotices = connectNoticeTelemetry(events, telemetry);
 
-    errors.publish(report);
-    unsubscribe();
-    errors.publish(report);
+    errors.publish({ source: 'test', message: 'failed', error: 'bad' });
+    events.publish({ topicName: 'system/notice', data: { message: 'ready' } });
+    disconnectErrors();
+    disconnectNotices();
+    errors.publish({ source: 'test', message: 'ignored' });
+    events.publish({
+      topicName: 'system/notice',
+      data: { message: 'ignored' },
+    });
 
-    expect(stream.name).toBe('errors');
-    expect(received).toHaveBeenCalledTimes(1);
-    expect(received).toHaveBeenCalledWith(report);
-    expect(stream.serializeForLogging(report)).toEqual(report);
-    expect(
-      stream.serializeForLogging({
-        source: 'test',
-        message: 'detailed',
-        error: new Error('failed'),
-        metadata: { operation: 'write' },
-      }),
-    ).toEqual({
+    expect(received).toEqual(['error.reported', 'system.notice']);
+  });
+
+  it('includes opt-in diagnostics and preserves explicit correlation', () => {
+    const telemetry = new TelemetryRecorder({
+      runId: 'run-1',
+      includeDiagnostics: true,
+    });
+    const errors = new ConcreteErrorStream();
+    const events = new ConcreteEventStream();
+    const received: import('../../types/telemetry.js').TelemetryEvent[] = [];
+    telemetry.subscribe((event) => received.push(event));
+    connectErrorTelemetry(errors, telemetry);
+    connectNoticeTelemetry(events, telemetry);
+
+    const epoch = telemetry.beginEpoch();
+    errors.publish({
       source: 'test',
-      message: 'detailed',
-      error: expect.any(Error),
-      metadata: { operation: 'write' },
+      message: 'failed',
+      error: new TypeError('bad'),
+      metadata: { operation: 'rank' },
+      telemetry: { ...epoch, candidateId: 'candidate-1' },
+    });
+    events.publish({
+      topicName: 'system/notice',
+      data: { message: 'ready', metadata: { nodeCount: 2 } },
+    });
+
+    expect(received[1]).toMatchObject({
+      event: 'error.reported',
+      epochId: epoch.epochId,
+      candidateId: 'candidate-1',
+      data: {
+        diagnostics: {
+          error: { name: 'TypeError', message: 'bad' },
+          metadata: { operation: 'rank' },
+        },
+      },
+    });
+    expect(received[2]).toMatchObject({
+      event: 'system.notice',
+      epochId: epoch.epochId,
+      data: { metadata: { nodeCount: 2 } },
     });
   });
 });

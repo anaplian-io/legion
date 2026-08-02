@@ -3,6 +3,10 @@ import { GoalNode } from './goal-node.js';
 import { GoalStore } from './support/goal-store.js';
 import type { EventStream } from '../types/event-stream.js';
 import type { BroadcastMessage } from '../types/node.js';
+import {
+  createTestTelemetry,
+  TEST_NODE_TELEMETRY,
+} from '../telemetry/test-context.fixture.js';
 import type { ActionRequest } from '../types/message.js';
 import type { GoalDecision } from '../types/goal.js';
 
@@ -23,6 +27,7 @@ const message = (
   actionRequests?: readonly ActionRequest[],
   content = 'Ordinary prose mentioning goal-manager.',
 ): BroadcastMessage => ({
+  telemetry: TEST_NODE_TELEMETRY,
   workingMemory: { messages: [] },
   broadcast: {
     role: 'broadcast',
@@ -32,6 +37,7 @@ const message = (
 });
 
 const decisionMessage = (goalDecision: GoalDecision): BroadcastMessage => ({
+  telemetry: TEST_NODE_TELEMETRY,
   workingMemory: { messages: [] },
   broadcast: {
     role: 'broadcast',
@@ -57,7 +63,12 @@ describe('GoalNode', () => {
   });
 
   const makeNode = (): GoalNode =>
-    new GoalNode({ id: 'goal-manager', eventStream, goalStore });
+    new GoalNode({
+      id: 'goal-manager',
+      eventStream,
+      goalStore,
+      telemetry: createTestTelemetry(),
+    });
 
   it('exposes its structured goal-management contract', () => {
     const node = makeNode();
@@ -435,6 +446,7 @@ describe('GoalNode', () => {
       source: 'GoalNode goal-manager',
       message: 'Failed to publish a node status change.',
       error: expect.any(Error),
+      telemetry: TEST_NODE_TELEMETRY,
     });
   });
 });

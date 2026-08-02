@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LlmDistiller } from './llm-distiller.js';
+import type { DistillationProps, Distiller } from '../types/distiller.js';
 import type { Provider } from '../types/provider.js';
-import type { Message } from '../types/message.js';
+import type { CandidateMessage } from '../types/message.js';
 import type { ToolCall } from '../types/tool.js';
+import { TEST_DISTILLATION_TELEMETRY } from '../telemetry/test-context.fixture.js';
 
-const candidate = (content: string, nodeId?: string): Message => ({
+const candidate = (
+  content: string,
+  nodeId = 'memory-test',
+): CandidateMessage => ({
   role: 'node-response',
   content,
-  ...(nodeId === undefined ? {} : { originatingNodeId: nodeId }),
+  originatingNodeId: nodeId,
+  candidateId: `candidate-${nodeId}`,
 });
+
+const distill = (distiller: Distiller, props: DistillationProps) =>
+  distiller.distill(props, TEST_DISTILLATION_TELEMETRY);
 
 const synthesisCall = (argumentsValue: unknown): ToolCall => ({
   id: 'synthesis-1',
@@ -79,7 +88,7 @@ describe('LlmDistiller', () => {
     const distiller = new LlmDistiller({ provider });
 
     await expect(
-      distiller.distill({ workingMemory: { messages: [] }, broadcasts: [] }),
+      distill(distiller, { workingMemory: { messages: [] }, broadcasts: [] }),
     ).resolves.toBeUndefined();
     expect(provider.generateWithTools).not.toHaveBeenCalled();
   });
@@ -110,7 +119,7 @@ describe('LlmDistiller', () => {
     const distiller = new LlmDistiller({ provider });
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [broadcast],
       }),
@@ -138,7 +147,7 @@ describe('LlmDistiller', () => {
       operation: 'list_directory',
       arguments: { path: '.' },
     };
-    const broadcasts: Message[] = [
+    const broadcasts: CandidateMessage[] = [
       candidate('The user wants a workspace summary.', 'memory-a'),
       {
         ...candidate('', 'memory-b'),
@@ -159,7 +168,7 @@ describe('LlmDistiller', () => {
     const distiller = new LlmDistiller({ provider });
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: {
           messages: [
             {
@@ -204,23 +213,26 @@ describe('LlmDistiller', () => {
       },
     });
 
-    expect(provider.generateWithTools).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining(
-        "Never rewrite, invent, or copy an action's target",
-      ),
-      messages: [
-        {
-          role: 'node-response',
-          content: expect.stringMatching(
-            /historical-request[\s\S]*USER INPUT 0 from sensor-user-input[\s\S]*CANDIDATE 0 from memory-a[\s\S]*CANDIDATE 1 from memory-b[\s\S]*request-1/,
-          ),
-        },
-      ],
-      tools: [
-        expect.objectContaining({ name: 'publish_synthesized_broadcast' }),
-      ],
-      toolChoice: 'required',
-    });
+    expect(provider.generateWithTools).toHaveBeenCalledWith(
+      {
+        systemPrompt: expect.stringContaining(
+          "Never rewrite, invent, or copy an action's target",
+        ),
+        messages: [
+          {
+            role: 'node-response',
+            content: expect.stringMatching(
+              /historical-request[\s\S]*USER INPUT 0 from sensor-user-input[\s\S]*CANDIDATE 0 from memory-a[\s\S]*CANDIDATE 1 from memory-b[\s\S]*request-1/,
+            ),
+          },
+        ],
+        tools: [
+          expect.objectContaining({ name: 'publish_synthesized_broadcast' }),
+        ],
+        toolChoice: 'required',
+      },
+      expect.objectContaining({ stage: 'configured-selection' }),
+    );
   });
 
   it('deduplicates contributor node attribution', async () => {
@@ -237,7 +249,7 @@ describe('LlmDistiller', () => {
     const distiller = new LlmDistiller({ provider });
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [candidate('A', 'same-node'), candidate('B', 'same-node')],
       }),
@@ -258,7 +270,7 @@ describe('LlmDistiller', () => {
     });
   });
 
-  it('omits node attribution when contributing candidates have no origin', async () => {
+  it('retains required node attribution for contributing candidates', async () => {
     vi.mocked(provider.generateWithTools).mockResolvedValue({
       content: '',
       toolCalls: [
@@ -272,12 +284,16 @@ describe('LlmDistiller', () => {
     const distiller = new LlmDistiller({ provider });
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [candidate('A'), candidate('B')],
       }),
     ).resolves.toEqual({
-      broadcast: { role: 'broadcast', content: 'Combined.' },
+      broadcast: {
+        role: 'broadcast',
+        content: 'Combined.',
+        contributingNodeIds: ['memory-test'],
+      },
       supportingEvidence: [{ source: 'candidate', index: 0 }],
       goalDecision: {
         kind: 'unchanged',
@@ -312,7 +328,7 @@ describe('LlmDistiller', () => {
       const distiller = new LlmDistiller({ provider });
 
       await expect(
-        distiller.distill({
+        distill(distiller, {
           workingMemory: { messages: [] },
           broadcasts: [candidate('A'), candidate('B')],
         }),
@@ -381,7 +397,7 @@ describe('LlmDistiller', () => {
       const distiller = new LlmDistiller({ provider });
 
       await expect(
-        distiller.distill({
+        distill(distiller, {
           workingMemory: { messages: [] },
           broadcasts: [candidate('A'), candidate('B')],
         }),
@@ -410,7 +426,7 @@ describe('LlmDistiller', () => {
     });
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [
           { ...candidate('A'), actionRequests: [duplicate] },
@@ -430,7 +446,7 @@ describe('LlmDistiller', () => {
       ],
     });
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [
           candidate('A'),
@@ -465,7 +481,7 @@ describe('LlmDistiller', () => {
     });
 
     await expect(
-      new LlmDistiller({ provider }).distill({
+      distill(new LlmDistiller({ provider }), {
         workingMemory: { messages: [] },
         broadcasts: [candidate('A'), candidate('B')],
       }),
@@ -497,7 +513,7 @@ describe('LlmDistiller', () => {
     });
 
     await expect(
-      new LlmDistiller({ provider }).distill({
+      distill(new LlmDistiller({ provider }), {
         workingMemory: { messages: [] },
         afferentContext: [
           {
@@ -533,6 +549,7 @@ describe('LlmDistiller', () => {
           'Authoritative goal state:\nnone',
         ),
       }),
+      expect.objectContaining({ stage: 'configured-selection' }),
     );
   });
 
@@ -558,7 +575,7 @@ describe('LlmDistiller', () => {
     });
 
     await expect(
-      new LlmDistiller({ provider }).distill({
+      distill(new LlmDistiller({ provider }), {
         workingMemory: { messages: [] },
         broadcasts: [
           candidate(
@@ -616,7 +633,7 @@ describe('LlmDistiller', () => {
         ],
       });
 
-      const result = await new LlmDistiller({ provider }).distill({
+      const result = await distill(new LlmDistiller({ provider }), {
         workingMemory: { messages: [] },
         broadcasts: [candidate('Supported goal evidence.')],
         activeGoal: {
@@ -633,6 +650,7 @@ describe('LlmDistiller', () => {
         expect.objectContaining({
           systemPrompt: expect.stringContaining('ID: goal-1'),
         }),
+        expect.objectContaining({ stage: 'configured-selection' }),
       );
     },
   );
@@ -678,7 +696,7 @@ describe('LlmDistiller', () => {
       });
 
       await expect(
-        new LlmDistiller({ provider }).distill({
+        distill(new LlmDistiller({ provider }), {
           workingMemory: { messages: [] },
           broadcasts: [candidate('A'), candidate('B')],
         }),
@@ -791,7 +809,7 @@ describe('LlmDistiller', () => {
       });
 
       await expect(
-        new LlmDistiller({ provider }).distill({
+        distill(new LlmDistiller({ provider }), {
           workingMemory: { messages: [] },
           broadcasts: [candidate('A'), candidate('B')],
           afferentContext: [{ role: 'afferent', content: 'Observation' }],
@@ -881,7 +899,7 @@ describe('LlmDistiller', () => {
     };
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         ...base,
         afferentContext: [{ role: 'afferent', content: 'Observation' }],
       }),
@@ -897,13 +915,13 @@ describe('LlmDistiller', () => {
         revision: 1,
       },
     };
-    await expect(distiller.distill(withActiveGoal)).rejects.toThrow(
+    await expect(distill(distiller, withActiveGoal)).rejects.toThrow(
       'revise requires the exact active goal ID',
     );
-    await expect(distiller.distill(withActiveGoal)).rejects.toThrow(
+    await expect(distill(distiller, withActiveGoal)).rejects.toThrow(
       'complete requires the exact active goal ID',
     );
-    await expect(distiller.distill(withActiveGoal)).rejects.toThrow(
+    await expect(distill(distiller, withActiveGoal)).rejects.toThrow(
       'cannot activate a new goal while one is active',
     );
   });

@@ -13,6 +13,7 @@ export default defineConfig({
       include: ['src/**/*.ts', 'src/**/*.tsx'],
       exclude: [
         'src/types/**/*.ts',
+        'src/**/*.fixture.ts',
         'src/index.ts',
         'src/**/constants/*',
         // Entrypoint bootstrap: render()/TTY/process.exit, not unit-testable

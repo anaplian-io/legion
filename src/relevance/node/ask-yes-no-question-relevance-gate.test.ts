@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AskYesNoQuestionRelevanceGate } from './ask-yes-no-question-relevance-gate.js';
 import type { Provider } from '../../types/provider.js';
+import { TEST_NODE_TELEMETRY } from '../../telemetry/test-context.fixture.js';
 
 describe('AskYesNoQuestionRelevanceGate', () => {
   const provider = (): Provider => ({
@@ -23,6 +24,7 @@ describe('AskYesNoQuestionRelevanceGate', () => {
     await expect(
       gate.isRelevant({
         broadcastMessage: {
+          telemetry: TEST_NODE_TELEMETRY,
           workingMemory: {
             messages: [{ role: 'working-memory', content: 'Previous' }],
           },
@@ -34,14 +36,17 @@ describe('AskYesNoQuestionRelevanceGate', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
-      systemPrompt: 'Node context',
-      messages: [
-        { role: 'working-memory', content: 'Previous' },
-        { role: 'broadcast', content: 'Broadcast' },
-      ],
-      question: 'Is this useful?',
-    });
+    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith(
+      {
+        systemPrompt: 'Node context',
+        messages: [
+          { role: 'working-memory', content: 'Previous' },
+          { role: 'broadcast', content: 'Broadcast' },
+        ],
+        question: 'Is this useful?',
+      },
+      expect.objectContaining({ stage: 'node-relevance' }),
+    );
   });
 
   it('includes afferent context before the broadcast when present', async () => {
@@ -54,6 +59,7 @@ describe('AskYesNoQuestionRelevanceGate', () => {
 
     await gate.isRelevant({
       broadcastMessage: {
+        telemetry: TEST_NODE_TELEMETRY,
         workingMemory: {
           messages: [{ role: 'working-memory', content: 'Previous' }],
         },
@@ -65,15 +71,18 @@ describe('AskYesNoQuestionRelevanceGate', () => {
       nodeContext: 'Node context',
     });
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
-      systemPrompt: 'Node context',
-      messages: [
-        { role: 'working-memory', content: 'Previous' },
-        { role: 'afferent', content: 'Tool capability' },
-        { role: 'broadcast', content: 'Broadcast' },
-      ],
-      question: 'Is this useful?',
-    });
+    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith(
+      {
+        systemPrompt: 'Node context',
+        messages: [
+          { role: 'working-memory', content: 'Previous' },
+          { role: 'afferent', content: 'Tool capability' },
+          { role: 'broadcast', content: 'Broadcast' },
+        ],
+        question: 'Is this useful?',
+      },
+      expect.objectContaining({ stage: 'node-relevance' }),
+    );
   });
 
   it('uses empty defaults when optional context is absent', async () => {
@@ -86,6 +95,7 @@ describe('AskYesNoQuestionRelevanceGate', () => {
 
     await gate.isRelevant({
       broadcastMessage: {
+        telemetry: TEST_NODE_TELEMETRY,
         workingMemory: { messages: [] },
         broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
       },
@@ -93,10 +103,13 @@ describe('AskYesNoQuestionRelevanceGate', () => {
       epochsAlive: 2,
     });
 
-    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith({
-      systemPrompt: '',
-      messages: [{ role: 'broadcast', content: 'Broadcast' }],
-      question: 'Is this useful?',
-    });
+    expect(mockProvider.askYesNoQuestion).toHaveBeenCalledWith(
+      {
+        systemPrompt: '',
+        messages: [{ role: 'broadcast', content: 'Broadcast' }],
+        question: 'Is this useful?',
+      },
+      expect.objectContaining({ stage: 'node-relevance' }),
+    );
   });
 });

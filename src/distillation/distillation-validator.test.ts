@@ -29,10 +29,17 @@ const props = (
   broadcasts: [
     {
       role: 'node-response',
+      originatingNodeId: 'memory-test',
+      candidateId: 'candidate-test',
       content: 'Inspect the README.',
       actionRequests: [action],
     },
-    { role: 'node-response', content: 'Summarize the architecture.' },
+    {
+      role: 'node-response',
+      originatingNodeId: 'memory-test',
+      candidateId: 'candidate-test',
+      content: 'Summarize the architecture.',
+    },
   ],
   afferentContext: [
     { role: 'user-input', content: 'Learn how this workspace works.' },
@@ -182,11 +189,15 @@ describe('DistillationValidator', () => {
           broadcasts: [
             {
               role: 'node-response',
+              originatingNodeId: 'memory-test',
+              candidateId: 'candidate-test',
               content: 'A',
               actionRequests: [action],
             },
             {
               role: 'node-response',
+              originatingNodeId: 'memory-test',
+              candidateId: 'candidate-test',
               content: 'B',
               actionRequests: [action],
             },

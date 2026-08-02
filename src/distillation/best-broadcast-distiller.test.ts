@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BestBroadcastDistiller } from './best-broadcast-distiller.js';
+import type { DistillationProps, Distiller } from '../types/distiller.js';
 import type { Provider } from '../types/provider.js';
-import type { Message } from '../types/message.js';
+import type { CandidateMessage } from '../types/message.js';
+import { TEST_DISTILLATION_TELEMETRY } from '../telemetry/test-context.fixture.js';
 
-const candidate = (content: string): Message => ({
+const candidate = (content: string): CandidateMessage => ({
   role: 'node-response',
   content,
+  originatingNodeId: 'memory-test',
+  candidateId: 'candidate-test',
 });
+
+const distill = (distiller: Distiller, props: DistillationProps) =>
+  distiller.distill(props, TEST_DISTILLATION_TELEMETRY);
 
 describe('BestBroadcastDistiller', () => {
   let mockProvider: Provider;
@@ -26,7 +33,7 @@ describe('BestBroadcastDistiller', () => {
     const distiller = new BestBroadcastDistiller({ provider: mockProvider });
 
     await expect(
-      distiller.distill({ workingMemory: { messages: [] }, broadcasts: [] }),
+      distill(distiller, { workingMemory: { messages: [] }, broadcasts: [] }),
     ).resolves.toBeUndefined();
     expect(mockProvider.selectBest).not.toHaveBeenCalled();
   });
@@ -36,7 +43,7 @@ describe('BestBroadcastDistiller', () => {
     const broadcast = candidate('Ask tool-search to find the current source.');
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [broadcast],
       }),
@@ -57,7 +64,7 @@ describe('BestBroadcastDistiller', () => {
     vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: {
           messages: [
             { role: 'working-memory', content: 'We need current sources.' },
@@ -82,19 +89,22 @@ describe('BestBroadcastDistiller', () => {
       },
     });
 
-    expect(mockProvider.selectBest).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('available afferent node'),
-      messages: [
-        { role: 'working-memory', content: 'We need current sources.' },
-        {
-          role: 'afferent-capability',
-          content:
-            'Available afferent capabilities:\n- tool-search: can search.',
-        },
-        { role: 'user-input', content: 'Please cite a current source.' },
-      ],
-      candidates: ['We should research this.', selected.content],
-    });
+    expect(mockProvider.selectBest).toHaveBeenCalledWith(
+      {
+        systemPrompt: expect.stringContaining('available afferent node'),
+        messages: [
+          { role: 'working-memory', content: 'We need current sources.' },
+          {
+            role: 'afferent-capability',
+            content:
+              'Available afferent capabilities:\n- tool-search: can search.',
+          },
+          { role: 'user-input', content: 'Please cite a current source.' },
+        ],
+        candidates: ['We should research this.', selected.content],
+      },
+      expect.objectContaining({ stage: 'configured-selection' }),
+    );
     expect(
       vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
     ).toContain('specific facts, decisions, constraints, and next actions');
@@ -108,7 +118,7 @@ describe('BestBroadcastDistiller', () => {
     vi.mocked(mockProvider.selectBest).mockResolvedValue(2);
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [
           candidate('First candidate'),
@@ -135,7 +145,7 @@ describe('BestBroadcastDistiller', () => {
     vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [candidate('Wait.'), selected],
       }),
@@ -156,6 +166,7 @@ describe('BestBroadcastDistiller', () => {
           ),
         ],
       }),
+      expect.objectContaining({ stage: 'configured-selection' }),
     );
   });
 
@@ -171,7 +182,7 @@ describe('BestBroadcastDistiller', () => {
     vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
 
     await expect(
-      distiller.distill({
+      distill(distiller, {
         workingMemory: { messages: [] },
         broadcasts: [candidate('Change topics.'), selected],
         activeGoal: {

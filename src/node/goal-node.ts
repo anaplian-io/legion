@@ -3,12 +3,18 @@ import {
   Node,
   NodeResponse,
   NodeStatus,
+  NodeTelemetryContext,
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
 import { GoalStore } from './support/goal-store.js';
 import { ActiveGoal, GoalDecision, GoalOrigin } from '../types/goal.js';
 import { ActionRequest } from '../types/message.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';
+import { evidenceDescriptor } from '../telemetry/content-evidence.js';
+import {
+  classifyTelemetryError,
+  TelemetryRecorder,
+} from '../telemetry/telemetry-recorder.js';
 
 interface GoalActionResult {
   readonly callId: string;
@@ -28,6 +34,7 @@ export interface GoalNodeProps {
   readonly id: string;
   readonly eventStream: EventStream;
   readonly goalStore: GoalStore;
+  readonly telemetry: TelemetryRecorder;
 }
 
 /** Executes only typed action requests addressed to Legion's goal actuator. */
@@ -65,14 +72,16 @@ export class GoalNode implements Node<'goal'> {
       return undefined;
     }
 
-    this.setStatus('generating');
+    this.setStatus('generating', broadcastMessage.telemetry);
     const results = [
-      ...requests.map(this.invokeGoalAction),
+      ...requests.map((request) =>
+        this.invokeGoalAction(request, broadcastMessage.telemetry),
+      ),
       ...(goalDecision === undefined || goalDecision.kind === 'unchanged'
         ? []
-        : [this.invokeGoalDecision(goalDecision)]),
+        : [this.invokeGoalDecision(goalDecision, broadcastMessage.telemetry)]),
     ];
-    this.setStatus('idle');
+    this.setStatus('idle', broadcastMessage.telemetry);
     return {
       role: 'afferent',
       originatingNodeId: this.id,
@@ -86,19 +95,21 @@ export class GoalNode implements Node<'goal'> {
 
   private readonly invokeGoalAction = (
     request: ActionRequest,
+    telemetry: NodeTelemetryContext,
   ): GoalActionResult => {
+    const startedAtMs = this.props.telemetry.monotonicNow();
     const operation = request.operation ?? '[missing-operation-hint]';
     const serializedArguments = JSON.stringify(request.arguments ?? {});
-    this.props.eventStream.publish({
-      topicName: 'tool/invocation-started',
-      data: {
-        nodeId: this.id,
-        callId: request.id,
-        toolName: operation,
-        arguments: serializedArguments,
-      },
-    });
     try {
+      this.props.eventStream.publish({
+        topicName: 'tool/invocation-started',
+        data: {
+          nodeId: this.id,
+          callId: request.id,
+          toolName: operation,
+          arguments: serializedArguments,
+        },
+      });
       const result = this.applyGoalAction(requireGoalActionRequest(request));
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
@@ -110,6 +121,13 @@ export class GoalNode implements Node<'goal'> {
           output: createToolOutputPreview(result),
         },
       });
+      this.recordToolInvocation(
+        request.id,
+        operation,
+        result,
+        telemetry,
+        startedAtMs,
+      );
       return result;
     } catch (error) {
       const errorMessage =
@@ -119,7 +137,16 @@ export class GoalNode implements Node<'goal'> {
         message: `Goal action ${operation} failed.`,
         error,
         metadata: { callId: request.id, operation },
+        telemetry,
       });
+      this.recordToolInvocation(
+        request.id,
+        operation,
+        error,
+        telemetry,
+        startedAtMs,
+        error,
+      );
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
@@ -141,18 +168,20 @@ export class GoalNode implements Node<'goal'> {
 
   private readonly invokeGoalDecision = (
     decision: Exclude<GoalDecision, { readonly kind: 'unchanged' }>,
+    telemetry: NodeTelemetryContext,
   ): GoalActionResult => {
+    const startedAtMs = this.props.telemetry.monotonicNow();
     const serializedArguments = JSON.stringify(decision);
-    this.props.eventStream.publish({
-      topicName: 'tool/invocation-started',
-      data: {
-        nodeId: this.id,
-        callId: decision.id,
-        toolName: decision.kind,
-        arguments: serializedArguments,
-      },
-    });
     try {
+      this.props.eventStream.publish({
+        topicName: 'tool/invocation-started',
+        data: {
+          nodeId: this.id,
+          callId: decision.id,
+          toolName: decision.kind,
+          arguments: serializedArguments,
+        },
+      });
       const result = this.applyGoalDecision(decision);
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
@@ -164,6 +193,13 @@ export class GoalNode implements Node<'goal'> {
           output: createToolOutputPreview(result),
         },
       });
+      this.recordToolInvocation(
+        decision.id,
+        decision.kind,
+        result,
+        telemetry,
+        startedAtMs,
+      );
       return result;
     } catch (error) {
       const errorMessage =
@@ -173,7 +209,16 @@ export class GoalNode implements Node<'goal'> {
         message: `Goal decision ${decision.kind} failed.`,
         error,
         metadata: { callId: decision.id, operation: decision.kind },
+        telemetry,
       });
+      this.recordToolInvocation(
+        decision.id,
+        decision.kind,
+        error,
+        telemetry,
+        startedAtMs,
+        error,
+      );
       this.props.eventStream.publish({
         topicName: 'tool/invocation-completed',
         data: {
@@ -283,7 +328,40 @@ export class GoalNode implements Node<'goal'> {
     }
   };
 
-  private readonly setStatus = (newStatus: NodeStatus): void => {
+  private readonly recordToolInvocation = (
+    requestId: string,
+    toolName: string,
+    result: unknown,
+    telemetry: NodeTelemetryContext,
+    startedAtMs: number,
+    error?: unknown,
+  ): void => {
+    const evidence =
+      error === undefined
+        ? evidenceDescriptor(`goal-result:${requestId}`, result)
+        : undefined;
+    this.props.telemetry.record(
+      'tool.invocation-completed',
+      {
+        requestId,
+        callId: requestId,
+        toolName,
+        durationMs: this.props.telemetry.durationSince(startedAtMs),
+        outcome: error === undefined ? 'success' : 'failure',
+        ...(evidence === undefined ? {} : { evidence }),
+        ...(error === undefined
+          ? {}
+          : { errorCategory: classifyTelemetryError(error) }),
+      },
+      { ...telemetry, nodeId: this.id },
+      requestId,
+    );
+  };
+
+  private readonly setStatus = (
+    newStatus: NodeStatus,
+    telemetry: NodeTelemetryContext,
+  ): void => {
     this._nodeStatus = newStatus;
     try {
       this.props.eventStream.publish({
@@ -295,6 +373,7 @@ export class GoalNode implements Node<'goal'> {
         source: `GoalNode ${this.id}`,
         message: 'Failed to publish a node status change.',
         error,
+        telemetry,
       });
     }
   };

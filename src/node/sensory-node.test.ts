@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SensoryNode } from './sensory-node.js';
 import type { Provider } from '../types/provider.js';
 import type { BroadcastMessage } from '../types/node.js';
+import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 
 describe('SensoryNode', () => {
@@ -54,6 +55,7 @@ describe('SensoryNode', () => {
     });
 
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -90,6 +92,7 @@ describe('SensoryNode', () => {
     });
 
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test' },
     });
@@ -119,6 +122,7 @@ describe('SensoryNode', () => {
     });
 
     const result = await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test' },
     });
@@ -145,6 +149,7 @@ describe('SensoryNode', () => {
     });
 
     const result = await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test' },
     });
@@ -170,6 +175,7 @@ describe('SensoryNode', () => {
     });
 
     const result = await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test' },
     });
@@ -191,10 +197,12 @@ describe('SensoryNode', () => {
     });
 
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test1' },
     });
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test2' },
     });
@@ -217,10 +225,12 @@ describe('SensoryNode', () => {
     });
 
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test1' },
     });
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test2' },
     });
@@ -242,6 +252,7 @@ describe('SensoryNode', () => {
     });
 
     const result = await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test' },
     });
@@ -263,6 +274,7 @@ describe('SensoryNode', () => {
     });
 
     await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'test' },
     });
@@ -293,6 +305,7 @@ describe('SensoryNode', () => {
 
     await expect(
       node.sendMessage({
+        telemetry: TEST_NODE_TELEMETRY,
         workingMemory: { messages: [] },
         broadcast: { role: 'broadcast' as const, content: 'test' },
       }),

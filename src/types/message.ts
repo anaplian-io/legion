@@ -1,4 +1,5 @@
 import type { GoalDecision } from './goal.js';
+import type { EvidenceDescriptor } from './evidence.js';
 
 export type MessageRole =
   | 'working-memory'
@@ -32,4 +33,16 @@ export interface Message {
   readonly actionRequests?: readonly ActionRequest[];
   /** A proposed goal transition for GoalNode to validate on the next wave. */
   readonly goalDecision?: GoalDecision;
+  /** Stable ID while this message participates as an epoch candidate. */
+  readonly candidateId?: string;
+  /** Bounded external provenance carried by afferent tool output. */
+  readonly evidence?: readonly EvidenceDescriptor[];
+  /** User inputs whose first post-input epoch produced this message. */
+  readonly inputIds?: readonly string[];
+}
+
+/** A node response with the stable identity assigned before epoch work begins. */
+export interface CandidateMessage extends Message {
+  readonly originatingNodeId: string;
+  readonly candidateId: string;
 }

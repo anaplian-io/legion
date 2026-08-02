@@ -168,20 +168,22 @@ that first epoch. `distillerStrategy` accepts `synthesize` (default) or
 ### Runtime logs
 
 Legion writes structured JSON Lines logs beneath `saveLocation/logs` (therefore
-`data/logs` with the default settings). Every event-stream publication is
-recorded in `events.0.jsonl`; recoverable failures are recorded in
-`errors.0.jsonl`. Files append across restarts and rotate at 10 MiB into
-`events.1.jsonl`, `errors.1.jsonl`, and so on. Each line is an independent JSON
-record, so logs are easy to tail or process incrementally with standard JSONL
-tools. Writes are queued in publication order rather than blocking cognitive
-work on filesystem I/O, and the TUI drains the queue during graceful shutdown.
+`data/logs` with the default settings). The sole durable stream is
+`telemetry.0.jsonl`; it rotates at 10 MiB into `telemetry.1.jsonl` and so on.
+Each line is one flat telemetry v1 event with a schema version, run ID, ordered
+sequence, monotonic time, and operation-specific correlation. Recoverable
+errors and selected system notices are converted into this same stream.
 
-Domain and error streams remain independent of durable storage. Small adapters
-expose them as `LoggableStream` values, and the process-level `LogRouter` owns
-subscriptions, rotation, flushing, and shutdown. New durable streams should use
-the same adapter boundary instead of adding filesystem concerns to publishers.
-Initialization callers must supply that process-owned router and close it during
-graceful shutdown.
+The default stream records compact lifecycle, outcome, timing, count, hash, and
+evidence-lineage data without repeatedly serializing prompts, node contexts, or
+tool payloads. `telemetryDiagnostics` enables bounded, redacted diagnostic
+metadata; `telemetryMaxTextLength` controls its string limit. Writes remain
+queued in publication order rather than blocking cognitive work, and the TUI
+drains them during graceful shutdown.
+
+The complete event schema, correlation guarantees, and deterministic benchmark
+extraction contract are documented in
+[`docs/telemetry-v1.md`](docs/telemetry-v1.md).
 
 ## Development
 

@@ -13,8 +13,10 @@ import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { SensoryNode } from '../node/sensory-node.js';
-import type { Message } from '../types/message.js';
+import type { CandidateMessage, Message } from '../types/message.js';
 import { GoalStore } from '../node/support/goal-store.js';
+import { createTestTelemetry } from '../telemetry/test-context.fixture.js';
+import type { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
 
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;
@@ -27,6 +29,7 @@ describe('EpochOrchestrator', () => {
   let mockMemoryNodeSplitter: TestMemoryNodeSplitter;
   let mockNodePruner: NodePruner;
   let eventStream: ConcreteEventStream;
+  let telemetry: TelemetryRecorder;
 
   beforeEach(() => {
     mockProvider = {
@@ -54,6 +57,7 @@ describe('EpochOrchestrator', () => {
       selectForPruning: vi.fn().mockReturnValue([]),
     };
     eventStream = new ConcreteEventStream();
+    telemetry = createTestTelemetry();
   });
 
   it('should create an orchestrator with initial working memory', () => {
@@ -62,6 +66,7 @@ describe('EpochOrchestrator', () => {
     };
 
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -90,6 +95,7 @@ describe('EpochOrchestrator', () => {
     const nodeB = createMockNode('node-b');
 
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -111,6 +117,7 @@ describe('EpochOrchestrator', () => {
 
   it('should track the initial broadcast separately from working memory', () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -133,6 +140,7 @@ describe('EpochOrchestrator', () => {
   it('should use custom max working memory messages', () => {
     const initialWM: WorkingMemory = { messages: [] };
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -154,6 +162,7 @@ describe('EpochOrchestrator', () => {
 
   it('should add nodes by id', () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -180,6 +189,7 @@ describe('EpochOrchestrator', () => {
 
   it('should remove nodes by id', () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -208,6 +218,7 @@ describe('EpochOrchestrator', () => {
 
   it('should publish nodes-changed event when adding nodes', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -242,6 +253,7 @@ describe('EpochOrchestrator', () => {
 
   it('should publish nodes-changed event when removing nodes', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -276,6 +288,7 @@ describe('EpochOrchestrator', () => {
 
   it('should update working memory when running epoch', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -294,6 +307,7 @@ describe('EpochOrchestrator', () => {
     const nodeA = createMockNode('node-a', async () => ({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Response',
     }));
 
@@ -304,6 +318,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     // First distillation produces both the next broadcast and the new
@@ -323,6 +338,7 @@ describe('EpochOrchestrator', () => {
 
   it('should use the sending node id when a response omits originatingNodeId', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -350,6 +366,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -358,17 +375,22 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
-      {
-        role: 'node-response',
-        content: 'Response',
-        originatingNodeId: 'node-a',
-      },
-    ]);
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(
+      expect.anything(),
+      [
+        expect.objectContaining({
+          role: 'node-response',
+          content: 'Response',
+          originatingNodeId: 'node-a',
+        }),
+      ],
+      expect.objectContaining({ epochId: expect.any(String) }),
+    );
   });
 
   it('should handle adding multiple nodes with same id (overwrites)', () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -396,6 +418,7 @@ describe('EpochOrchestrator', () => {
 
   it('should run an epoch with one node that responds', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -414,6 +437,7 @@ describe('EpochOrchestrator', () => {
     const nodeA = createMockNode('node-a', async () => ({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Node A response',
     }));
 
@@ -424,6 +448,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Node A response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -439,6 +464,10 @@ describe('EpochOrchestrator', () => {
           expect.objectContaining({ content: 'Node A response' }),
         ]),
       }),
+      expect.objectContaining({
+        attempt: 'configured',
+        inferenceStage: 'configured-selection',
+      }),
     );
     expect(orchestrator.workingMemory.messages).toEqual([
       { role: 'working-memory', content: 'Initial broadcast' },
@@ -447,6 +476,7 @@ describe('EpochOrchestrator', () => {
 
   it('should handle empty candidate messages', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -484,6 +514,7 @@ describe('EpochOrchestrator', () => {
 
   it('should handle empty filtered messages', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -502,6 +533,7 @@ describe('EpochOrchestrator', () => {
     const nodeA = createMockNode('node-a', async () => ({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Response',
     }));
 
@@ -523,6 +555,7 @@ describe('EpochOrchestrator', () => {
 
   it('should accumulate per-node stats across epochs', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -542,6 +575,7 @@ describe('EpochOrchestrator', () => {
       createMockNode('speaker', async () => ({
         role: 'node-response' as const,
         originatingNodeId: 'speaker',
+        candidateId: 'candidate-test',
         content: 'kept',
       })),
     );
@@ -550,6 +584,7 @@ describe('EpochOrchestrator', () => {
       createMockNode('filtered', async () => ({
         role: 'node-response' as const,
         originatingNodeId: 'filtered',
+        candidateId: 'candidate-test',
         content: 'dropped',
       })),
     );
@@ -559,6 +594,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'kept',
         originatingNodeId: 'speaker',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -594,6 +630,7 @@ describe('EpochOrchestrator', () => {
       selectedMessage('Candidate B', 'node-b'),
     ];
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -638,6 +675,7 @@ describe('EpochOrchestrator', () => {
       },
     });
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -671,6 +709,10 @@ describe('EpochOrchestrator', () => {
 
     expect(mockDistiller.distill).toHaveBeenCalledWith(
       expect.objectContaining({ activeGoal: goalStore.activeGoal }),
+      expect.objectContaining({
+        attempt: 'configured',
+        inferenceStage: 'configured-selection',
+      }),
     );
     expect(orchestrator.currentBroadcast.goalDecision).toEqual(
       expect.objectContaining({ kind: 'revise', goalId: 'goal-1' }),
@@ -680,6 +722,7 @@ describe('EpochOrchestrator', () => {
   it('rejects a missing distiller selection when candidates survived', async () => {
     const response = selectedMessage('Candidate', 'node-a');
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -701,10 +744,11 @@ describe('EpochOrchestrator', () => {
   });
 
   it('preserves structured requests through filtering and selection', async () => {
-    const response: Message = {
+    const response: CandidateMessage = {
       role: 'node-response',
       content: 'Inspect the workspace.',
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       actionRequests: [
         {
           id: 'request-1',
@@ -716,6 +760,7 @@ describe('EpochOrchestrator', () => {
       ],
     };
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -735,9 +780,16 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
-      response,
-    ]);
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(
+      expect.anything(),
+      [
+        expect.objectContaining({
+          content: response.content,
+          actionRequests: response.actionRequests,
+        }),
+      ],
+      expect.objectContaining({ epochId: expect.any(String) }),
+    );
     expect(orchestrator.currentBroadcast.actionRequests).toEqual(
       response.actionRequests,
     );
@@ -748,6 +800,7 @@ describe('EpochOrchestrator', () => {
       role: 'node-response',
       content: '',
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       actionRequests: [
         {
           id: 'request-1',
@@ -764,6 +817,7 @@ describe('EpochOrchestrator', () => {
       .mockResolvedValueOnce(actionOnly)
       .mockResolvedValueOnce(next);
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -789,14 +843,18 @@ describe('EpochOrchestrator', () => {
     await orchestrator.runEpoch();
     await orchestrator.runEpoch();
 
-    expect(orchestrator.workingMemory.messages[1]).toEqual({
-      ...actionOnly,
+    expect(orchestrator.workingMemory.messages[1]).toMatchObject({
+      content: actionOnly.content,
+      originatingNodeId: actionOnly.originatingNodeId,
+      actionRequests: actionOnly.actionRequests,
       role: 'working-memory',
+      candidateId: expect.any(String),
     });
   });
 
   it('should publish a node-stats-updated event each epoch', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -816,6 +874,7 @@ describe('EpochOrchestrator', () => {
       createMockNode('node-a', async () => ({
         role: 'node-response' as const,
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
         content: 'Response',
       })),
     );
@@ -825,6 +884,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -858,6 +918,7 @@ describe('EpochOrchestrator', () => {
     const sendMessage = vi.fn().mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Response',
     });
     const node = createMockNode('node-a', sendMessage);
@@ -868,6 +929,7 @@ describe('EpochOrchestrator', () => {
       epochsSelected: 1,
     };
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -889,6 +951,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -906,6 +969,7 @@ describe('EpochOrchestrator', () => {
 
   it('should prune nodes selected by the pruner and drop their stats', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -924,6 +988,7 @@ describe('EpochOrchestrator', () => {
     const speaker = createMockNode('speaker', async () => ({
       role: 'node-response' as const,
       originatingNodeId: 'speaker',
+      candidateId: 'candidate-test',
       content: 'kept',
     }));
     const deadweight = createMockNode('deadweight', async () => undefined);
@@ -935,6 +1000,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'kept',
         originatingNodeId: 'speaker',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -953,6 +1019,7 @@ describe('EpochOrchestrator', () => {
 
   it('should apply rolling window to working memory', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -971,6 +1038,7 @@ describe('EpochOrchestrator', () => {
     const nodeA = createMockNode('node-a', async () => ({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Response',
     }));
 
@@ -983,6 +1051,7 @@ describe('EpochOrchestrator', () => {
           role: 'node-response',
           content: 'Response',
           originatingNodeId: 'node-a',
+          candidateId: 'candidate-test',
         },
       ]);
       vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1006,6 +1075,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1029,6 +1099,7 @@ describe('EpochOrchestrator', () => {
     };
 
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1049,6 +1120,7 @@ describe('EpochOrchestrator', () => {
     sendMessageSpy.mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Response',
     });
 
@@ -1067,6 +1139,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1087,6 +1160,7 @@ describe('EpochOrchestrator', () => {
   it('should receive user input without mutating the global workspace broadcast', () => {
     const userInputSensor = new UserInputSensor();
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1119,6 +1193,7 @@ describe('EpochOrchestrator', () => {
 
   it('should ignore empty user input without publishing an event', () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1149,6 +1224,7 @@ describe('EpochOrchestrator', () => {
   it('should deliver queued user input as afferent context on the next epoch', async () => {
     const userInputSensor = new UserInputSensor();
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1179,6 +1255,7 @@ describe('EpochOrchestrator', () => {
     sendMessageSpy.mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'node-a',
+      candidateId: 'candidate-test',
       content: 'Response',
     });
     const nodeA: Node<'memory'> = {
@@ -1195,6 +1272,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1215,22 +1293,22 @@ describe('EpochOrchestrator', () => {
             content:
               'Available afferent capabilities:\n- sensor-user-input: can provide queued user input.',
           },
-          {
+          expect.objectContaining({
             role: 'user-input',
             content: 'Hello workspace',
             originatingNodeId: 'sensor-user-input',
-          },
+          }),
         ],
       }),
     );
     expect(mockDistiller.distill).toHaveBeenCalledWith(
       expect.objectContaining({
         broadcasts: [
-          {
+          expect.objectContaining({
             role: 'node-response',
             content: 'Response',
             originatingNodeId: 'node-a',
-          },
+          }),
         ],
         afferentContext: [
           {
@@ -1238,13 +1316,14 @@ describe('EpochOrchestrator', () => {
             content:
               'Available afferent capabilities:\n- sensor-user-input: can provide queued user input.',
           },
-          {
+          expect.objectContaining({
             role: 'user-input',
             content: 'Hello workspace',
             originatingNodeId: 'sensor-user-input',
-          },
+          }),
         ],
       }),
+      expect.objectContaining({ attempt: 'configured' }),
     );
     expect(orchestrator.currentBroadcast.content).toBe('Distilled insight');
   });
@@ -1252,6 +1331,7 @@ describe('EpochOrchestrator', () => {
   it('should deliver multiple queued user inputs once in FIFO order', async () => {
     const userInputSensor = new UserInputSensor();
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1281,6 +1361,7 @@ describe('EpochOrchestrator', () => {
     const memorySend = vi.fn().mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'mem',
+      candidateId: 'candidate-test',
       content: 'Memory response',
     });
     orchestrator.addNode(createMockNode('mem', memorySend));
@@ -1297,6 +1378,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Memory response',
         originatingNodeId: 'mem',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1313,11 +1395,11 @@ describe('EpochOrchestrator', () => {
       1,
       expect.objectContaining({
         afferentContext: expect.arrayContaining([
-          {
+          expect.objectContaining({
             role: 'user-input',
             content: 'first',
             originatingNodeId: 'sensor-user-input',
-          },
+          }),
         ]),
       }),
     );
@@ -1325,11 +1407,11 @@ describe('EpochOrchestrator', () => {
       2,
       expect.objectContaining({
         afferentContext: expect.arrayContaining([
-          {
+          expect.objectContaining({
             role: 'user-input',
             content: 'second',
             originatingNodeId: 'sensor-user-input',
-          },
+          }),
         ]),
       }),
     );
@@ -1342,6 +1424,7 @@ describe('EpochOrchestrator', () => {
       ],
     };
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1383,6 +1466,7 @@ describe('EpochOrchestrator', () => {
 
   it('should spawn a new node with initial broadcast when working memory is empty', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1420,6 +1504,7 @@ describe('EpochOrchestrator', () => {
 
   it('should split nodes when context exceeds threshold', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1444,6 +1529,7 @@ describe('EpochOrchestrator', () => {
       sendMessage: vi.fn().mockResolvedValue({
         role: 'node-response' as const,
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
         content: 'Response',
       }),
     };
@@ -1465,6 +1551,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Response',
         originatingNodeId: 'node-a',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1479,11 +1566,15 @@ describe('EpochOrchestrator', () => {
       'node-a-left',
       'node-a-right',
     ]);
-    expect(mockMemoryNodeSplitter.split).toHaveBeenCalledWith(nodeA);
+    expect(mockMemoryNodeSplitter.split).toHaveBeenCalledWith(
+      nodeA,
+      expect.objectContaining({ epochId: expect.any(String) }),
+    );
   });
 
   it('should feed afferent (tool/sensor) output to memory nodes as context, not as broadcast candidates', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1508,12 +1599,14 @@ describe('EpochOrchestrator', () => {
       sendMessage: vi.fn().mockResolvedValue({
         role: 'node-response' as const,
         originatingNodeId: 'tool-node',
+        candidateId: 'candidate-test',
         content: 'Tool response',
       }),
     };
     const memorySend = vi.fn().mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'mem',
+      candidateId: 'candidate-test',
       content: 'Memory response',
     });
     orchestrator.addNode(toolNode);
@@ -1524,6 +1617,7 @@ describe('EpochOrchestrator', () => {
         role: 'node-response',
         content: 'Memory response',
         originatingNodeId: 'mem',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1541,29 +1635,34 @@ describe('EpochOrchestrator', () => {
             content:
               'Available afferent capabilities:\n- tool-node: can search the web for current information.',
           },
-          {
+          expect.objectContaining({
             role: 'afferent',
             content: 'Tool response',
             originatingNodeId: 'tool-node',
-          },
+          }),
         ],
       }),
     );
     // Only the memory output reaches the relevance filter; the tool output is
     // never a broadcast candidate.
-    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
-      {
-        role: 'node-response',
-        content: 'Memory response',
-        originatingNodeId: 'mem',
-      },
-    ]);
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(
+      expect.anything(),
+      [
+        expect.objectContaining({
+          role: 'node-response',
+          content: 'Memory response',
+          originatingNodeId: 'mem',
+        }),
+      ],
+      expect.objectContaining({ epochId: expect.any(String) }),
+    );
     // A memory node responded, so no spawn is needed.
     expect(mockMemoryNodeFactory.create).not.toHaveBeenCalled();
   });
 
   it('should feed afferent capabilities to memory nodes even when afferent nodes are silent', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1591,6 +1690,7 @@ describe('EpochOrchestrator', () => {
     const memorySend = vi.fn().mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'mem',
+      candidateId: 'candidate-test',
       content:
         'Search the web for Brooklyn NY weather next few days and nearby events.',
     });
@@ -1603,6 +1703,7 @@ describe('EpochOrchestrator', () => {
         content:
           'Search the web for Brooklyn NY weather next few days and nearby events.',
         originatingNodeId: 'mem',
+        candidateId: 'candidate-test',
       },
     ]);
     vi.mocked(mockDistiller.distill).mockResolvedValue(
@@ -1626,6 +1727,7 @@ describe('EpochOrchestrator', () => {
 
   it('should spawn a new node when no memory node responds, even if afferent nodes did', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1649,6 +1751,7 @@ describe('EpochOrchestrator', () => {
       sendMessage: vi.fn().mockResolvedValue({
         role: 'node-response' as const,
         originatingNodeId: 'tool-node',
+        candidateId: 'candidate-test',
         content: 'Tool response',
       }),
     };
@@ -1666,6 +1769,7 @@ describe('EpochOrchestrator', () => {
 
   it('should evaluate a spawned fallback memory node with the current afferent context', async () => {
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1689,12 +1793,14 @@ describe('EpochOrchestrator', () => {
       sendMessage: vi.fn().mockResolvedValue({
         role: 'node-response' as const,
         originatingNodeId: 'tool-node',
+        candidateId: 'candidate-test',
         content: 'Tool response',
       }),
     };
     const fallbackSend = vi.fn().mockResolvedValue({
       role: 'node-response' as const,
       originatingNodeId: 'new-memory-node',
+      candidateId: 'candidate-test',
       content: 'Fallback memory response',
     });
     const mockNewNode = createMockNode('new-memory-node', fallbackSend);
@@ -1704,6 +1810,7 @@ describe('EpochOrchestrator', () => {
       {
         role: 'node-response',
         originatingNodeId: 'new-memory-node',
+        candidateId: 'candidate-test',
         content: 'Fallback memory response',
       },
     ]);
@@ -1716,31 +1823,37 @@ describe('EpochOrchestrator', () => {
     expect(fallbackSend).toHaveBeenCalledWith(
       expect.objectContaining({
         afferentContext: [
-          {
+          expect.objectContaining({
             role: 'afferent',
             content: 'Tool response',
             originatingNodeId: 'tool-node',
-          },
+          }),
         ],
       }),
     );
-    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(expect.anything(), [
-      {
-        role: 'node-response',
-        originatingNodeId: 'new-memory-node',
-        content: 'Fallback memory response',
-      },
-    ]);
+    expect(mockRelevanceFilter.filter).toHaveBeenCalledWith(
+      expect.anything(),
+      [
+        expect.objectContaining({
+          role: 'node-response',
+          originatingNodeId: 'new-memory-node',
+          content: 'Fallback memory response',
+        }),
+      ],
+      expect.objectContaining({ epochId: expect.any(String) }),
+    );
     expect(mockDistiller.distill).toHaveBeenCalledWith(
       expect.objectContaining({
         broadcasts: [
           {
             role: 'node-response',
             originatingNodeId: 'new-memory-node',
+            candidateId: 'candidate-test',
             content: 'Fallback memory response',
           },
         ],
       }),
+      expect.objectContaining({ attempt: 'configured' }),
     );
     expect(orchestrator.currentBroadcast.content).toBe('fallback insight');
   });
@@ -1748,6 +1861,7 @@ describe('EpochOrchestrator', () => {
   it('should handle node throwing an error during sendMessage', async () => {
     const reportError = vi.spyOn(eventStream, 'reportError');
     const orchestrator = new EpochOrchestrator({
+      telemetry,
       provider: mockProvider,
       relevanceFilter: mockRelevanceFilter,
       distiller: mockDistiller,
@@ -1781,12 +1895,19 @@ describe('EpochOrchestrator', () => {
     await orchestrator.runEpoch();
 
     // Should handle the error gracefully and spawn a new node
-    expect(reportError).toHaveBeenCalledWith({
-      source: 'EpochOrchestrator',
-      message: 'Node node-a threw while processing an epoch.',
-      error: expect.any(Error),
-      metadata: { nodeId: 'node-a' },
-    });
+    expect(reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'EpochOrchestrator',
+        message: 'Node node-a threw while processing an epoch.',
+        error: expect.any(Error),
+        metadata: { nodeId: 'node-a' },
+        telemetry: expect.objectContaining({
+          epochId: expect.any(String),
+          candidateId: expect.any(String),
+          nodeId: 'node-a',
+        }),
+      }),
+    );
     expect(mockMemoryNodeFactory.create).toHaveBeenCalled();
   });
 });
@@ -1805,11 +1926,15 @@ function createMockNode(
   };
 }
 
-function selectedMessage(content: string, originatingNodeId?: string): Message {
+function selectedMessage(
+  content: string,
+  originatingNodeId = 'memory-test',
+): CandidateMessage {
   return {
     role: 'node-response',
     content,
-    ...(originatingNodeId === undefined ? {} : { originatingNodeId }),
+    originatingNodeId,
+    candidateId: `candidate-${originatingNodeId}`,
   };
 }
 

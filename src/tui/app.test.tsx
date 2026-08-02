@@ -588,6 +588,47 @@ describe('App', () => {
     expect(onExit).toHaveBeenCalled();
   });
 
+  it('runs asynchronous teardown once before exiting', async () => {
+    const orchestrator = makeOrchestrator();
+    let finishTeardown: (() => void) | undefined;
+    const onExit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishTeardown = resolve;
+        }),
+    );
+    const { stdin } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={onExit}
+      />,
+    );
+
+    stdin.write('q');
+    stdin.write('q');
+    await tick();
+    expect(onExit).toHaveBeenCalledTimes(1);
+    finishTeardown?.();
+    await tick();
+  });
+
+  it('still exits when asynchronous teardown reports a failure', async () => {
+    const orchestrator = makeOrchestrator();
+    const onExit = vi.fn().mockRejectedValue(new Error('epoch failed'));
+    const { stdin } = render(
+      <App
+        orchestrator={asOrchestrator(orchestrator)}
+        eventStream={eventStream}
+        onExit={onExit}
+      />,
+    );
+
+    stdin.write('q');
+    await tick();
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
   it('truncates long node ids in the processor list', async () => {
     const orchestrator = makeOrchestrator({
       nodes: [memoryNode('a-very-long-node-identifier-1234567890')],

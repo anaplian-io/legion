@@ -6,6 +6,7 @@ import {
 } from 'openai/resources/chat/completions';
 import { OpenAI } from 'openai';
 import RequestOptions = OpenAI.RequestOptions;
+import type { InferenceContext } from './telemetry.js';
 
 export interface GenerateProps {
   readonly systemPrompt: string;
@@ -37,17 +38,31 @@ export interface AskYesNoQuestionProps {
 export type { GenerateWithToolsProps, ToolCall, ToolDefinition };
 
 export interface Provider {
-  readonly generate: (props: GenerateProps) => Promise<string>;
+  readonly generate: (
+    props: GenerateProps,
+    inference: InferenceContext,
+  ) => Promise<string>;
   /** Returns the index of the single best candidate. */
-  readonly selectBest: (props: SelectBestProps) => Promise<number>;
+  readonly selectBest: (
+    props: SelectBestProps,
+    inference: InferenceContext,
+  ) => Promise<number>;
   readonly rankByRelevance: (
     concept: string,
     items: string[],
+    inference: InferenceContext,
   ) => Promise<number[]>;
-  readonly askYesNoQuestion: (props: AskYesNoQuestionProps) => Promise<boolean>;
-  readonly splitString: (content: string) => Promise<[string, string]>;
+  readonly askYesNoQuestion: (
+    props: AskYesNoQuestionProps,
+    inference: InferenceContext,
+  ) => Promise<boolean>;
+  readonly splitString: (
+    content: string,
+    inference: InferenceContext,
+  ) => Promise<[string, string]>;
   readonly generateWithTools: (
     props: GenerateWithToolsProps,
+    inference: InferenceContext,
   ) => Promise<{ content: string; toolCalls: ToolCall[] | undefined }>;
 }
 

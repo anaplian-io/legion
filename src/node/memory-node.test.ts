@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryNode } from './memory-node.js';
 import type { Provider } from '../types/provider.js';
 import type { BroadcastMessage } from '../types/node.js';
+import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
 
@@ -44,6 +45,7 @@ describe('MemoryNode', () => {
 
   it('should return undefined if memory is not relevant', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: {
         messages: [
           { role: 'working-memory' as const, content: 'Previous message' },
@@ -79,6 +81,7 @@ describe('MemoryNode', () => {
 
   it('should generate response when memory is relevant', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: {
         messages: [
           { role: 'working-memory', content: 'Previous message 1' },
@@ -109,27 +112,33 @@ describe('MemoryNode', () => {
       nodeContext: expect.stringContaining('Initial context'),
     });
 
-    expect(mockProvider.generateWithTools).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('Initial context'),
-      messages: [
-        { role: 'working-memory', content: 'Previous message 1' },
-        { role: 'working-memory', content: 'Previous message 2' },
-        { role: 'broadcast', content: 'New broadcast' },
-      ],
-      tools: [expect.objectContaining({ name: 'request_node_action' })],
-      toolChoice: 'auto',
-    });
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
+      {
+        systemPrompt: expect.stringContaining('Initial context'),
+        messages: [
+          { role: 'working-memory', content: 'Previous message 1' },
+          { role: 'working-memory', content: 'Previous message 2' },
+          { role: 'broadcast', content: 'New broadcast' },
+        ],
+        tools: [expect.objectContaining({ name: 'request_node_action' })],
+        toolChoice: 'auto',
+      },
+      { stage: 'node-generation', ...TEST_NODE_TELEMETRY },
+    );
 
     expect(result).toEqual({
       role: 'node-response',
       originatingNodeId: 'memory-1',
       content: 'Generated response',
+      candidateId: TEST_NODE_TELEMETRY.candidateId,
+      inputIds: [],
     });
     expect(node.status).toBe('idle');
   });
 
   it('should generate response when relevance gate returns true', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -158,11 +167,14 @@ describe('MemoryNode', () => {
       role: 'node-response',
       originatingNodeId: 'memory-1',
       content: 'Curious response',
+      candidateId: TEST_NODE_TELEMETRY.candidateId,
+      inputIds: [],
     });
   });
 
   it('should pass preamble to relevance gate', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -196,6 +208,7 @@ describe('MemoryNode', () => {
 
   it('should pass broadcast message to relevance gate', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: {
         messages: [
           { role: 'working-memory', content: 'First WM' },
@@ -225,6 +238,7 @@ describe('MemoryNode', () => {
 
   it('should frame afferent capabilities as available system capabilities', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: {
         messages: [
           {
@@ -277,22 +291,28 @@ describe('MemoryNode', () => {
     );
     expect(relevanceCall?.broadcastMessage).toEqual(broadcastMessage);
 
-    expect(mockProvider.generateWithTools).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('available afferent capabilities'),
-      messages: expect.arrayContaining([
-        {
-          role: 'afferent-capability',
-          content:
-            'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
-        },
-      ]),
-      tools: [expect.objectContaining({ name: 'request_node_action' })],
-      toolChoice: 'auto',
-    });
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
+      {
+        systemPrompt: expect.stringContaining(
+          'available afferent capabilities',
+        ),
+        messages: expect.arrayContaining([
+          {
+            role: 'afferent-capability',
+            content:
+              'Available afferent capabilities:\n- ddg-search: can search the web for current/local information, forecasts, events, and linked sources.',
+          },
+        ]),
+        tools: [expect.objectContaining({ name: 'request_node_action' })],
+        toolChoice: 'auto',
+      },
+      { stage: 'node-generation', ...TEST_NODE_TELEMETRY },
+    );
   });
 
   it('should handle empty working memory', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -309,12 +329,15 @@ describe('MemoryNode', () => {
 
     await node.sendMessage(broadcastMessage);
 
-    expect(mockProvider.generateWithTools).toHaveBeenCalledWith({
-      messages: [{ role: 'broadcast', content: 'New broadcast' }],
-      systemPrompt: expect.any(String),
-      tools: [expect.objectContaining({ name: 'request_node_action' })],
-      toolChoice: 'auto',
-    });
+    expect(mockProvider.generateWithTools).toHaveBeenCalledWith(
+      {
+        messages: [{ role: 'broadcast', content: 'New broadcast' }],
+        systemPrompt: expect.any(String),
+        tools: [expect.objectContaining({ name: 'request_node_action' })],
+        toolChoice: 'auto',
+      },
+      { stage: 'node-generation', ...TEST_NODE_TELEMETRY },
+    );
   });
 
   it('should preserve id and kind after creation', () => {
@@ -333,6 +356,7 @@ describe('MemoryNode', () => {
 
   it('should return undefined when relevant check returns false', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: {
         messages: [{ role: 'working-memory' as const, content: 'test' }],
       },
@@ -361,6 +385,7 @@ describe('MemoryNode', () => {
 
   it('should publish status change events on status change', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -400,6 +425,7 @@ describe('MemoryNode', () => {
 
   it('should handle async status event subscriber', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -434,6 +460,7 @@ describe('MemoryNode', () => {
 
   it('should not throw if status event subscriber throws', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -469,6 +496,7 @@ describe('MemoryNode', () => {
 
   it('should handle publish throwing error gracefully', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -497,6 +525,7 @@ describe('MemoryNode', () => {
 
   it('should update context with broadcast and response when relevant', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'New broadcast' },
     };
@@ -521,6 +550,7 @@ describe('MemoryNode', () => {
 
   it('attaches valid structured action requests to its response and context', async () => {
     const broadcastMessage: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast', content: 'Inspect the workspace.' },
     };
@@ -590,6 +620,7 @@ describe('MemoryNode', () => {
 
     await expect(
       node.sendMessage({
+        telemetry: TEST_NODE_TELEMETRY,
         workingMemory: { messages: [] },
         broadcast: { role: 'broadcast', content: 'Think.' },
       }),
@@ -600,11 +631,13 @@ describe('MemoryNode', () => {
 
   it('should accumulate context across multiple sendMessage calls', async () => {
     const broadcastMessage1: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'First broadcast' },
     };
 
     const broadcastMessage2: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'Second broadcast' },
     };

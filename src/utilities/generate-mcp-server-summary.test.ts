@@ -24,15 +24,18 @@ describe('generateSummary', () => {
     await expect(generateSummary()({ provider, tools })).resolves.toBe(
       'can search and fetch web pages.',
     );
-    expect(provider.generate).toHaveBeenCalledWith({
-      systemPrompt:
-        'Write one concise capability description for this MCP server. Start with "can" and mention only actions or information the supplied tools support. Return only the description.',
-      messages: [
-        {
-          role: 'user-input',
-          content: `MCP tools:\n${JSON.stringify(tools)}`,
-        },
-      ],
-    });
+    expect(provider.generate).toHaveBeenCalledWith(
+      {
+        systemPrompt:
+          'Write one concise capability description for this MCP server. Start with "can" and mention only actions or information the supplied tools support. Return only the description.',
+        messages: [
+          {
+            role: 'user-input',
+            content: `MCP tools:\n${JSON.stringify(tools)}`,
+          },
+        ],
+      },
+      { stage: 'startup-summary' },
+    );
   });
 });

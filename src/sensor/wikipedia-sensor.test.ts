@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WikipediaSensor } from './wikipedia-sensor.js';
 import type { Provider } from '../types/provider.js';
+import type { BroadcastMessage } from '../types/node.js';
+import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
+
+const broadcastMessage: BroadcastMessage = {
+  telemetry: TEST_NODE_TELEMETRY,
+  workingMemory: { messages: [] },
+  broadcast: { role: 'broadcast', content: 'Test broadcast.' },
+};
 
 describe('WikipediaSensor', () => {
   let mockProvider: Provider;
@@ -56,7 +64,7 @@ describe('WikipediaSensor', () => {
       );
 
       const sensor = new WikipediaSensor(mockProvider);
-      const result = await sensor.sense();
+      const result = await sensor.sense(broadcastMessage);
 
       // Verify fetch was called with correct URLs
       expect(fetch).toHaveBeenCalledTimes(2);
@@ -86,7 +94,7 @@ describe('WikipediaSensor', () => {
 
       const sensor = new WikipediaSensor(mockProvider);
 
-      await expect(sensor.sense()).rejects.toThrow(
+      await expect(sensor.sense(broadcastMessage)).rejects.toThrow(
         'Failed to fetch random article',
       );
 
@@ -110,7 +118,7 @@ describe('WikipediaSensor', () => {
 
       const sensor = new WikipediaSensor(mockProvider);
 
-      await expect(sensor.sense()).rejects.toThrow(
+      await expect(sensor.sense(broadcastMessage)).rejects.toThrow(
         'Failed to fetch article content',
       );
 
@@ -149,7 +157,7 @@ describe('WikipediaSensor', () => {
       vi.mocked(mockProvider.generate).mockResolvedValue('Summary');
 
       const sensor = new WikipediaSensor(mockProvider);
-      await sensor.sense();
+      await sensor.sense(broadcastMessage);
 
       vi.unstubAllGlobals();
     });
@@ -178,7 +186,7 @@ describe('WikipediaSensor', () => {
       vi.mocked(mockProvider.generate).mockResolvedValue('');
 
       const sensor = new WikipediaSensor(mockProvider);
-      const result = await sensor.sense();
+      const result = await sensor.sense(broadcastMessage);
 
       expect(result).toContain('Empty');
       expect(result).toContain('\n\nSummary:\n');
@@ -197,9 +205,12 @@ describe('WikipediaSensor', () => {
       // Access private method via type assertion
       await (
         sensor as unknown as {
-          summarizeArticle: (content: string) => Promise<string>;
+          summarizeArticle: (
+            content: string,
+            broadcastMessage: BroadcastMessage,
+          ) => Promise<string>;
         }
-      ).summarizeArticle(content);
+      ).summarizeArticle(content, broadcastMessage);
 
       expect(mockProvider.generate).toHaveBeenCalled();
       const generateCall = vi.mocked(mockProvider.generate).mock.calls[0]?.[0];
