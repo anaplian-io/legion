@@ -2,15 +2,17 @@ import path from 'node:path';
 import { render } from 'ink';
 import rawSettings from '../../settings.js';
 import { init } from '../constants/initialization.js';
-import { ConcreteErrorStream } from '../service/concrete-error-stream.js';
-import { JsonlLogRouter } from '../service/jsonl-log-router.js';
+import { ConcreteErrorStream } from '../stream/concrete-error-stream.js';
+import { JsonlLogRouter } from '../stream/logging/jsonl-log-router.js';
 import { App } from './app.js';
+import { errorLogStream } from '../stream/logging/loggable-streams.js';
 
 export const main = async (): Promise<void> => {
   const logRouter = new JsonlLogRouter({
     directory: path.join(rawSettings.saveLocation, 'logs'),
   });
-  const errorStream = new ConcreteErrorStream({ logRouter });
+  const errorStream = new ConcreteErrorStream();
+  logRouter.consume(errorLogStream(errorStream));
 
   try {
     if (!process.stdin.isTTY) {
@@ -20,6 +22,7 @@ export const main = async (): Promise<void> => {
           'The Legion TUI needs an interactive terminal (TTY). Run it directly in your terminal.',
       });
       process.exitCode = 1;
+      await logRouter.close();
       return;
     }
 
@@ -55,6 +58,7 @@ export const main = async (): Promise<void> => {
 
     await waitUntilExit();
     await teardown();
+    await logRouter.close();
     process.exit(0);
   } catch (error) {
     errorStream.publish({
@@ -62,6 +66,7 @@ export const main = async (): Promise<void> => {
       message: 'The Legion TUI exited unexpectedly.',
       error,
     });
+    await logRouter.close();
     process.exitCode = 1;
   }
 };

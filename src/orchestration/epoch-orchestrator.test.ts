@@ -9,12 +9,12 @@ import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
 import type { MemoryNode } from '../node/memory-node.js';
 import type { NodeSplitter } from '../types/node-splitter.js';
 import type { NodePruner } from '../types/node-pruner.js';
-import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import { SubscribeOrchestratorNodesChanged } from '../types/event-stream.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { SensoryNode } from '../node/sensory-node.js';
 import type { Message } from '../types/message.js';
-import { GoalStore } from '../service/goal-store.js';
+import { GoalStore } from '../node/support/goal-store.js';
 
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;

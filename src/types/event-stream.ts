@@ -4,6 +4,7 @@ import { Message } from './message.js';
 import { NodeStats } from './node-stats.js';
 import { ActiveGoal } from './goal.js';
 import { ErrorReport } from './error-stream.js';
+import { Unsubscribe } from './subscription.js';
 
 export interface NodeStatusChangeData {
   readonly nodeId: string;
@@ -13,26 +14,6 @@ export interface NodeStatusChangeData {
 export interface SystemNoticeData {
   readonly message: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
-}
-
-export interface PublishSystemNotice {
-  readonly topicName: 'system/notice';
-  readonly data: SystemNoticeData;
-}
-
-export interface SubscribeSystemNotice {
-  readonly topicName: PublishSystemNotice['topicName'];
-  readonly receiver: (data: SystemNoticeData) => void | Promise<void>;
-}
-
-export interface PublishNodeStatusChange {
-  readonly topicName: 'node/status-change';
-  readonly data: NodeStatusChangeData;
-}
-
-export interface SubscribeNodeStatusChange {
-  readonly topicName: PublishNodeStatusChange['topicName'];
-  readonly receiver: (data: NodeStatusChangeData) => void | Promise<void>;
 }
 
 export interface ToolElaborationCallData {
@@ -49,18 +30,6 @@ export interface ToolElaborationCompletedData {
   readonly output: string;
 }
 
-export interface PublishToolElaborationCompleted {
-  readonly topicName: 'tool/elaboration-completed';
-  readonly data: ToolElaborationCompletedData;
-}
-
-export interface SubscribeToolElaborationCompleted {
-  readonly topicName: PublishToolElaborationCompleted['topicName'];
-  readonly receiver: (
-    data: ToolElaborationCompletedData,
-  ) => void | Promise<void>;
-}
-
 export interface ToolInvocationStartedData {
   readonly nodeId: string;
   /** Cognitive request that caused this call; absent for non-ToolNode actuators. */
@@ -68,16 +37,6 @@ export interface ToolInvocationStartedData {
   readonly callId: string;
   readonly toolName: string;
   readonly arguments: string;
-}
-
-export interface PublishToolInvocationStarted {
-  readonly topicName: 'tool/invocation-started';
-  readonly data: ToolInvocationStartedData;
-}
-
-export interface SubscribeToolInvocationStarted {
-  readonly topicName: PublishToolInvocationStarted['topicName'];
-  readonly receiver: (data: ToolInvocationStartedData) => void | Promise<void>;
 }
 
 export interface ToolInvocationCompletedData {
@@ -91,86 +50,24 @@ export interface ToolInvocationCompletedData {
   readonly output: string;
 }
 
-export interface PublishToolInvocationCompleted {
-  readonly topicName: 'tool/invocation-completed';
-  readonly data: ToolInvocationCompletedData;
-}
-
-export interface SubscribeToolInvocationCompleted {
-  readonly topicName: PublishToolInvocationCompleted['topicName'];
-  readonly receiver: (
-    data: ToolInvocationCompletedData,
-  ) => void | Promise<void>;
-}
-
 export interface GoalUpdatedData {
   readonly activeGoal: ActiveGoal | undefined;
-}
-
-export interface PublishGoalUpdated {
-  readonly topicName: 'goal/updated';
-  readonly data: GoalUpdatedData;
-}
-
-export interface SubscribeGoalUpdated {
-  readonly topicName: PublishGoalUpdated['topicName'];
-  readonly receiver: (data: GoalUpdatedData) => void | Promise<void>;
 }
 
 export interface NodesChangedData {
   readonly allNodes: Node<string>[];
 }
 
-export interface PublishOrchestratorNodesChanged {
-  readonly topicName: 'orchestrator/nodes-changed';
-  readonly data: NodesChangedData;
-}
-
-export interface SubscribeOrchestratorNodesChanged {
-  readonly topicName: PublishOrchestratorNodesChanged['topicName'];
-  readonly receiver: (data: NodesChangedData) => void | Promise<void>;
-}
-
 export interface NodeAddedData {
   readonly addedNodes: Node<string>[];
-}
-
-export interface PublishOrchestratorNodeAdded {
-  readonly topicName: 'orchestrator/node-added';
-  readonly data: NodeAddedData;
-}
-
-export interface SubscribeOrchestratorNodeAdded {
-  readonly topicName: PublishOrchestratorNodeAdded['topicName'];
-  readonly receiver: (data: NodeAddedData) => void | Promise<void>;
 }
 
 export interface NodeRemovedData {
   readonly removedNodeIds: string[];
 }
 
-export interface PublishOrchestratorNodeRemoved {
-  readonly topicName: 'orchestrator/node-removed';
-  readonly data: NodeRemovedData;
-}
-
-export interface SubscribeOrchestratorNodeRemoved {
-  readonly topicName: PublishOrchestratorNodeRemoved['topicName'];
-  readonly receiver: (data: NodeRemovedData) => void | Promise<void>;
-}
-
 export interface NodeUpdatedData {
   readonly node: Node<string>;
-}
-
-export interface PublishOrchestratorNodeUpdated {
-  readonly topicName: 'orchestrator/node-updated';
-  readonly data: NodeUpdatedData;
-}
-
-export interface SubscribeOrchestratorNodeUpdated {
-  readonly topicName: PublishOrchestratorNodeUpdated['topicName'];
-  readonly receiver: (data: NodeUpdatedData) => void | Promise<void>;
 }
 
 export interface WorkingMemoryUpdatedData {
@@ -178,42 +75,12 @@ export interface WorkingMemoryUpdatedData {
   readonly broadcast: Message;
 }
 
-export interface PublishOrchestratorWorkingMemoryUpdated {
-  readonly topicName: 'orchestrator/working-memory-updated';
-  readonly data: WorkingMemoryUpdatedData;
-}
-
-export interface SubscribeOrchestratorWorkingMemoryUpdated {
-  readonly topicName: PublishOrchestratorWorkingMemoryUpdated['topicName'];
-  readonly receiver: (data: WorkingMemoryUpdatedData) => void | Promise<void>;
-}
-
 export interface UserInputReceivedData {
   readonly content: string;
 }
 
-export interface PublishOrchestratorUserInputReceived {
-  readonly topicName: 'orchestrator/user-input-received';
-  readonly data: UserInputReceivedData;
-}
-
-export interface SubscribeOrchestratorUserInputReceived {
-  readonly topicName: PublishOrchestratorUserInputReceived['topicName'];
-  readonly receiver: (data: UserInputReceivedData) => void | Promise<void>;
-}
-
 export interface UserInputConsumedData {
   readonly content: string;
-}
-
-export interface PublishOrchestratorUserInputConsumed {
-  readonly topicName: 'orchestrator/user-input-consumed';
-  readonly data: UserInputConsumedData;
-}
-
-export interface SubscribeOrchestratorUserInputConsumed {
-  readonly topicName: PublishOrchestratorUserInputConsumed['topicName'];
-  readonly receiver: (data: UserInputConsumedData) => void | Promise<void>;
 }
 
 export interface NodeStatsEntry {
@@ -225,55 +92,103 @@ export interface NodeStatsUpdatedData {
   readonly nodeStats: NodeStatsEntry[];
 }
 
-export interface PublishOrchestratorNodeStatsUpdated {
-  readonly topicName: 'orchestrator/node-stats-updated';
-  readonly data: NodeStatsUpdatedData;
+/** The canonical topic-to-payload map for Legion's in-process domain events. */
+export interface EventMap {
+  readonly 'system/notice': SystemNoticeData;
+  readonly 'node/status-change': NodeStatusChangeData;
+  readonly 'tool/elaboration-completed': ToolElaborationCompletedData;
+  readonly 'tool/invocation-started': ToolInvocationStartedData;
+  readonly 'tool/invocation-completed': ToolInvocationCompletedData;
+  readonly 'goal/updated': GoalUpdatedData;
+  readonly 'orchestrator/nodes-changed': NodesChangedData;
+  readonly 'orchestrator/node-added': NodeAddedData;
+  readonly 'orchestrator/node-removed': NodeRemovedData;
+  readonly 'orchestrator/node-updated': NodeUpdatedData;
+  readonly 'orchestrator/working-memory-updated': WorkingMemoryUpdatedData;
+  readonly 'orchestrator/user-input-received': UserInputReceivedData;
+  readonly 'orchestrator/user-input-consumed': UserInputConsumedData;
+  readonly 'orchestrator/node-stats-updated': NodeStatsUpdatedData;
 }
 
-export interface SubscribeOrchestratorNodeStatsUpdated {
-  readonly topicName: PublishOrchestratorNodeStatsUpdated['topicName'];
-  readonly receiver: (data: NodeStatsUpdatedData) => void | Promise<void>;
-}
+export type Topics = keyof EventMap;
 
-export type PublishProps =
-  | PublishSystemNotice
-  | PublishOrchestratorNodesChanged
-  | PublishOrchestratorNodeAdded
-  | PublishOrchestratorNodeRemoved
-  | PublishOrchestratorNodeUpdated
-  | PublishOrchestratorWorkingMemoryUpdated
-  | PublishOrchestratorUserInputReceived
-  | PublishOrchestratorUserInputConsumed
-  | PublishOrchestratorNodeStatsUpdated
-  | PublishNodeStatusChange
-  | PublishToolElaborationCompleted
-  | PublishToolInvocationStarted
-  | PublishToolInvocationCompleted
-  | PublishGoalUpdated;
+export type PublishProps<Topic extends Topics = Topics> = {
+  readonly [Name in Topic]: {
+    readonly topicName: Name;
+    readonly data: EventMap[Name];
+  };
+}[Topic];
 
-export type SubscribeProps =
-  | SubscribeSystemNotice
-  | SubscribeOrchestratorNodesChanged
-  | SubscribeOrchestratorNodeAdded
-  | SubscribeOrchestratorNodeRemoved
-  | SubscribeOrchestratorNodeUpdated
-  | SubscribeOrchestratorWorkingMemoryUpdated
-  | SubscribeOrchestratorUserInputReceived
-  | SubscribeOrchestratorUserInputConsumed
-  | SubscribeOrchestratorNodeStatsUpdated
-  | SubscribeNodeStatusChange
-  | SubscribeToolElaborationCompleted
-  | SubscribeToolInvocationStarted
-  | SubscribeToolInvocationCompleted
-  | SubscribeGoalUpdated;
+export type SubscribeProps<Topic extends Topics = Topics> = {
+  readonly [Name in Topic]: {
+    readonly topicName: Name;
+    readonly receiver: (data: EventMap[Name]) => void | Promise<void>;
+  };
+}[Topic];
 
-export type Topics = PublishProps['topicName'];
+export type PublishSystemNotice = PublishProps<'system/notice'>;
+export type SubscribeSystemNotice = SubscribeProps<'system/notice'>;
+export type PublishNodeStatusChange = PublishProps<'node/status-change'>;
+export type SubscribeNodeStatusChange = SubscribeProps<'node/status-change'>;
+export type PublishToolElaborationCompleted =
+  PublishProps<'tool/elaboration-completed'>;
+export type SubscribeToolElaborationCompleted =
+  SubscribeProps<'tool/elaboration-completed'>;
+export type PublishToolInvocationStarted =
+  PublishProps<'tool/invocation-started'>;
+export type SubscribeToolInvocationStarted =
+  SubscribeProps<'tool/invocation-started'>;
+export type PublishToolInvocationCompleted =
+  PublishProps<'tool/invocation-completed'>;
+export type SubscribeToolInvocationCompleted =
+  SubscribeProps<'tool/invocation-completed'>;
+export type PublishGoalUpdated = PublishProps<'goal/updated'>;
+export type SubscribeGoalUpdated = SubscribeProps<'goal/updated'>;
+export type PublishOrchestratorNodesChanged =
+  PublishProps<'orchestrator/nodes-changed'>;
+export type SubscribeOrchestratorNodesChanged =
+  SubscribeProps<'orchestrator/nodes-changed'>;
+export type PublishOrchestratorNodeAdded =
+  PublishProps<'orchestrator/node-added'>;
+export type SubscribeOrchestratorNodeAdded =
+  SubscribeProps<'orchestrator/node-added'>;
+export type PublishOrchestratorNodeRemoved =
+  PublishProps<'orchestrator/node-removed'>;
+export type SubscribeOrchestratorNodeRemoved =
+  SubscribeProps<'orchestrator/node-removed'>;
+export type PublishOrchestratorNodeUpdated =
+  PublishProps<'orchestrator/node-updated'>;
+export type SubscribeOrchestratorNodeUpdated =
+  SubscribeProps<'orchestrator/node-updated'>;
+export type PublishOrchestratorWorkingMemoryUpdated =
+  PublishProps<'orchestrator/working-memory-updated'>;
+export type SubscribeOrchestratorWorkingMemoryUpdated =
+  SubscribeProps<'orchestrator/working-memory-updated'>;
+export type PublishOrchestratorUserInputReceived =
+  PublishProps<'orchestrator/user-input-received'>;
+export type SubscribeOrchestratorUserInputReceived =
+  SubscribeProps<'orchestrator/user-input-received'>;
+export type PublishOrchestratorUserInputConsumed =
+  PublishProps<'orchestrator/user-input-consumed'>;
+export type SubscribeOrchestratorUserInputConsumed =
+  SubscribeProps<'orchestrator/user-input-consumed'>;
+export type PublishOrchestratorNodeStatsUpdated =
+  PublishProps<'orchestrator/node-stats-updated'>;
+export type SubscribeOrchestratorNodeStatsUpdated =
+  SubscribeProps<'orchestrator/node-stats-updated'>;
 
 export interface EventStream {
   readonly publish: (props: PublishProps) => void;
-  readonly subscribe: (props: SubscribeProps) => void;
-  /** Subscribe to every event; used by the durable event log consumer. */
-  readonly subscribeAll?: (receiver: (props: PublishProps) => void) => void;
+  readonly subscribe: <Topic extends Topics>(
+    props: SubscribeProps<Topic>,
+  ) => Unsubscribe;
   /** Publish a recoverable failure to Legion's dedicated error stream. */
   readonly reportError?: (report: ErrorReport) => void;
+}
+
+/** An event stream that can also feed infrastructure-level consumers. */
+export interface ObservableEventStream extends EventStream {
+  readonly subscribeAll: (
+    receiver: (props: PublishProps) => void | Promise<void>,
+  ) => Unsubscribe;
 }

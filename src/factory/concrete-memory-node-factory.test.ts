@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConcreteMemoryNodeFactory } from './concrete-memory-node-factory.js';
 import type { Provider } from '../types/provider.js';
-import { ConcreteEventStream } from '../service/concrete-event-stream.js';
+import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
 
 describe('ConcreteMemoryNodeFactory', () => {

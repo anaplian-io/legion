@@ -5,7 +5,7 @@ import {
   NodeStatus,
 } from '../types/node.js';
 import { EventStream } from '../types/event-stream.js';
-import { GoalStore } from '../service/goal-store.js';
+import { GoalStore } from './support/goal-store.js';
 import { ActiveGoal, GoalDecision, GoalOrigin } from '../types/goal.js';
 import { ActionRequest } from '../types/message.js';
 import { createToolOutputPreview } from '../utilities/tool-output-preview.js';

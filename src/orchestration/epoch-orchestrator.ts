@@ -10,11 +10,11 @@ import { EventStream } from '../types/event-stream.js';
 import { NodePruner } from '../types/node-pruner.js';
 import { NodeStats } from '../types/node-stats.js';
 import { isDefined } from '../utilities/type-guards.js';
-import { NodeRegistry } from '../service/node-registry.js';
-import { WorkingMemoryBuffer } from '../service/working-memory-buffer.js';
+import { NodeRegistry } from '../node/support/node-registry.js';
+import { WorkingMemoryBuffer } from '../node/support/working-memory-buffer.js';
 import { UserInputSensor } from '../sensor/user-input-sensor.js';
 import { formatMessagePayload } from '../utilities/action-request.js';
-import type { GoalStore } from '../service/goal-store.js';
+import type { GoalStore } from '../node/support/goal-store.js';
 
 export interface EpochOrchestratorProps {
   readonly provider: Provider;
