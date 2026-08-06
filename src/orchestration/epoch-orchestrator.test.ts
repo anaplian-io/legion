@@ -6,7 +6,7 @@ import type { Node, BroadcastMessage, NodeResponse } from '../types/node.js';
 import type { WorkingMemory } from '../types/working-memory.js';
 import { DistillationResult, Distiller } from '../types/distiller.js';
 import type { MemoryNodeFactory } from '../types/memory-node-factory.js';
-import type { MemoryNode } from '../node/memory-node.js';
+import { MemoryNode } from '../node/memory-node.js';
 import type { NodeSplitter } from '../types/node-splitter.js';
 import type { NodePruner } from '../types/node-pruner.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
@@ -17,6 +17,8 @@ import type { CandidateMessage, Message } from '../types/message.js';
 import { GoalStore } from '../node/support/goal-store.js';
 import { createTestTelemetry } from '../telemetry/test-context.fixture.js';
 import type { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
+import { AppendOnlyMemoryContextBuilder } from '../node/support/append-only-memory-context-builder.js';
+import { DeduplicatingMemoryPromptBuilder } from '../node/support/deduplicating-memory-prompt-builder.js';
 
 type TestDistiller = Distiller;
 type TestMemoryNodeSplitter = NodeSplitter<'memory'>;
@@ -1658,6 +1660,64 @@ describe('EpochOrchestrator', () => {
     );
     // A memory node responded, so no spawn is needed.
     expect(mockMemoryNodeFactory.create).not.toHaveBeenCalled();
+  });
+
+  it('retains afferent evidence locally when the memory candidate loses attention', async () => {
+    const orchestrator = new EpochOrchestrator({
+      telemetry,
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: {
+        role: 'broadcast',
+        content: 'Initial broadcast',
+      },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+    const toolNode: Node<'tool'> = {
+      id: 'tool-node',
+      kind: 'tool',
+      status: 'idle',
+      context: '',
+      capabilityDescription: 'can inspect the environment.',
+      sendMessage: vi.fn().mockResolvedValue({
+        role: 'afferent',
+        content: 'Evidence that did not reach global attention',
+        evidence: [{ id: 'tool-result:1', contentHash: 'evidence-hash' }],
+      }),
+    };
+    const memoryNode = new MemoryNode({
+      id: 'memory-node',
+      initialContext: 'Initial specialist context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: { isRelevant: vi.fn().mockResolvedValue(true) },
+      contextBuilder: new AppendOnlyMemoryContextBuilder(),
+      promptBuilder: new DeduplicatingMemoryPromptBuilder(),
+    });
+    orchestrator.addNode(toolNode);
+    orchestrator.addNode(memoryNode);
+    vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
+      content: 'A candidate that will be filtered out',
+      toolCalls: undefined,
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([]);
+    vi.mocked(mockMemoryNodeFactory.create).mockReturnValue(
+      createMockNode('fallback-node'),
+    );
+
+    await orchestrator.runEpoch();
+
+    expect(memoryNode.context).toContain(
+      'Evidence that did not reach global attention',
+    );
+    expect(memoryNode.context).toContain('"contentHash":"evidence-hash"');
+    expect(mockDistiller.distill).not.toHaveBeenCalled();
   });
 
   it('should feed afferent capabilities to memory nodes even when afferent nodes are silent', async () => {

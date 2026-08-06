@@ -90,6 +90,15 @@ the broadcast. The "subconscious" still did work. Memory nodes see the prompt
 prefix `[identity + accumulated context][working memory][afferent context][broadcast]`,
 ordered so the large, stable prefix stays cache-friendly.
 
+An engaged memory node appends substantive tool results, tool failures, sensor
+observations, and user input to the end of its accumulated context before the
+turn's broadcast and response. The retained records use a compact, versioned
+format with source and evidence metadata. Stable fingerprints prevent repeated
+evidence from being stored again, while live `afferent-capability`
+advertisements remain ephemeral because their node IDs may become stale. The
+previous accumulated context is never rewritten, so it remains an exact prompt
+prefix across turns and survives ordinary session save/load unchanged.
+
 ## Nodes
 
 All nodes implement a common `Node` interface (`src/types/node.ts`): an `id`, a

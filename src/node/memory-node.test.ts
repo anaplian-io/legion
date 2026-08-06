@@ -5,11 +5,15 @@ import type { BroadcastMessage } from '../types/node.js';
 import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
+import { AppendOnlyMemoryContextBuilder } from './support/append-only-memory-context-builder.js';
+import { DeduplicatingMemoryPromptBuilder } from './support/deduplicating-memory-prompt-builder.js';
 
 describe('MemoryNode', () => {
   let mockProvider: Provider;
   let eventStream: ConcreteEventStream;
   let mockRelevanceGate: RelevanceGate;
+  let contextBuilder: AppendOnlyMemoryContextBuilder;
+  let promptBuilder: DeduplicatingMemoryPromptBuilder;
 
   beforeEach(() => {
     mockProvider = {
@@ -26,6 +30,8 @@ describe('MemoryNode', () => {
     mockRelevanceGate = {
       isRelevant: vi.fn().mockResolvedValue(true),
     };
+    contextBuilder = new AppendOnlyMemoryContextBuilder();
+    promptBuilder = new DeduplicatingMemoryPromptBuilder();
   });
 
   it('should create a memory node with the given props', () => {
@@ -35,6 +41,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     expect(node.id).toBe('memory-1');
@@ -62,6 +70,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     expect(node.status).toBe('idle');
@@ -70,6 +80,10 @@ describe('MemoryNode', () => {
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
       broadcastMessage,
+      messages: [
+        { role: 'working-memory', content: 'Previous message' },
+        { role: 'broadcast', content: 'New broadcast' },
+      ],
       nodeId: 'memory-1',
       epochsAlive: 0,
       nodeContext: expect.stringContaining('Initial context'),
@@ -99,6 +113,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     expect(node.status).toBe('idle');
@@ -107,6 +123,11 @@ describe('MemoryNode', () => {
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
       broadcastMessage,
+      messages: [
+        { role: 'working-memory', content: 'Previous message 1' },
+        { role: 'working-memory', content: 'Previous message 2' },
+        { role: 'broadcast', content: 'New broadcast' },
+      ],
       nodeId: 'memory-1',
       epochsAlive: 0,
       nodeContext: expect.stringContaining('Initial context'),
@@ -152,12 +173,15 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     const result = await node.sendMessage(broadcastMessage);
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
       broadcastMessage,
+      messages: [{ role: 'broadcast', content: 'New broadcast' }],
       nodeId: 'memory-1',
       epochsAlive: 0,
       nodeContext: expect.stringContaining('Initial context'),
@@ -185,6 +209,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -224,12 +250,19 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
 
     expect(mockRelevanceGate.isRelevant).toHaveBeenCalledWith({
       broadcastMessage,
+      messages: [
+        { role: 'working-memory', content: 'First WM' },
+        { role: 'working-memory', content: 'Second WM' },
+        { role: 'broadcast', content: 'New broadcast' },
+      ],
       nodeId: 'memory-1',
       epochsAlive: 0,
       nodeContext: expect.stringContaining('Initial context'),
@@ -277,6 +310,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -325,6 +360,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -347,6 +384,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     expect(node.id).toBe('test-id');
@@ -372,6 +411,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     expect(node.status).toBe('idle');
@@ -406,6 +447,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -444,6 +487,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
@@ -481,6 +526,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
@@ -518,6 +565,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream: throwingEventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await expect(node.sendMessage(broadcastMessage)).resolves.toBeUndefined();
@@ -538,14 +587,118 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage);
 
     expect(node.context).toBe(
-      'Initial context\n\n[BROADCAST MESSAGE]:New broadcast[NODE RESPONSE]:Node response',
+      'Initial context\n\n[BROADCAST MESSAGE]:New broadcast\n[NODE RESPONSE]:Node response',
     );
     expect(node.status).toBe('idle');
+  });
+
+  it('appends substantive afferent evidence before the turn and publishes the complete update', async () => {
+    const updatedContexts: string[] = [];
+    eventStream.subscribe({
+      topicName: 'orchestrator/node-updated',
+      receiver: ({ node }) => {
+        updatedContexts.push(node.context);
+      },
+    });
+    mockGeneration('Grounded response');
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
+    });
+
+    await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
+      workingMemory: { messages: [] },
+      afferentContext: [
+        {
+          role: 'afferent-capability',
+          content: 'tool-search can search',
+        },
+        {
+          role: 'afferent',
+          content: 'Successful tool result',
+          originatingNodeId: 'tool-search',
+          evidence: [
+            {
+              id: 'tool-result:call-1',
+              contentHash: 'result-hash',
+              sourceUrls: ['https://example.com/result'],
+            },
+          ],
+          candidateId: 'ephemeral-candidate',
+        },
+        {
+          role: 'afferent',
+          content: '[{"success":false,"error":"offline"}]',
+          originatingNodeId: 'tool-search',
+        },
+        {
+          role: 'user-input',
+          content: 'Please use the result.',
+          originatingNodeId: 'sensor-user-input',
+          inputIds: ['input-1'],
+        },
+      ],
+      broadcast: { role: 'broadcast', content: 'Investigate' },
+    });
+
+    expect(node.context.startsWith('Initial context')).toBe(true);
+    expect(node.context).toContain('Successful tool result');
+    expect(node.context).toContain('"originatingNodeId":"tool-search"');
+    expect(node.context).toContain('"contentHash":"result-hash"');
+    expect(node.context).toContain('offline');
+    expect(node.context).toContain('Please use the result.');
+    expect(node.context).not.toContain('tool-search can search');
+    expect(node.context).not.toContain('ephemeral-candidate');
+    expect(node.context.indexOf('Successful tool result')).toBeLessThan(
+      node.context.indexOf('[BROADCAST MESSAGE]:Investigate'),
+    );
+    expect(updatedContexts).toEqual([node.context]);
+  });
+
+  it('shares one ordered prompt-message array between relevance and generation', async () => {
+    mockGeneration('Response');
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
+    });
+
+    await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
+      workingMemory: {
+        messages: [{ role: 'working-memory', content: 'Prior state' }],
+      },
+      afferentContext: [{ role: 'afferent', content: 'Current evidence' }],
+      broadcast: { role: 'broadcast', content: 'Current broadcast' },
+    });
+
+    const relevanceMessages = vi.mocked(mockRelevanceGate.isRelevant).mock
+      .calls[0]?.[0].messages;
+    const generationMessages = vi.mocked(mockProvider.generateWithTools).mock
+      .calls[0]?.[0].messages;
+    expect(generationMessages).toBe(relevanceMessages);
+    expect(generationMessages).toEqual([
+      { role: 'working-memory', content: 'Prior state' },
+      { role: 'afferent', content: 'Current evidence' },
+      { role: 'broadcast', content: 'Current broadcast' },
+    ]);
   });
 
   it('attaches valid structured action requests to its response and context', async () => {
@@ -578,6 +731,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     const result = await node.sendMessage(broadcastMessage);
@@ -616,6 +771,8 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await expect(
@@ -658,13 +815,15 @@ describe('MemoryNode', () => {
       provider: mockProvider,
       eventStream,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     await node.sendMessage(broadcastMessage1);
     await node.sendMessage(broadcastMessage2);
 
     expect(node.context).toBe(
-      'Initial context\n\n[BROADCAST MESSAGE]:First broadcast[NODE RESPONSE]:First response\n\n[BROADCAST MESSAGE]:Second broadcast[NODE RESPONSE]:Second response',
+      'Initial context\n\n[BROADCAST MESSAGE]:First broadcast\n[NODE RESPONSE]:First response\n\n[BROADCAST MESSAGE]:Second broadcast\n[NODE RESPONSE]:Second response',
     );
     expect(node.status).toBe('idle');
   });

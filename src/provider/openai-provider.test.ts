@@ -201,14 +201,69 @@ describe('OpenaiProvider', () => {
           {
             role: 'user',
             content:
-              '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]\n[AFFERENT]\nTool output\n\n[AFFERENT CAPABILITY]\nAvailable capability\n\n[NODE RESPONSE]\nMemory node response',
+              '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]\n[AFFERENT]\nTool output\n\n[AFFERENT CAPABILITY]\nAvailable capability',
+          },
+          { role: 'user', content: '[USER INPUT]\nUser instruction' },
+          {
+            role: 'user',
+            content:
+              '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]\n[NODE RESPONSE]\nMemory node response',
           },
           {
             role: 'user',
             content:
               '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
           },
-          { role: 'user', content: '[USER INPUT]\nUser instruction' },
+        ],
+      });
+    });
+
+    it('preserves cognitive context order through the provider transcript', async () => {
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue(
+        completion('ok'),
+      );
+      const provider = new OpenaiProvider({
+        model: 'test-model',
+        client: mockClient as unknown as OpenAI,
+      });
+
+      await provider.generate({
+        systemPrompt: 'Accumulated context',
+        messages: [
+          { role: 'working-memory', content: 'Prior state' },
+          { role: 'afferent', content: 'Current evidence' },
+          { role: 'user-input', content: 'Current user input' },
+          { role: 'broadcast', content: 'Current broadcast' },
+        ],
+      });
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledWith({
+        model: 'test-model',
+        messages: [
+          {
+            role: 'system',
+            content: expect.stringContaining('Accumulated context'),
+          },
+          {
+            role: 'assistant',
+            content: expect.stringContaining('[WORKING MEMORY]\nPrior state'),
+          },
+          {
+            role: 'user',
+            content: expect.stringContaining('[AFFERENT]\nCurrent evidence'),
+          },
+          {
+            role: 'user',
+            content: '[USER INPUT]\nCurrent user input',
+          },
+          {
+            role: 'assistant',
+            content: expect.stringContaining('[BROADCAST]\nCurrent broadcast'),
+          },
+          {
+            role: 'user',
+            content: expect.stringContaining('[LEGION RUNTIME TICK'),
+          },
         ],
       });
     });
@@ -456,12 +511,12 @@ describe('OpenaiProvider', () => {
             },
             {
               role: 'user',
-              content:
-                '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
+              content: '[USER INPUT]\nUser asked about this',
             },
             {
               role: 'user',
-              content: '[USER INPUT]\nUser asked about this',
+              content:
+                '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
             },
             expect.objectContaining({
               role: 'user',

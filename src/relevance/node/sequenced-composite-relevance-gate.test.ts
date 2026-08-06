@@ -10,6 +10,7 @@ describe('SequencedCompositeRelevanceGate', () => {
       workingMemory: { messages: [] },
       broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
     },
+    messages: [{ role: 'broadcast' as const, content: 'Broadcast' }],
     nodeId: 'node-1',
     epochsAlive: 0,
     nodeContext: 'Node context',

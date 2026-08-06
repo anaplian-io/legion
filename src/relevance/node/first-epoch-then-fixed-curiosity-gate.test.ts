@@ -9,6 +9,7 @@ const gateProps = (epochsAlive: number): RelevanceGateProps => ({
     workingMemory: { messages: [] },
     broadcast: { role: 'broadcast', content: 'Explore.' },
   },
+  messages: [{ role: 'broadcast', content: 'Explore.' }],
   nodeId: 'memory-1',
   epochsAlive,
 });
