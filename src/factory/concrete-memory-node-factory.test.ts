@@ -4,11 +4,15 @@ import type { Provider } from '../types/provider.js';
 import { TEST_NODE_TELEMETRY } from '../telemetry/test-context.fixture.js';
 import { ConcreteEventStream } from '../stream/concrete-event-stream.js';
 import type { RelevanceGate } from '../types/relevance-gate.js';
+import { AppendOnlyMemoryContextBuilder } from '../node/support/append-only-memory-context-builder.js';
+import { DeduplicatingMemoryPromptBuilder } from '../node/support/deduplicating-memory-prompt-builder.js';
 
 describe('ConcreteMemoryNodeFactory', () => {
   let mockProvider: Provider;
   let eventStream: ConcreteEventStream;
   let mockRelevanceGate: RelevanceGate;
+  let contextBuilder: AppendOnlyMemoryContextBuilder;
+  let promptBuilder: DeduplicatingMemoryPromptBuilder;
 
   beforeEach(() => {
     mockProvider = {
@@ -23,12 +27,16 @@ describe('ConcreteMemoryNodeFactory', () => {
     mockRelevanceGate = {
       isRelevant: vi.fn().mockResolvedValue(true),
     };
+    contextBuilder = new AppendOnlyMemoryContextBuilder();
+    promptBuilder = new DeduplicatingMemoryPromptBuilder();
   });
 
   it('should create a factory with the given provider', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     expect(typeof factory.create).toBe('function');
@@ -38,6 +46,8 @@ describe('ConcreteMemoryNodeFactory', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     const node = factory.create({
@@ -55,6 +65,8 @@ describe('ConcreteMemoryNodeFactory', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     vi.mocked(mockProvider.generateWithTools).mockResolvedValue({
@@ -80,6 +92,8 @@ describe('ConcreteMemoryNodeFactory', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
 
     const node1 = factory.create({
@@ -98,6 +112,8 @@ describe('ConcreteMemoryNodeFactory', () => {
     const factory = new ConcreteMemoryNodeFactory({
       provider: mockProvider,
       relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
     });
     vi.mocked(mockRelevanceGate.isRelevant).mockResolvedValue(false);
     vi.mocked(mockProvider.generate).mockResolvedValue('Response');

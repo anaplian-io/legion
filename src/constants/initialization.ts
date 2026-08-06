@@ -55,6 +55,8 @@ import {
 import { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
 import { InstrumentedProvider } from '../provider/instrumented-provider.js';
 import { InstrumentedDistiller } from '../distillation/instrumented-distiller.js';
+import { AppendOnlyMemoryContextBuilder } from '../node/support/append-only-memory-context-builder.js';
+import { DeduplicatingMemoryPromptBuilder } from '../node/support/deduplicating-memory-prompt-builder.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;
@@ -158,6 +160,8 @@ export const init = async (options: InitOptions) => {
       }),
     ],
   });
+  const memoryContextBuilder = new AppendOnlyMemoryContextBuilder();
+  const memoryPromptBuilder = new DeduplicatingMemoryPromptBuilder();
   let loadedSession: LoadedSession | undefined;
   try {
     eventStream.publish({
@@ -170,6 +174,8 @@ export const init = async (options: InitOptions) => {
     const memoryNodeFactory = new ConcreteMemoryNodeFactory({
       provider,
       relevanceGate: memoryRelevanceGate,
+      contextBuilder: memoryContextBuilder,
+      promptBuilder: memoryPromptBuilder,
     });
     loadedSession = SessionLoader.load({
       directory: settings.saveLocation,
@@ -370,6 +376,8 @@ export const init = async (options: InitOptions) => {
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
     provider,
     relevanceGate: memoryRelevanceGate,
+    contextBuilder: memoryContextBuilder,
+    promptBuilder: memoryPromptBuilder,
   });
 
   const userInputSensor = new UserInputSensor();

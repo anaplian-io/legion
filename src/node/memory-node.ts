@@ -10,10 +10,10 @@ import { RelevanceGate } from '../types/relevance-gate.js';
 import {
   ACTION_REQUEST_TOOL,
   actionRequestFromToolCall,
-  formatActionRequests,
-  formatMessagePayload,
 } from '../utilities/action-request.js';
 import { isDefined } from '../utilities/type-guards.js';
+import type { MemoryContextBuilder } from '../types/memory-context-builder.js';
+import type { MemoryPromptBuilder } from '../types/memory-prompt-builder.js';
 
 export interface MemoryNodeProps {
   readonly id: string;
@@ -21,6 +21,8 @@ export interface MemoryNodeProps {
   readonly provider: Provider;
   readonly eventStream: EventStream;
   readonly relevanceGate: RelevanceGate;
+  readonly contextBuilder: MemoryContextBuilder;
+  readonly promptBuilder: MemoryPromptBuilder;
 }
 
 export class MemoryNode implements Node<'memory'> {
@@ -47,14 +49,11 @@ export class MemoryNode implements Node<'memory'> {
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
     const { provider } = this.props;
-    const messages = [
-      ...broadcastMessage.workingMemory.messages,
-      ...(broadcastMessage.afferentContext ?? []),
-      broadcastMessage.broadcast,
-    ];
+    const messages = this.props.promptBuilder.buildMessages(broadcastMessage);
     await this.setStatus('evaluating-relevance', broadcastMessage.telemetry);
     const relevant = await this.props.relevanceGate.isRelevant({
       broadcastMessage,
+      messages,
       nodeId: this.id,
       epochsAlive: broadcastMessage.recipientNodeStats?.epochsAlive ?? 0,
       nodeContext: this.preamble,
@@ -82,7 +81,7 @@ export class MemoryNode implements Node<'memory'> {
       await this.setStatus('idle', broadcastMessage.telemetry);
       return undefined;
     }
-    const response: NodeResponse = {
+    const response: Exclude<NodeResponse, undefined> = {
       role: 'node-response',
       originatingNodeId: this.id,
       content: generated.content,
@@ -91,14 +90,12 @@ export class MemoryNode implements Node<'memory'> {
       inputIds: broadcastMessage.telemetry.inputIds,
     };
     await this.setStatus('idle', broadcastMessage.telemetry);
-    this._context =
-      this._context +
-      `\n\n` +
-      `[BROADCAST MESSAGE]:${formatMessagePayload(broadcastMessage.broadcast)}` +
-      `[NODE RESPONSE]:${response.content}` +
-      (response.actionRequests === undefined
-        ? ''
-        : `\n${formatActionRequests(response.actionRequests)}`);
+    this._context += this.props.contextBuilder.buildContextSuffix({
+      accumulatedContext: this._context,
+      afferentContext: broadcastMessage.afferentContext ?? [],
+      broadcast: broadcastMessage.broadcast,
+      response,
+    });
     this.props.eventStream.publish({
       topicName: 'orchestrator/node-updated',
       data: { node: this },

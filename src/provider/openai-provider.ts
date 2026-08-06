@@ -46,20 +46,7 @@ export class OpenaiProvider implements Provider {
     systemPrompt: string,
     messages: readonly Message[],
   ): ChatCompletionMessageParam[] => {
-    const selfState = messages.filter((message) =>
-      this.isSelfStateMessage(message),
-    );
-    const runtimeContext = messages.filter((message) =>
-      this.isRuntimeContextMessage(message),
-    );
-    const userInputs = messages.filter(
-      (message) => message.role === 'user-input',
-    );
-    const toolIntents = messages.filter(
-      (message) => message.role === 'tool-intent',
-    );
-
-    return [
+    const transcript: ChatCompletionMessageParam[] = [
       {
         role: 'system',
         // Keep the Provider-owned contract before caller-owned context. Memory
@@ -67,43 +54,63 @@ export class OpenaiProvider implements Provider {
         // lets prefix-caching runtimes reuse it across those updates.
         content: `${LEGION_RUNTIME_PROTOCOL}\n\n${systemPrompt}`,
       },
-      ...(selfState.length === 0
-        ? []
-        : [
-            {
-              role: 'assistant' as const,
-              content: this.formatContext(
-                '[LEGION SELF STATE — PRIOR COLLECTIVE THOUGHT]',
-                selfState,
-              ),
-            },
-          ]),
-      ...(runtimeContext.length === 0
-        ? []
-        : [
-            {
-              role: 'user' as const,
-              content: this.formatContext(
-                '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]',
-                runtimeContext,
-              ),
-            },
-          ]),
-      ...(toolIntents.length === 0
-        ? [
-            {
-              role: 'user' as const,
-              content:
-                '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
-            },
-          ]
-        : []),
-      ...userInputs.map((message) => this.toOpenAiUserInput(message)),
-      ...toolIntents.map((message) => ({
-        role: 'user' as const,
-        content: `${this.messageRoleLabel(message.role)}\n${formatMessagePayload(message)}`,
-      })),
     ];
+    let segment:
+      | {
+          readonly kind: 'self-state' | 'runtime-context';
+          readonly messages: Message[];
+        }
+      | undefined;
+    const flushSegment = (): void => {
+      if (segment === undefined) {
+        return;
+      }
+      transcript.push({
+        role: segment.kind === 'self-state' ? 'assistant' : 'user',
+        content: this.formatContext(
+          segment.kind === 'self-state'
+            ? '[LEGION SELF STATE — PRIOR COLLECTIVE THOUGHT]'
+            : '[LEGION RUNTIME CONTEXT — NOT HUMAN INPUT]',
+          segment.messages,
+        ),
+      });
+      segment = undefined;
+    };
+
+    for (const message of messages) {
+      const kind = this.isSelfStateMessage(message)
+        ? 'self-state'
+        : this.isRuntimeContextMessage(message)
+          ? 'runtime-context'
+          : undefined;
+      if (kind !== undefined) {
+        if (segment?.kind !== kind) {
+          flushSegment();
+          segment = { kind, messages: [] };
+        }
+        segment.messages.push(message);
+        continue;
+      }
+      flushSegment();
+      transcript.push(
+        message.role === 'user-input'
+          ? this.toOpenAiUserInput(message)
+          : {
+              role: 'user',
+              content: `${this.messageRoleLabel(message.role)}\n${formatMessagePayload(message)}`,
+            },
+      );
+    }
+    flushSegment();
+
+    if (!messages.some((message) => message.role === 'tool-intent')) {
+      transcript.push({
+        role: 'user',
+        content:
+          '[LEGION RUNTIME TICK — NOT HUMAN INPUT]\nProduce the next output for the collective, following the system instructions.',
+      });
+    }
+    return transcript;
   };
 
   private readonly isSelfStateMessage = (message: Message): boolean =>

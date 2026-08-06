@@ -30,6 +30,10 @@ describe('AskYesNoQuestionRelevanceGate', () => {
           },
           broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
         },
+        messages: [
+          { role: 'working-memory', content: 'Previous' },
+          { role: 'broadcast', content: 'Broadcast' },
+        ],
         nodeId: 'node-1',
         epochsAlive: 2,
         nodeContext: 'Node context',
@@ -66,6 +70,11 @@ describe('AskYesNoQuestionRelevanceGate', () => {
         afferentContext: [{ role: 'afferent', content: 'Tool capability' }],
         broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
       },
+      messages: [
+        { role: 'working-memory', content: 'Previous' },
+        { role: 'afferent', content: 'Tool capability' },
+        { role: 'broadcast', content: 'Broadcast' },
+      ],
       nodeId: 'node-1',
       epochsAlive: 2,
       nodeContext: 'Node context',
@@ -99,6 +108,7 @@ describe('AskYesNoQuestionRelevanceGate', () => {
         workingMemory: { messages: [] },
         broadcast: { role: 'broadcast' as const, content: 'Broadcast' },
       },
+      messages: [{ role: 'broadcast', content: 'Broadcast' }],
       nodeId: 'node-1',
       epochsAlive: 2,
     });
