@@ -160,6 +160,7 @@ export class EpochOrchestrator {
     let survivors: CandidateMessage[] = [];
     let result: DistillationResult | undefined;
     let outcomesRecorded = false;
+    let candidatesResolved = false;
     let selectedCandidateCount = 0;
     try {
       // Afferent wave: tools and sensors perceive first. Their output is context
@@ -197,6 +198,11 @@ export class EpochOrchestrator {
       );
 
       if (survivors.length === 0) {
+        try {
+          this.resolveCognitiveCandidates(cognitive, survivors, undefined);
+        } finally {
+          candidatesResolved = true;
+        }
         this.recordCandidateOutcomes(
           afferent,
           cognitive,
@@ -245,6 +251,11 @@ export class EpochOrchestrator {
           ? {}
           : { goalDecision: result.goalDecision }),
       };
+      try {
+        this.resolveCognitiveCandidates(cognitive, survivors, result);
+      } finally {
+        candidatesResolved = true;
+      }
       selectedCandidateCount = this.recordCandidateOutcomes(
         afferent,
         cognitive,
@@ -268,6 +279,13 @@ export class EpochOrchestrator {
         selectedCandidateCount,
       );
     } catch (error) {
+      if (!candidatesResolved) {
+        try {
+          this.resolveCognitiveCandidates(cognitive, survivors, undefined);
+        } finally {
+          candidatesResolved = true;
+        }
+      }
       if (!outcomesRecorded) {
         this.recordCandidateOutcomes(
           afferent,
@@ -468,6 +486,40 @@ export class EpochOrchestrator {
                 : [selected.originatingNodeId]),
             ],
       ),
+    });
+  };
+
+  private readonly resolveCognitiveCandidates = (
+    cognitive: CognitiveWave,
+    survivors: readonly CandidateMessage[],
+    result: DistillationResult | undefined,
+  ): void => {
+    const selectedCandidateIds = new Set<string>();
+    result?.supportingEvidence.forEach((reference) => {
+      if (reference.source !== 'candidate') {
+        return;
+      }
+      const candidateId = survivors[reference.index]?.candidateId;
+      if (candidateId !== undefined) {
+        selectedCandidateIds.add(candidateId);
+      }
+    });
+    const memoryNodesById = new Map(
+      this._registry.memoryNodes().map((node) => [node.id, node]),
+    );
+    cognitive.candidates.forEach((candidate) => {
+      const node = memoryNodesById.get(candidate.originatingNodeId);
+      if (node?.resolveCandidate === undefined) {
+        throw new Error(
+          `[EpochOrchestrator] memory node ${candidate.originatingNodeId} cannot resolve candidate ${candidate.candidateId}`,
+        );
+      }
+      node.resolveCandidate(
+        candidate.candidateId,
+        selectedCandidateIds.has(candidate.candidateId)
+          ? 'selected'
+          : 'rejected',
+      );
     });
   };
 

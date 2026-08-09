@@ -1132,6 +1132,7 @@ describe('EpochOrchestrator', () => {
       status: 'idle',
       context: 'Context for node-a',
       sendMessage: sendMessageSpy,
+      resolveCandidate: vi.fn(),
     };
 
     orchestrator.addNode(nodeA);
@@ -1266,6 +1267,7 @@ describe('EpochOrchestrator', () => {
       status: 'idle',
       context: 'Context for node-a',
       sendMessage: sendMessageSpy,
+      resolveCandidate: vi.fn(),
     };
     orchestrator.addNode(nodeA);
 
@@ -1528,6 +1530,7 @@ describe('EpochOrchestrator', () => {
       kind: 'memory' as const,
       status: 'idle',
       context: longContext,
+      resolveCandidate: vi.fn(),
       sendMessage: vi.fn().mockResolvedValue({
         role: 'node-response' as const,
         originatingNodeId: 'node-a',
@@ -1662,7 +1665,170 @@ describe('EpochOrchestrator', () => {
     expect(mockMemoryNodeFactory.create).not.toHaveBeenCalled();
   });
 
-  it('retains afferent evidence locally when the memory candidate loses attention', async () => {
+  it('commits selected memory experience and rejects a distiller-rejected survivor', async () => {
+    const orchestrator = new EpochOrchestrator({
+      telemetry,
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+    });
+    const makeMemoryNode = (id: string, content: string): MemoryNode =>
+      new MemoryNode({
+        id,
+        initialContext: `Initial ${id} context`,
+        provider: {
+          ...mockProvider,
+          generateWithTools: vi
+            .fn()
+            .mockResolvedValue({ content, toolCalls: undefined }),
+        },
+        eventStream,
+        relevanceGate: { isRelevant: vi.fn().mockResolvedValue(true) },
+        contextBuilder: new AppendOnlyMemoryContextBuilder(),
+        promptBuilder: new DeduplicatingMemoryPromptBuilder(),
+      });
+    const selected = makeMemoryNode('selected-node', 'Selected response');
+    const rejected = makeMemoryNode('rejected-node', 'Rejected response');
+    orchestrator.addNode(selected);
+    orchestrator.addNode(rejected);
+    vi.mocked(mockRelevanceFilter.filter).mockImplementation(
+      async (_workingMemory, candidates) => candidates,
+    );
+    vi.mocked(mockDistiller.distill).mockImplementation(
+      async ({ broadcasts }) => resultFromMessage(broadcasts[0]!),
+    );
+
+    await orchestrator.runEpoch();
+
+    expect(selected.context).toContain('[NODE RESPONSE]:Selected response');
+    expect(rejected.context).toBe('Initial rejected-node context');
+  });
+
+  it('commits every cognitive candidate in a synthesized winning coalition', async () => {
+    const first = createMockNode('first', async () => ({
+      role: 'node-response',
+      content: 'First contribution',
+    }));
+    const second = createMockNode('second', async () => ({
+      role: 'node-response',
+      content: 'Second contribution',
+    }));
+    const orchestrator = new EpochOrchestrator({
+      telemetry,
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [first, second],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockImplementation(
+      async (_workingMemory, candidates) => candidates,
+    );
+    vi.mocked(mockDistiller.distill).mockResolvedValue({
+      broadcast: {
+        role: 'broadcast',
+        content: 'Synthesized insight',
+        contributingNodeIds: ['first', 'second'],
+      },
+      supportingEvidence: [
+        { source: 'candidate', index: 0 },
+        { source: 'candidate', index: 1 },
+      ],
+      goalDecision: {
+        kind: 'unchanged',
+        reason: 'No goal change.',
+      },
+    });
+
+    await orchestrator.runEpoch();
+
+    expect(first.resolveCandidate).toHaveBeenCalledWith(
+      expect.any(String),
+      'selected',
+    );
+    expect(second.resolveCandidate).toHaveBeenCalledWith(
+      expect.any(String),
+      'selected',
+    );
+  });
+
+  it('rejects pending memory experience when epoch selection fails', async () => {
+    const node = createMockNode('node-a', async () => ({
+      role: 'node-response',
+      content: 'Pending response',
+    }));
+    const orchestrator = new EpochOrchestrator({
+      telemetry,
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [node],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockRejectedValue(
+      new Error('attention failed'),
+    );
+
+    await expect(orchestrator.runEpoch()).rejects.toThrow('attention failed');
+
+    expect(node.resolveCandidate).toHaveBeenCalledWith(
+      expect.any(String),
+      'rejected',
+    );
+  });
+
+  it('rejects a cognitive node that cannot resolve generated experience', async () => {
+    const node: Node<'memory'> = {
+      id: 'legacy-memory',
+      kind: 'memory',
+      status: 'idle',
+      context: 'Legacy context',
+      sendMessage: vi.fn().mockResolvedValue({
+        role: 'node-response',
+        content: 'Unresolvable response',
+      }),
+    };
+    const orchestrator = new EpochOrchestrator({
+      telemetry,
+      provider: mockProvider,
+      relevanceFilter: mockRelevanceFilter,
+      distiller: mockDistiller,
+      maxWorkingMemoryMessages: 10,
+      initialBroadcast: { role: 'broadcast', content: 'Initial broadcast' },
+      memoryNodeFactory: mockMemoryNodeFactory,
+      contextLengthThreshold: 1000,
+      memoryNodeSplitter: mockMemoryNodeSplitter,
+      nodePruner: mockNodePruner,
+      eventStream,
+      initialNodes: [node],
+    });
+    vi.mocked(mockRelevanceFilter.filter).mockResolvedValue([]);
+
+    await expect(orchestrator.runEpoch()).rejects.toThrow(
+      '[EpochOrchestrator] memory node legacy-memory cannot resolve candidate',
+    );
+  });
+
+  it('rejects pending experience when a memory candidate loses attention', async () => {
     const orchestrator = new EpochOrchestrator({
       telemetry,
       provider: mockProvider,
@@ -1713,10 +1879,7 @@ describe('EpochOrchestrator', () => {
 
     await orchestrator.runEpoch();
 
-    expect(memoryNode.context).toContain(
-      'Evidence that did not reach global attention',
-    );
-    expect(memoryNode.context).toContain('"contentHash":"evidence-hash"');
+    expect(memoryNode.context).toBe('Initial specialist context');
     expect(mockDistiller.distill).not.toHaveBeenCalled();
   });
 
@@ -1942,6 +2105,7 @@ describe('EpochOrchestrator', () => {
       kind: 'memory' as const,
       status: 'idle',
       context: 'Context for node-a',
+      resolveCandidate: vi.fn(),
       sendMessage: vi.fn().mockRejectedValue(new Error('Something went wrong')),
     };
 
@@ -1983,6 +2147,7 @@ function createMockNode(
     status: 'idle',
     context: `Context for ${id}`,
     sendMessage,
+    resolveCandidate: vi.fn(),
   };
 }
 

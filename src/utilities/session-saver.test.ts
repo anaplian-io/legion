@@ -489,7 +489,11 @@ describe('SessionSaver', () => {
       // Save initial state
       eventStream.publish({
         topicName: 'orchestrator/node-updated',
-        data: { node },
+        data: {
+          node,
+          candidateId: 'candidate-1',
+          phase: 'experience-committed',
+        },
       });
 
       const expectedPath = path.join(mockDirectory, 'nodes', 'node-1.json');
@@ -513,7 +517,11 @@ describe('SessionSaver', () => {
 
       eventStream.publish({
         topicName: 'orchestrator/node-updated',
-        data: { node: updatedNode },
+        data: {
+          node: updatedNode,
+          candidateId: 'candidate-2',
+          phase: 'experience-committed',
+        },
       });
 
       // Verify update save
@@ -524,6 +532,34 @@ describe('SessionSaver', () => {
         kind: 'memory',
         context: 'Updated context',
       });
+    });
+
+    it('should ignore pending and rejected candidate updates', () => {
+      const node = createMemoryNode('node-1', 'Durable context');
+      SessionSaver.watch({
+        telemetry,
+        eventStream,
+        directory: mockDirectory,
+      });
+
+      eventStream.publish({
+        topicName: 'orchestrator/node-updated',
+        data: {
+          node,
+          candidateId: 'candidate-1',
+          phase: 'candidate-pending',
+        },
+      });
+      eventStream.publish({
+        topicName: 'orchestrator/node-updated',
+        data: {
+          node,
+          candidateId: 'candidate-1',
+          phase: 'candidate-rejected',
+        },
+      });
+
+      expect(writeFileSync).not.toHaveBeenCalled();
     });
 
     it('should filter out non-memory nodes', async () => {
@@ -553,7 +589,11 @@ describe('SessionSaver', () => {
 
       eventStream.publish({
         topicName: 'orchestrator/node-updated',
-        data: { node },
+        data: {
+          node,
+          candidateId: 'candidate-1',
+          phase: 'experience-committed',
+        },
       });
 
       expect(writeFileSync).not.toHaveBeenCalledWith(

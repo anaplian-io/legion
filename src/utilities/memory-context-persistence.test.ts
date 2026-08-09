@@ -63,6 +63,10 @@ describe('retained memory context persistence', () => {
       nodeId: 'memory-1',
       eventStream,
     });
+    eventStream.publish({
+      topicName: 'orchestrator/node-added',
+      data: { addedNodes: [node] },
+    });
     const evidence = {
       role: 'afferent' as const,
       content: 'Persisted tool result',
@@ -70,12 +74,19 @@ describe('retained memory context persistence', () => {
       evidence: [{ id: 'call-1', contentHash: 'stable-result-hash' }],
     };
 
-    await node.sendMessage({
+    const first = await node.sendMessage({
       telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       afferentContext: [evidence],
       broadcast: { role: 'broadcast', content: 'First broadcast' },
     });
+    const pending = JSON.parse(
+      readFileSync(path.join(directory, 'nodes', 'memory-1.json'), 'utf8'),
+    ) as { readonly context: string };
+    expect(pending.context).toBe('Initial context');
+    expect(node.context).toBe('Initial context');
+
+    node.resolveCandidate!(first!.candidateId!, 'selected');
     eventStream.publish({
       topicName: 'orchestrator/working-memory-updated',
       data: {
@@ -99,7 +110,7 @@ describe('retained memory context persistence', () => {
     expect(restored?.context).toBe(node.context);
     expect(restored).toBeDefined();
 
-    await restored!.sendMessage({
+    const second = await restored!.sendMessage({
       telemetry: TEST_NODE_TELEMETRY,
       workingMemory: loaded!.workingMemory,
       afferentContext: [
@@ -110,6 +121,7 @@ describe('retained memory context persistence', () => {
       ],
       broadcast: loaded!.broadcast,
     });
+    restored!.resolveCandidate!(second!.candidateId!, 'selected');
 
     expect(restored!.context.match(/\[AFFERENT EVIDENCE v1/gu)).toHaveLength(1);
     const relevanceContext = vi

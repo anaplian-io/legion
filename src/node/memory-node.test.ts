@@ -154,7 +154,72 @@ describe('MemoryNode', () => {
       candidateId: TEST_NODE_TELEMETRY.candidateId,
       inputIds: [],
     });
+    expect(node.context).toBe('Initial context');
     expect(node.status).toBe('idle');
+  });
+
+  it('keeps generated experience pending and discards a rejected candidate', async () => {
+    const phases: string[] = [];
+    eventStream.subscribe({
+      topicName: 'orchestrator/node-updated',
+      receiver: ({ phase }) => {
+        phases.push(phase);
+      },
+    });
+    mockGeneration('Rejected response');
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
+    });
+
+    const result = await node.sendMessage({
+      telemetry: TEST_NODE_TELEMETRY,
+      workingMemory: { messages: [] },
+      broadcast: { role: 'broadcast', content: 'New broadcast' },
+    });
+    expect(node.context).toBe('Initial context');
+
+    node.resolveCandidate(result!.candidateId!, 'rejected');
+
+    expect(node.context).toBe('Initial context');
+    expect(phases).toEqual(['candidate-pending', 'candidate-rejected']);
+  });
+
+  it('bounds pending experience and validates candidate resolution', async () => {
+    mockGeneration('Pending response');
+    const node = new MemoryNode({
+      id: 'memory-1',
+      initialContext: 'Initial context',
+      provider: mockProvider,
+      eventStream,
+      relevanceGate: mockRelevanceGate,
+      contextBuilder,
+      promptBuilder,
+    });
+    const message: BroadcastMessage = {
+      telemetry: TEST_NODE_TELEMETRY,
+      workingMemory: { messages: [] },
+      broadcast: { role: 'broadcast', content: 'New broadcast' },
+    };
+    const result = await node.sendMessage(message);
+
+    await expect(node.sendMessage(message)).rejects.toThrow(
+      'candidate candidate-test is still awaiting resolution',
+    );
+    expect(() => node.resolveCandidate('other-candidate', 'rejected')).toThrow(
+      'cannot resolve candidate other-candidate; candidate-test is pending',
+    );
+
+    node.resolveCandidate(result!.candidateId!, 'rejected');
+
+    expect(() =>
+      node.resolveCandidate(result!.candidateId!, 'selected'),
+    ).toThrow('candidate candidate-test is not pending');
   });
 
   it('should generate response when relevance gate returns true', async () => {
@@ -591,7 +656,10 @@ describe('MemoryNode', () => {
       promptBuilder,
     });
 
-    await node.sendMessage(broadcastMessage);
+    const result = await node.sendMessage(broadcastMessage);
+
+    expect(node.context).toBe('Initial context');
+    node.resolveCandidate(result!.candidateId!, 'selected');
 
     expect(node.context).toBe(
       'Initial context\n\n[BROADCAST MESSAGE]:New broadcast\n[NODE RESPONSE]:Node response',
@@ -601,10 +669,12 @@ describe('MemoryNode', () => {
 
   it('appends substantive afferent evidence before the turn and publishes the complete update', async () => {
     const updatedContexts: string[] = [];
+    const updatePhases: string[] = [];
     eventStream.subscribe({
       topicName: 'orchestrator/node-updated',
-      receiver: ({ node }) => {
+      receiver: ({ node, phase }) => {
         updatedContexts.push(node.context);
+        updatePhases.push(phase);
       },
     });
     mockGeneration('Grounded response');
@@ -618,7 +688,7 @@ describe('MemoryNode', () => {
       promptBuilder,
     });
 
-    await node.sendMessage({
+    const result = await node.sendMessage({
       telemetry: TEST_NODE_TELEMETRY,
       workingMemory: { messages: [] },
       afferentContext: [
@@ -654,6 +724,9 @@ describe('MemoryNode', () => {
       broadcast: { role: 'broadcast', content: 'Investigate' },
     });
 
+    expect(node.context).toBe('Initial context');
+    node.resolveCandidate(result!.candidateId!, 'selected');
+
     expect(node.context.startsWith('Initial context')).toBe(true);
     expect(node.context).toContain('Successful tool result');
     expect(node.context).toContain('"originatingNodeId":"tool-search"');
@@ -665,7 +738,8 @@ describe('MemoryNode', () => {
     expect(node.context.indexOf('Successful tool result')).toBeLessThan(
       node.context.indexOf('[BROADCAST MESSAGE]:Investigate'),
     );
-    expect(updatedContexts).toEqual([node.context]);
+    expect(updatedContexts).toEqual(['Initial context', node.context]);
+    expect(updatePhases).toEqual(['candidate-pending', 'experience-committed']);
   });
 
   it('shares one ordered prompt-message array between relevance and generation', async () => {
@@ -746,6 +820,8 @@ describe('MemoryNode', () => {
         arguments: { path: '.' },
       },
     ]);
+    expect(node.context).toBe('Initial context');
+    node.resolveCandidate(result!.candidateId!, 'selected');
     expect(node.context).toContain(
       '[ACTION REQUEST request-1] target=tool-files intent="List the workspace directory." operationHint=list_directory',
     );
@@ -819,8 +895,10 @@ describe('MemoryNode', () => {
       promptBuilder,
     });
 
-    await node.sendMessage(broadcastMessage1);
-    await node.sendMessage(broadcastMessage2);
+    const first = await node.sendMessage(broadcastMessage1);
+    node.resolveCandidate(first!.candidateId!, 'selected');
+    const second = await node.sendMessage(broadcastMessage2);
+    node.resolveCandidate(second!.candidateId!, 'selected');
 
     expect(node.context).toBe(
       'Initial context\n\n[BROADCAST MESSAGE]:First broadcast\n[NODE RESPONSE]:First response\n\n[BROADCAST MESSAGE]:Second broadcast\n[NODE RESPONSE]:Second response',
