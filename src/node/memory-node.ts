@@ -1,5 +1,6 @@
 import {
   BroadcastMessage,
+  CandidateExperienceOutcome,
   Node,
   NodeResponse,
   NodeStatus,
@@ -14,6 +15,7 @@ import {
 import { isDefined } from '../utilities/type-guards.js';
 import type { MemoryContextBuilder } from '../types/memory-context-builder.js';
 import type { MemoryPromptBuilder } from '../types/memory-prompt-builder.js';
+import type { Message } from '../types/message.js';
 
 export interface MemoryNodeProps {
   readonly id: string;
@@ -25,10 +27,18 @@ export interface MemoryNodeProps {
   readonly promptBuilder: MemoryPromptBuilder;
 }
 
+interface PendingExperience {
+  readonly candidateId: string;
+  readonly afferentContext: readonly Message[];
+  readonly broadcast: Message;
+  readonly response: Exclude<NodeResponse, undefined>;
+}
+
 export class MemoryNode implements Node<'memory'> {
   public readonly id: string;
   private _context: string;
   private _nodeStatus: NodeStatus = 'idle';
+  private pendingExperience: PendingExperience | undefined;
 
   constructor(private readonly props: MemoryNodeProps) {
     this.id = this.props.id;
@@ -48,6 +58,11 @@ export class MemoryNode implements Node<'memory'> {
   public readonly sendMessage = async (
     broadcastMessage: BroadcastMessage,
   ): Promise<NodeResponse> => {
+    if (this.pendingExperience !== undefined) {
+      throw new Error(
+        `[MemoryNode ${this.id}] candidate ${this.pendingExperience.candidateId} is still awaiting resolution`,
+      );
+    }
     const { provider } = this.props;
     const messages = this.props.promptBuilder.buildMessages(broadcastMessage);
     await this.setStatus('evaluating-relevance', broadcastMessage.telemetry);
@@ -81,26 +96,68 @@ export class MemoryNode implements Node<'memory'> {
       await this.setStatus('idle', broadcastMessage.telemetry);
       return undefined;
     }
+    const candidateId = broadcastMessage.telemetry.candidateId;
     const response: Exclude<NodeResponse, undefined> = {
       role: 'node-response',
       originatingNodeId: this.id,
       content: generated.content,
       ...(actionRequests.length === 0 ? {} : { actionRequests }),
-      candidateId: broadcastMessage.telemetry.candidateId,
+      candidateId,
       inputIds: broadcastMessage.telemetry.inputIds,
     };
     await this.setStatus('idle', broadcastMessage.telemetry);
-    this._context += this.props.contextBuilder.buildContextSuffix({
-      accumulatedContext: this._context,
+    this.pendingExperience = {
+      candidateId,
       afferentContext: broadcastMessage.afferentContext ?? [],
       broadcast: broadcastMessage.broadcast,
       response,
-    });
+    };
     this.props.eventStream.publish({
       topicName: 'orchestrator/node-updated',
-      data: { node: this },
+      data: {
+        node: this,
+        candidateId,
+        phase: 'candidate-pending',
+      },
     });
     return response;
+  };
+
+  public readonly resolveCandidate = (
+    candidateId: string,
+    outcome: CandidateExperienceOutcome,
+  ): void => {
+    const pending = this.pendingExperience;
+    if (pending === undefined) {
+      throw new Error(
+        `[MemoryNode ${this.id}] candidate ${candidateId} is not pending`,
+      );
+    }
+    if (pending.candidateId !== candidateId) {
+      throw new Error(
+        `[MemoryNode ${this.id}] cannot resolve candidate ${candidateId}; ${pending.candidateId} is pending`,
+      );
+    }
+    this.pendingExperience = undefined;
+    if (outcome === 'selected') {
+      this._context += this.props.contextBuilder.buildContextSuffix({
+        accumulatedContext: this._context,
+        afferentContext: pending.afferentContext,
+        broadcast: pending.broadcast,
+        response: pending.response,
+      });
+    }
+    this.props.eventStream.publish({
+      topicName: 'orchestrator/node-updated',
+      data: {
+        node: this,
+        candidateId,
+        phase:
+          outcome === 'selected'
+            ? 'experience-committed'
+            : 'candidate-rejected',
+      },
+    });
   };
 
   public get preamble(): string {

@@ -380,6 +380,7 @@ const node = <Kind extends string>(
   status: 'idle',
   context: '',
   sendMessage,
+  resolveCandidate: vi.fn(),
 });
 
 const provider = (): Provider => ({

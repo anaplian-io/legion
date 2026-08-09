@@ -68,6 +68,9 @@ export interface NodeRemovedData {
 
 export interface NodeUpdatedData {
   readonly node: Node<string>;
+  readonly candidateId: string;
+  readonly phase:
+    'candidate-pending' | 'candidate-rejected' | 'experience-committed';
 }
 
 export interface WorkingMemoryUpdatedData {

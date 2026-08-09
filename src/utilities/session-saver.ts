@@ -62,6 +62,9 @@ export const SessionSaver = {
     eventStream.subscribe({
       topicName: 'orchestrator/node-updated',
       receiver: (event) => {
+        if (event.phase !== 'experience-committed') {
+          return;
+        }
         const node = event.node;
         if (node.kind === 'memory') {
           persist(props.telemetry, 'write', 'memory-node', () =>

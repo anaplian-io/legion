@@ -25,6 +25,8 @@ export interface BroadcastMessage {
 
 export type NodeStatus = 'idle' | 'generating' | 'evaluating-relevance';
 
+export type CandidateExperienceOutcome = 'selected' | 'rejected';
+
 export interface Node<T extends string> {
   readonly id: string;
   readonly status: NodeStatus;
@@ -34,4 +36,13 @@ export interface Node<T extends string> {
   readonly sendMessage: (
     broadcastMessage: BroadcastMessage,
   ) => Promise<NodeResponse>;
+  /**
+   * Memory nodes keep generated experience pending until the orchestrator
+   * resolves the candidate's epoch outcome. Afferent nodes do not implement
+   * this operation.
+   */
+  readonly resolveCandidate?: (
+    candidateId: string,
+    outcome: CandidateExperienceOutcome,
+  ) => void;
 }
