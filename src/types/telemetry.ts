@@ -3,6 +3,7 @@ import type {
   TelemetryEvidenceReference,
 } from './evidence.js';
 import type { Unsubscribe } from './subscription.js';
+import type { DistillationFailureReason } from './distillation-failure.js';
 
 export const TELEMETRY_SCHEMA_VERSION = 1 as const;
 
@@ -119,10 +120,13 @@ export interface TelemetryEventDataMap {
     readonly evidence: readonly TelemetryEvidenceReference[];
     readonly actionDisposition: 'scheduled' | 'none';
     readonly errorCategory?: string;
+    /** Bounded semantic reason, when a failed strategy produced one. */
+    readonly failureReason?: DistillationFailureReason;
   };
   readonly 'distillation.fallback-activated': {
     readonly failedAttemptId: string;
     readonly errorCategory: string;
+    readonly failureReason?: DistillationFailureReason;
   };
   readonly 'tool.elaboration-completed': {
     readonly requestId: string;

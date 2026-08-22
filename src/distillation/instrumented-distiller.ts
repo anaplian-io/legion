@@ -8,10 +8,12 @@ import { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
 import { DistillationValidator } from './distillation-validator.js';
 import {
   type DistillationFailureCategory,
+  distillationFailureReason,
   failedDistillationData,
   strategyFailureCategory,
   successfulDistillationData,
 } from './distillation-telemetry.js';
+import type { DistillationFailureReason } from '../types/distillation-failure.js';
 
 export interface InstrumentedDistillerProps {
   readonly delegate: Distiller;
@@ -71,6 +73,7 @@ export class InstrumentedDistiller implements Distiller {
         attemptId,
         startedAtMs,
         errorCategory,
+        distillationFailureReason(error, errorCategory),
       );
       throw error;
     }
@@ -83,6 +86,7 @@ export class InstrumentedDistiller implements Distiller {
     attemptId: string,
     startedAtMs: number,
     errorCategory: DistillationFailureCategory,
+    failureReason?: DistillationFailureReason,
   ): void => {
     this.props.telemetry.record(
       'distillation.attempt-completed',
@@ -93,6 +97,7 @@ export class InstrumentedDistiller implements Distiller {
         this.props.telemetry.durationSince(startedAtMs),
         input,
         errorCategory,
+        failureReason,
       ),
       context,
       attemptId,

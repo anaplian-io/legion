@@ -23,7 +23,7 @@ Begin by surveying what you can perceive and choosing one modest thing to learn 
   maxParallelism: 4,
   memoryCuriosityProbability: 0.03,
   attentionGateN: 2,
-  distillerStrategy: 'synthesize',
+  distillerStrategy: 'select-best',
   telemetryDiagnostics: false,
   telemetryMaxTextLength: 512,
   sensorProviders: [

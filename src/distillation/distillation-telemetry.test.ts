@@ -9,6 +9,7 @@ import { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
 import { DistillationValidator } from './distillation-validator.js';
 import { InstrumentedDistiller } from './instrumented-distiller.js';
 import { ValidatedDistiller } from './validated-distiller.js';
+import { DistillationStrategyError } from '../types/distillation-failure.js';
 
 const context = {
   epochId: 'epoch-1',
@@ -135,14 +136,25 @@ describe('distillation telemetry', () => {
       'bad',
     );
     expect(thrownFixture.events[0]).toMatchObject({
-      data: { outcome: 'failure', errorCategory: 'synthesis-failure' },
+      data: {
+        outcome: 'failure',
+        errorCategory: 'synthesis-failure',
+        failureReason: 'provider-failure',
+      },
     });
   });
 
   it('makes primary failure and fallback activation observable', async () => {
     const { telemetry, events } = fixture();
     const primary: Distiller = {
-      distill: vi.fn().mockRejectedValue(new SyntaxError('invalid synthesis')),
+      distill: vi
+        .fn()
+        .mockRejectedValue(
+          new DistillationStrategyError(
+            'invalid-action-selection',
+            'invalid synthesis',
+          ),
+        ),
     };
     const fallback: Distiller = { distill: vi.fn().mockResolvedValue(result) };
     const distiller = new ValidatedDistiller({
@@ -165,10 +177,14 @@ describe('distillation telemetry', () => {
         strategy: 'synthesize',
         outcome: 'failure',
         errorCategory: 'synthesis-failure',
+        failureReason: 'invalid-action-selection',
       },
     });
     expect(events[1]).toMatchObject({
-      data: { errorCategory: 'synthesis-failure' },
+      data: {
+        errorCategory: 'synthesis-failure',
+        failureReason: 'invalid-action-selection',
+      },
     });
     expect(events[2]).toMatchObject({
       data: {
@@ -208,7 +224,11 @@ describe('distillation telemetry', () => {
       'fallback',
     );
     expect(failedFixture.events.at(-1)).toMatchObject({
-      data: { attempt: 'fallback', errorCategory: 'selection-failure' },
+      data: {
+        attempt: 'fallback',
+        errorCategory: 'selection-failure',
+        failureReason: 'provider-failure',
+      },
     });
   });
 
@@ -229,7 +249,11 @@ describe('distillation telemetry', () => {
       'candidate evidence',
     );
     expect(configuredFixture.events[0]).toMatchObject({
-      data: { outcome: 'failure', errorCategory: 'validation-failure' },
+      data: {
+        outcome: 'failure',
+        errorCategory: 'validation-failure',
+        failureReason: 'post-distillation-validation',
+      },
     });
 
     const fallbackFixture = fixture();
@@ -242,8 +266,18 @@ describe('distillation telemetry', () => {
 
     await expect(fallback.distill(input, context)).resolves.toEqual(result);
     expect(fallbackFixture.events.slice(0, 2)).toMatchObject([
-      { data: { errorCategory: 'validation-failure' } },
-      { data: { errorCategory: 'validation-failure' } },
+      {
+        data: {
+          errorCategory: 'validation-failure',
+          failureReason: 'post-distillation-validation',
+        },
+      },
+      {
+        data: {
+          errorCategory: 'validation-failure',
+          failureReason: 'post-distillation-validation',
+        },
+      },
     ]);
   });
 });

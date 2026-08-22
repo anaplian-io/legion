@@ -3,6 +3,8 @@ import { Sensor } from './sensor.js';
 import { MessageRole } from './message.js';
 import { ToolDefinition } from './tool.js';
 
+export type DistillerStrategy = 'synthesize' | 'select-best';
+
 export interface McpServerSummarySupplierDependencies {
   readonly provider: Provider;
   readonly tools: readonly ToolDefinition[];
@@ -53,8 +55,8 @@ export interface LegionSettings {
   readonly maxParallelism?: number;
   readonly sensorProviders?: SensorProvider[];
   readonly attentionGateN?: number | 'all';
-  /** How attention survivors become the next global-workspace broadcast. */
-  readonly distillerStrategy?: 'synthesize' | 'select-best';
+  /** How attention survivors become the next broadcast; defaults to select-best. */
+  readonly distillerStrategy?: DistillerStrategy;
   readonly maxWorkingMemoryMessages?: number;
   readonly contextLengthThreshold?: number;
   /** Fixed memory curiosity probability after a guaranteed first epoch. */

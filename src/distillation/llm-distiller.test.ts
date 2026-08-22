@@ -5,6 +5,7 @@ import type { Provider } from '../types/provider.js';
 import type { CandidateMessage } from '../types/message.js';
 import type { ToolCall } from '../types/tool.js';
 import { TEST_DISTILLATION_TELEMETRY } from '../telemetry/test-context.fixture.js';
+import type { DistillationFailureReason } from '../types/distillation-failure.js';
 
 const candidate = (
   content: string,
@@ -333,6 +334,87 @@ describe('LlmDistiller', () => {
           broadcasts: [candidate('A'), candidate('B')],
         }),
       ).rejects.toThrow(error);
+    },
+  );
+
+  it.each<{
+    readonly toolCalls: readonly ToolCall[] | undefined;
+    readonly reason: DistillationFailureReason;
+  }>([
+    {
+      toolCalls: undefined,
+      reason: 'invalid-synthesis-tool-call',
+    },
+    {
+      toolCalls: [synthesisCall('{bad')],
+      reason: 'invalid-synthesis-json',
+    },
+    {
+      toolCalls: [
+        synthesisCall({
+          content: ' ',
+          contributingCandidateIndices: [0],
+          includedActionRequestIds: [],
+        }),
+      ],
+      reason: 'invalid-synthesis-content',
+    },
+    {
+      toolCalls: [
+        synthesisCall({
+          content: 'Result',
+          contributingCandidateIndices: [],
+          includedActionRequestIds: [],
+        }),
+      ],
+      reason: 'invalid-candidate-evidence',
+    },
+    {
+      toolCalls: [
+        synthesisCall({
+          content: 'Result',
+          contributingCandidateIndices: [0],
+          includedActionRequestIds: [],
+          supportingAfferentIndices: [0],
+        }),
+      ],
+      reason: 'invalid-afferent-evidence',
+    },
+    {
+      toolCalls: [
+        synthesisCall({
+          content: 'Result',
+          contributingCandidateIndices: [0],
+          includedActionRequestIds: [1],
+        }),
+      ],
+      reason: 'invalid-action-selection',
+    },
+    {
+      toolCalls: [
+        synthesisCall({
+          content: 'Result',
+          contributingCandidateIndices: [0],
+          includedActionRequestIds: [],
+          goalDecision: null,
+        }),
+      ],
+      reason: 'invalid-goal-decision',
+    },
+  ])(
+    'classifies invalid synthesis output as $reason',
+    async ({ toolCalls, reason }) => {
+      vi.mocked(provider.generateWithTools).mockResolvedValue({
+        content: '',
+        toolCalls: toolCalls === undefined ? undefined : [...toolCalls],
+      });
+
+      await expect(
+        distill(new LlmDistiller({ provider }), {
+          workingMemory: { messages: [] },
+          broadcasts: [candidate('A'), candidate('B')],
+        }),
+      ).rejects.toMatchObject({ reason });
     },
   );
 

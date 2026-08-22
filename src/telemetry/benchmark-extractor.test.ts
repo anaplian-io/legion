@@ -462,6 +462,42 @@ describe('benchmark telemetry extraction', () => {
         data: { ...distillationData, evidence },
       }),
     );
+    expect(
+      parseTelemetryJsonl(
+        JSON.stringify({
+          ...distillation,
+          data: { ...distillationData, failureReason: 'provider-failure' },
+        }),
+      ),
+    ).toHaveLength(1);
+    expectInvalidTelemetryRecord({
+      ...distillation,
+      data: {
+        ...distillationData,
+        outcome: 'success',
+        errorCategory: undefined,
+        failureReason: 'provider-failure',
+      },
+    });
+    expectInvalidTelemetryRecord({
+      ...distillation,
+      data: {
+        ...distillationData,
+        failureReason: 'unbounded-provider-message',
+      },
+    });
+    const fallback = telemetryRecordOfType(
+      records,
+      'distillation.fallback-activated',
+    );
+    const fallbackData = fallback['data'];
+    if (!isTestRecord(fallbackData)) {
+      throw new Error('invalid test fixture');
+    }
+    expectInvalidTelemetryRecord({
+      ...fallback,
+      data: { ...fallbackData, failureReason: 'unknown-reason' },
+    });
 
     const split = telemetryRecordOfType(records, 'node.split-completed');
     const splitData = split['data'];
@@ -840,7 +876,11 @@ const validTelemetryRecords = (): Record<string, unknown>[] => {
     ),
     validTelemetryRecord(
       'distillation.fallback-activated',
-      { failedAttemptId: 'attempt-1', errorCategory: 'synthesis-failure' },
+      {
+        failedAttemptId: 'attempt-1',
+        errorCategory: 'synthesis-failure',
+        failureReason: 'invalid-action-selection',
+      },
       epoch,
     ),
     validTelemetryRecord(

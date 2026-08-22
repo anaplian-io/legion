@@ -15,6 +15,10 @@ import {
   isUniqueIntegerArray,
   isUniqueStringArray,
 } from '../utilities/type-guards.js';
+import {
+  type DistillationFailureReason,
+  DistillationStrategyError,
+} from '../types/distillation-failure.js';
 
 export interface LlmDistillerProps {
   readonly provider: Provider;
@@ -226,14 +230,16 @@ const exactlyOneSynthesisCall = (
   calls: readonly ToolCall[] | undefined,
 ): ToolCall => {
   if (calls?.length !== 1) {
-    throw new Error(
-      `[LlmDistiller] expected exactly one ${SYNTHESIZE_BROADCAST_TOOL_NAME} call`,
+    fail(
+      'invalid-synthesis-tool-call',
+      `expected exactly one ${SYNTHESIZE_BROADCAST_TOOL_NAME} call`,
     );
   }
   const call = calls[0]!;
   if (call.function.name !== SYNTHESIZE_BROADCAST_TOOL_NAME) {
-    throw new Error(
-      `[LlmDistiller] received unsupported tool ${call.function.name}`,
+    fail(
+      'invalid-synthesis-tool-call',
+      `received unsupported tool ${call.function.name}`,
     );
   }
   return call;
@@ -249,10 +255,10 @@ const resultFromToolCall = (
   try {
     parsed = JSON.parse(call.function.arguments) as unknown;
   } catch {
-    throw new Error('[LlmDistiller] synthesis arguments must be valid JSON');
+    fail('invalid-synthesis-json', 'synthesis arguments must be valid JSON');
   }
   if (!isRecord(parsed)) {
-    throw new Error('[LlmDistiller] synthesis arguments must be an object');
+    fail('invalid-synthesis-content', 'synthesis arguments must be an object');
   }
 
   const content = parsed['content'];
@@ -262,20 +268,22 @@ const resultFromToolCall = (
   const actionDisposition = parsed['actionDisposition'];
   const actionSummary = parsed['actionSummary'];
   if (typeof content !== 'string' || content.trim().length === 0) {
-    throw new Error('[LlmDistiller] synthesis content must not be empty');
+    fail('invalid-synthesis-content', 'synthesis content must not be empty');
   }
   if (
     !isUniqueIntegerArray(contributorIndices) ||
     contributorIndices.length === 0 ||
     contributorIndices.some((index) => index < 0 || index >= broadcasts.length)
   ) {
-    throw new Error(
-      '[LlmDistiller] contributing candidate indices must be unique and in range',
+    fail(
+      'invalid-candidate-evidence',
+      'contributing candidate indices must be unique and in range',
     );
   }
   if (!isUniqueStringArray(includedActionIds)) {
-    throw new Error(
-      '[LlmDistiller] included action request IDs must be unique strings',
+    fail(
+      'invalid-action-selection',
+      'included action request IDs must be unique strings',
     );
   }
   if (
@@ -284,8 +292,9 @@ const resultFromToolCall = (
       (index) => index < 0 || index >= afferentContext.length,
     )
   ) {
-    throw new Error(
-      '[LlmDistiller] supporting afferent indices must be unique and in range',
+    fail(
+      'invalid-afferent-evidence',
+      'supporting afferent indices must be unique and in range',
     );
   }
   validateActionDisposition(
@@ -304,8 +313,9 @@ const resultFromToolCall = (
   broadcasts.forEach((broadcast, candidateIndex) => {
     broadcast.actionRequests?.forEach((request) => {
       if (requestsById.has(request.id)) {
-        throw new Error(
-          `[LlmDistiller] duplicate action request ID ${request.id}`,
+        fail(
+          'invalid-action-selection',
+          `duplicate action request ID ${request.id}`,
         );
       }
       requestsById.set(request.id, { request, candidateIndex });
@@ -316,11 +326,12 @@ const resultFromToolCall = (
   const actionRequests = includedActionIds.map((id) => {
     const entry = requestsById.get(id);
     if (entry === undefined) {
-      throw new Error(`[LlmDistiller] unknown action request ID ${id}`);
+      fail('invalid-action-selection', `unknown action request ID ${id}`);
     }
     if (!contributorSet.has(entry.candidateIndex)) {
-      throw new Error(
-        `[LlmDistiller] action request ${id} came from a non-contributing candidate`,
+      fail(
+        'invalid-action-selection',
+        `action request ${id} came from a non-contributing candidate`,
       );
     }
     return entry.request;
@@ -378,24 +389,27 @@ const validateActionDisposition = (
   includedActionIds: readonly string[],
 ): void => {
   if (disposition !== 'scheduled' && disposition !== 'none') {
-    throw new Error(
-      '[LlmDistiller] action disposition must be scheduled or none',
+    fail(
+      'invalid-action-selection',
+      'action disposition must be scheduled or none',
     );
   }
   if (typeof summary !== 'string') {
-    throw new Error('[LlmDistiller] action summary must be a string');
+    fail('invalid-action-selection', 'action summary must be a string');
   }
   if (disposition === 'scheduled') {
     if (includedActionIds.length === 0 || summary.trim().length === 0) {
-      throw new Error(
-        '[LlmDistiller] scheduled action requires an action ID and summary',
+      fail(
+        'invalid-action-selection',
+        'scheduled action requires an action ID and summary',
       );
     }
     return;
   }
   if (includedActionIds.length > 0 || summary.trim().length > 0) {
-    throw new Error(
-      '[LlmDistiller] no-action disposition cannot include actions or a summary',
+    fail(
+      'invalid-action-selection',
+      'no-action disposition cannot include actions or a summary',
     );
   }
 };
@@ -418,7 +432,7 @@ const parseGoalDecision = ({
   activeGoal,
 }: ParseGoalDecisionProps): GoalDecision => {
   if (!isRecord(value)) {
-    throw new Error('[LlmDistiller] goal decision must be an object');
+    fail('invalid-goal-decision', 'goal decision must be an object');
   }
   const kind = value['kind'];
   const reason = requiredDecisionString(value, 'reason');
@@ -432,7 +446,7 @@ const parseGoalDecision = ({
     kind !== 'complete' &&
     kind !== 'abandon'
   ) {
-    throw new Error(`[LlmDistiller] unsupported goal decision ${String(kind)}`);
+    fail('invalid-goal-decision', `unsupported goal decision ${String(kind)}`);
   }
 
   const evidence = parseGoalEvidence({
@@ -462,8 +476,9 @@ const parseGoalDecision = ({
 
   if (kind === 'activate') {
     if (activeGoal !== undefined) {
-      throw new Error(
-        '[LlmDistiller] cannot activate a new goal while one is active',
+      fail(
+        'invalid-goal-decision',
+        'cannot activate a new goal while one is active',
       );
     }
     return {
@@ -514,8 +529,9 @@ const parseGoalEvidence = ({
         index < 0 || index >= broadcasts.length || !contributorSet.has(index),
     )
   ) {
-    throw new Error(
-      '[LlmDistiller] goal candidate evidence must reference contributing candidates',
+    fail(
+      'invalid-goal-decision',
+      'goal candidate evidence must reference contributing candidates',
     );
   }
   if (
@@ -524,12 +540,13 @@ const parseGoalEvidence = ({
       (index) => index < 0 || index >= afferentContext.length,
     )
   ) {
-    throw new Error(
-      '[LlmDistiller] goal afferent evidence must be unique and in range',
+    fail(
+      'invalid-goal-decision',
+      'goal afferent evidence must be unique and in range',
     );
   }
   if (candidateIndices.length === 0 && afferentIndices.length === 0) {
-    throw new Error('[LlmDistiller] goal transition requires evidence');
+    fail('invalid-goal-decision', 'goal transition requires evidence');
   }
   return [
     ...candidateIndices.map((index) => ({
@@ -549,8 +566,9 @@ const requiredDecisionString = (
 ): string => {
   const candidate = value[field];
   if (typeof candidate !== 'string' || candidate.trim().length === 0) {
-    throw new Error(
-      `[LlmDistiller] goal decision requires a non-empty ${field}`,
+    fail(
+      'invalid-goal-decision',
+      `goal decision requires a non-empty ${field}`,
     );
   }
   return candidate.trim();
@@ -561,8 +579,9 @@ const requiredGoalOrigin = (
 ): GoalOrigin => {
   const origin = value['origin'];
   if (origin !== 'user' && origin !== 'autonomous') {
-    throw new Error(
-      '[LlmDistiller] goal decision origin must be user or autonomous',
+    fail(
+      'invalid-goal-decision',
+      'goal decision origin must be user or autonomous',
     );
   }
   return origin;
@@ -581,16 +600,18 @@ const validateGoalOriginEvidence = (
         afferentContext[reference.index]?.role === 'user-input',
     )
   ) {
-    throw new Error(
-      '[LlmDistiller] user-origin goal requires current user-input evidence',
+    fail(
+      'invalid-goal-decision',
+      'user-origin goal requires current user-input evidence',
     );
   }
   if (
     origin === 'autonomous' &&
     !evidence.some((reference) => reference.source === 'candidate')
   ) {
-    throw new Error(
-      '[LlmDistiller] autonomous goal requires cognitive candidate evidence',
+    fail(
+      'invalid-goal-decision',
+      'autonomous goal requires cognitive candidate evidence',
     );
   }
 };
@@ -601,9 +622,13 @@ const requireMatchingActiveGoal = (
   activeGoal: ActiveGoal | undefined,
 ): void => {
   if (activeGoal?.id !== goalId) {
-    throw new Error(`[LlmDistiller] ${kind} requires the exact active goal ID`);
+    fail('invalid-goal-decision', `${kind} requires the exact active goal ID`);
   }
 };
+
+function fail(reason: DistillationFailureReason, message: string): never {
+  throw new DistillationStrategyError(reason, `[LlmDistiller] ${message}`);
+}
 
 const MESSAGE_ROLE_LABEL: Record<MessageRole, string> = {
   'working-memory': 'WORKING MEMORY',

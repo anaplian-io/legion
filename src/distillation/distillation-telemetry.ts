@@ -4,6 +4,8 @@ import type {
 } from '../types/distiller.js';
 import type { TelemetryEventDataMap } from '../types/telemetry.js';
 import { messageContentHash } from '../telemetry/content-evidence.js';
+import type { DistillationFailureReason } from '../types/distillation-failure.js';
+import { DistillationStrategyError } from '../types/distillation-failure.js';
 
 export type DistillationFailureCategory =
   | 'undefined-result'
@@ -15,6 +17,18 @@ export const strategyFailureCategory = (
   strategy: 'synthesize' | 'select-best',
 ): DistillationFailureCategory =>
   strategy === 'synthesize' ? 'synthesis-failure' : 'selection-failure';
+
+export const distillationFailureReason = (
+  error: unknown,
+  category: DistillationFailureCategory,
+): DistillationFailureReason => {
+  if (error instanceof DistillationStrategyError) {
+    return error.reason;
+  }
+  return category === 'validation-failure'
+    ? 'post-distillation-validation'
+    : 'provider-failure';
+};
 
 export const successfulDistillationData = (
   attemptId: string,
@@ -61,6 +75,7 @@ export const failedDistillationData = (
   durationMs: number,
   props: DistillationProps,
   errorCategory: DistillationFailureCategory,
+  failureReason?: DistillationFailureReason,
 ): TelemetryEventDataMap['distillation.attempt-completed'] => ({
   attemptId,
   attempt,
@@ -72,4 +87,5 @@ export const failedDistillationData = (
   evidence: [],
   actionDisposition: 'none',
   errorCategory,
+  ...(failureReason === undefined ? {} : { failureReason }),
 });

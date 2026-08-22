@@ -15,7 +15,7 @@ const candidate = (content: string): CandidateMessage => ({
 const distill = (distiller: Distiller, props: DistillationProps) =>
   distiller.distill(props, TEST_DISTILLATION_TELEMETRY);
 
-describe('BestBroadcastDistiller', () => {
+describe('CandidateSelectionDistiller', () => {
   let mockProvider: Provider;
 
   beforeEach(() => {
@@ -97,7 +97,7 @@ describe('BestBroadcastDistiller', () => {
 
     expect(mockProvider.selectBest).toHaveBeenCalledWith(
       {
-        systemPrompt: expect.stringContaining('available afferent node'),
+        systemPrompt: expect.stringContaining('exact available node ID'),
         messages: [
           { role: 'working-memory', content: 'We need current sources.' },
           {
@@ -113,10 +113,16 @@ describe('BestBroadcastDistiller', () => {
     );
     expect(
       vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
-    ).toContain('specific facts, decisions, constraints, and next actions');
+    ).toContain('corroborated by independent candidates');
     expect(
       vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
-    ).toContain('Use brevity only to break ties');
+    ).toContain('Only among comparably grounded candidates');
+    expect(
+      vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
+    ).toContain('latest relevant afferent evidence');
+    expect(
+      vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
+    ).toContain('earlier candidate index');
   });
 
   it('rejects an invalid selected index instead of returning a different broadcast', async () => {
@@ -133,7 +139,12 @@ describe('BestBroadcastDistiller', () => {
           candidate('Second candidate'),
         ],
       }),
-    ).rejects.toThrow('provider selected invalid candidate index 2');
+    ).rejects.toMatchObject({
+      reason: 'invalid-selection-output',
+      message: expect.stringContaining(
+        'provider selected invalid candidate index 2',
+      ),
+    });
   });
 
   it('preserves structured action requests and exposes them during selection', async () => {
@@ -174,6 +185,69 @@ describe('BestBroadcastDistiller', () => {
           expect.stringContaining(
             'target=tool-files intent="List the workspace directory." operationHint=list_directory',
           ),
+        ],
+      }),
+      expect.objectContaining({ stage: 'configured-selection' }),
+    );
+  });
+
+  it('judges competing actions against current tool evidence without rewriting the winner', async () => {
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
+    const supported = {
+      ...candidate('Inspect the discovered source file.'),
+      candidateId: 'candidate-supported',
+      actionRequests: [
+        {
+          id: 'request-supported',
+          targetNodeId: 'tool-files',
+          intent: 'Read src/index.ts.',
+          operation: 'read_file',
+          arguments: { path: 'src/index.ts' },
+        },
+      ],
+    };
+    const unsupported = {
+      ...candidate('Inspect the assumed library file.'),
+      candidateId: 'candidate-unsupported',
+      actionRequests: [
+        {
+          id: 'request-unsupported',
+          targetNodeId: 'tool-files',
+          intent: 'Read lib/index.ts.',
+          operation: 'read_file',
+          arguments: { path: 'lib/index.ts' },
+        },
+      ],
+    };
+    const toolEvidence = {
+      role: 'afferent' as const,
+      originatingNodeId: 'tool-files',
+      content: JSON.stringify([
+        {
+          requestId: 'request-list',
+          stage: 'mcp',
+          success: true,
+          result: { entries: ['src'] },
+        },
+      ]),
+    };
+    vi.mocked(mockProvider.selectBest).mockResolvedValue(0);
+
+    const result = await distill(distiller, {
+      workingMemory: { messages: [] },
+      broadcasts: [supported, unsupported],
+      afferentContext: [toolEvidence],
+    });
+
+    expect(result?.broadcast).toBe(supported);
+    expect(mockProvider.selectBest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [toolEvidence],
+        candidates: [
+          expect.stringContaining('src/index.ts'),
+          expect.stringContaining('lib/index.ts'),
         ],
       }),
       expect.objectContaining({ stage: 'configured-selection' }),

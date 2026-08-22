@@ -57,6 +57,7 @@ import { InstrumentedProvider } from '../provider/instrumented-provider.js';
 import { InstrumentedDistiller } from '../distillation/instrumented-distiller.js';
 import { AppendOnlyMemoryContextBuilder } from '../node/support/append-only-memory-context-builder.js';
 import { DeduplicatingMemoryPromptBuilder } from '../node/support/deduplicating-memory-prompt-builder.js';
+import { resolveDistillerStrategy } from '../utilities/resolve-distiller-strategy.js';
 
 const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 const DEFAULT_MEMORY_CURIOSITY_PROBABILITY = 0.03;
@@ -356,21 +357,23 @@ export const init = async (options: InitOptions) => {
     telemetry,
   });
 
-  const bestBroadcastDistiller = new CandidateSelectionDistiller({ provider });
+  const candidateSelectionDistiller = new CandidateSelectionDistiller({
+    provider,
+  });
   const validator = new DistillationValidator();
   const distiller =
-    settings.distillerStrategy === 'select-best'
-      ? new InstrumentedDistiller({
-          delegate: bestBroadcastDistiller,
+    resolveDistillerStrategy(settings.distillerStrategy) === 'synthesize'
+      ? new ValidatedDistiller({
+          primary: new LlmDistiller({ provider }),
+          fallback: candidateSelectionDistiller,
+          validator,
+          telemetry,
+        })
+      : new InstrumentedDistiller({
+          delegate: candidateSelectionDistiller,
           validator,
           telemetry,
           strategy: 'select-best',
-        })
-      : new ValidatedDistiller({
-          primary: new LlmDistiller({ provider }),
-          fallback: bestBroadcastDistiller,
-          validator,
-          telemetry,
         });
 
   const memoryNodeFactory = new ConcreteMemoryNodeFactory({
