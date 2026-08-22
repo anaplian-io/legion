@@ -74,9 +74,9 @@ the workspace rather than competing inside it.
    it has something non-redundant to add, and only then generates.
 3. **Competition.** The relevance filter ranks the memory outputs against
    working memory; the attention gate trims to the top-K survivors.
-4. **Distillation.** By default, the distiller synthesizes the bounded winning
-   coalition into one new broadcast. A `select-best` strategy can instead
-   preserve one survivor unchanged.
+4. **Distillation.** By default, the distiller judges the bounded winning
+   coalition and preserves one survivor unchanged. Experimental `synthesize`
+   mode can instead merge several survivors into one new broadcast.
 5. **Memory & lifecycle.** Working memory rolls forward, oversized nodes split,
    and underperforming nodes are pruned.
 
@@ -171,8 +171,8 @@ server), MCP tool servers, working-memory size, curiosity, attention capacity,
 distillation strategy, and split/prune thresholds. See `settings.example.ts`
 for the full list. New memory nodes always receive one cognitive turn;
 `memoryCuriosityProbability` controls their fixed curiosity probability after
-that first epoch. `distillerStrategy` accepts `synthesize` (default) or
-`select-best`.
+that first epoch. `distillerStrategy` accepts `select-best` (default) or the
+experimental `synthesize` strategy.
 
 ### Runtime logs
 

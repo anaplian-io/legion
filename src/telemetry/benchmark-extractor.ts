@@ -5,6 +5,7 @@ import type {
   WaveCounts,
 } from '../types/telemetry.js';
 import { TELEMETRY_SCHEMA_VERSION } from '../types/telemetry.js';
+import { DISTILLATION_FAILURE_REASONS } from '../types/distillation-failure.js';
 
 export interface EpochSummary {
   readonly schemaVersion: typeof TELEMETRY_SCHEMA_VERSION;
@@ -479,12 +480,15 @@ const isEventData = (
         isStringArray(data['candidateIds']) &&
         isStringArray(data['selectedCandidateIds']) &&
         isTelemetryEvidenceArray(data['evidence']) &&
-        isOneOf(data['actionDisposition'], ['scheduled', 'none'])
+        isOneOf(data['actionDisposition'], ['scheduled', 'none']) &&
+        hasDistillationFailureReason(data)
       );
     case 'distillation.fallback-activated':
       return (
         typeof data['failedAttemptId'] === 'string' &&
-        typeof data['errorCategory'] === 'string'
+        typeof data['errorCategory'] === 'string' &&
+        (data['failureReason'] === undefined ||
+          isOneOf(data['failureReason'], DISTILLATION_FAILURE_REASONS))
       );
     case 'tool.elaboration-completed':
       return (
@@ -559,6 +563,14 @@ const hasCompletion = (data: Record<string, unknown>): boolean =>
     ? data['errorCategory'] === undefined
     : data['outcome'] === 'failure' &&
       typeof data['errorCategory'] === 'string';
+
+const hasDistillationFailureReason = (
+  data: Record<string, unknown>,
+): boolean =>
+  data['outcome'] === 'success'
+    ? data['failureReason'] === undefined
+    : data['failureReason'] === undefined ||
+      isOneOf(data['failureReason'], DISTILLATION_FAILURE_REASONS);
 
 const isEpochCounts = (value: unknown): value is EpochCounts =>
   isRecord(value) &&

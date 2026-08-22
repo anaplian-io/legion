@@ -33,27 +33,27 @@ was disabled.
 
 ## Events
 
-| Event                             | Required data                                                                                                               |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `run.started`                     | none                                                                                                                        |
-| `run.completed`                   | `status`                                                                                                                    |
-| `epoch.started`                   | `inputIds`                                                                                                                  |
-| `epoch.completed`                 | `status`, aggregate and per-wave counts, inference/tool counts, total provider time, critical-path time                     |
-| `candidate.generated`             | candidate/node/wave identity, `contentHash`, bounded evidence, `inputIds`                                                   |
-| `candidate.outcome`               | candidate/node/wave identity, attention and selection outcomes                                                              |
-| `inference.completed`             | `inferenceId`, `stage`, monotonic duration, outcome; `errorCategory` on failure                                             |
-| `relevance.completed`             | duration, outcome, top-N, ordered candidate IDs, exact survivor IDs                                                         |
-| `distillation.attempt-completed`  | attempt identity/type, strategy, duration, outcome, input and selected candidate IDs, resolved evidence, action disposition |
-| `distillation.fallback-activated` | failed attempt ID and bounded error category                                                                                |
-| `tool.elaboration-completed`      | request/call IDs, duration, outcome                                                                                         |
-| `tool.invocation-completed`       | request/call/tool identity, duration, outcome, bounded evidence on success                                                  |
-| `node.split-completed`            | parent, two children on success, duration, outcome                                                                          |
-| `persistence.completed`           | operation, logical target, duration, outcome                                                                                |
-| `user-input.received`             | input ID and content hash                                                                                                   |
-| `user-input.consumed`             | input ID and receipt-to-consumption latency                                                                                 |
-| `user-input.broadcast-selected`   | input ID, receipt-to-first-selection latency, selected broadcast hash                                                       |
-| `error.reported`                  | source, bounded message, bounded category; diagnostics only when enabled                                                    |
-| `system.notice`                   | bounded message; metadata only when diagnostics are enabled                                                                 |
+| Event                             | Required data                                                                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `run.started`                     | none                                                                                                                                                               |
+| `run.completed`                   | `status`                                                                                                                                                           |
+| `epoch.started`                   | `inputIds`                                                                                                                                                         |
+| `epoch.completed`                 | `status`, aggregate and per-wave counts, inference/tool counts, total provider time, critical-path time                                                            |
+| `candidate.generated`             | candidate/node/wave identity, `contentHash`, bounded evidence, `inputIds`                                                                                          |
+| `candidate.outcome`               | candidate/node/wave identity, attention and selection outcomes                                                                                                     |
+| `inference.completed`             | `inferenceId`, `stage`, monotonic duration, outcome; `errorCategory` on failure                                                                                    |
+| `relevance.completed`             | duration, outcome, top-N, ordered candidate IDs, exact survivor IDs                                                                                                |
+| `distillation.attempt-completed`  | attempt identity/type, strategy, duration, outcome, input and selected candidate IDs, resolved evidence, action disposition; bounded failure reason when available |
+| `distillation.fallback-activated` | failed attempt ID, bounded error category, and bounded failure reason when available                                                                               |
+| `tool.elaboration-completed`      | request/call IDs, duration, outcome                                                                                                                                |
+| `tool.invocation-completed`       | request/call/tool identity, duration, outcome, bounded evidence on success                                                                                         |
+| `node.split-completed`            | parent, two children on success, duration, outcome                                                                                                                 |
+| `persistence.completed`           | operation, logical target, duration, outcome                                                                                                                       |
+| `user-input.received`             | input ID and content hash                                                                                                                                          |
+| `user-input.consumed`             | input ID and receipt-to-consumption latency                                                                                                                        |
+| `user-input.broadcast-selected`   | input ID, receipt-to-first-selection latency, selected broadcast hash                                                                                              |
+| `error.reported`                  | source, bounded message, bounded category; diagnostics only when enabled                                                                                           |
+| `system.notice`                   | bounded message; metadata only when diagnostics are enabled                                                                                                        |
 
 Durations use the recorder's monotonic clock. Wall-clock timestamps are for
 human correlation and must not be used to calculate latency.
@@ -107,9 +107,14 @@ The extractor verifies those values against `epoch.completed`; consumers do
 not need to reconstruct state from domain snapshots.
 Duration verification allows only machine-precision floating-point drift;
 counts, identities, and lifecycle cardinality remain exact.
-Distillation failures use stable semantic categories: `undefined-result`,
-`synthesis-failure`, `selection-failure`, and `validation-failure`. They do not
-depend on JavaScript constructor names.
+Distillation failures use stable lifecycle categories: `undefined-result`,
+`synthesis-failure`, `selection-failure`, and `validation-failure`. Failed
+strategy output also records a bounded `failureReason` such as
+`invalid-synthesis-tool-call`, `invalid-action-selection`,
+`invalid-goal-decision`, `invalid-selection-output`, or
+`post-distillation-validation`. Generic provider exceptions use
+`provider-failure`; the reason never contains provider output or exception
+text.
 
 For the local-events regression, label candidate IDs as `search`,
 `clarification`, `unsupported-answer`, or `other`. Selecting search or

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BestBroadcastDistiller } from './best-broadcast-distiller.js';
+import { CandidateSelectionDistiller } from './candidate-selection-distiller.js';
 import type { DistillationProps, Distiller } from '../types/distiller.js';
 import type { Provider } from '../types/provider.js';
 import type { CandidateMessage } from '../types/message.js';
@@ -15,7 +15,7 @@ const candidate = (content: string): CandidateMessage => ({
 const distill = (distiller: Distiller, props: DistillationProps) =>
   distiller.distill(props, TEST_DISTILLATION_TELEMETRY);
 
-describe('BestBroadcastDistiller', () => {
+describe('CandidateSelectionDistiller', () => {
   let mockProvider: Provider;
 
   beforeEach(() => {
@@ -30,7 +30,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('returns undefined without selecting when there are no broadcasts', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
 
     await expect(
       distill(distiller, { workingMemory: { messages: [] }, broadcasts: [] }),
@@ -39,7 +41,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('returns a sole broadcast unchanged without selecting', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const broadcast = candidate('Ask tool-search to find the current source.');
 
     await expect(
@@ -59,7 +63,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('selects and returns one original broadcast with its context', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const selected = candidate('Ask tool-search to find the current source.');
     vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
 
@@ -91,7 +97,7 @@ describe('BestBroadcastDistiller', () => {
 
     expect(mockProvider.selectBest).toHaveBeenCalledWith(
       {
-        systemPrompt: expect.stringContaining('available afferent node'),
+        systemPrompt: expect.stringContaining('exact available node ID'),
         messages: [
           { role: 'working-memory', content: 'We need current sources.' },
           {
@@ -107,14 +113,22 @@ describe('BestBroadcastDistiller', () => {
     );
     expect(
       vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
-    ).toContain('specific facts, decisions, constraints, and next actions');
+    ).toContain('corroborated by independent candidates');
     expect(
       vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
-    ).toContain('Use brevity only to break ties');
+    ).toContain('Only among comparably grounded candidates');
+    expect(
+      vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
+    ).toContain('latest relevant afferent evidence');
+    expect(
+      vi.mocked(mockProvider.selectBest).mock.calls[0]?.[0].systemPrompt,
+    ).toContain('earlier candidate index');
   });
 
   it('rejects an invalid selected index instead of returning a different broadcast', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     vi.mocked(mockProvider.selectBest).mockResolvedValue(2);
 
     await expect(
@@ -125,11 +139,18 @@ describe('BestBroadcastDistiller', () => {
           candidate('Second candidate'),
         ],
       }),
-    ).rejects.toThrow('provider selected invalid candidate index 2');
+    ).rejects.toMatchObject({
+      reason: 'invalid-selection-output',
+      message: expect.stringContaining(
+        'provider selected invalid candidate index 2',
+      ),
+    });
   });
 
   it('preserves structured action requests and exposes them during selection', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const selected = {
       ...candidate('Inspect the workspace.'),
       actionRequests: [
@@ -170,8 +191,73 @@ describe('BestBroadcastDistiller', () => {
     );
   });
 
+  it('judges competing actions against current tool evidence without rewriting the winner', async () => {
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
+    const supported = {
+      ...candidate('Inspect the discovered source file.'),
+      candidateId: 'candidate-supported',
+      actionRequests: [
+        {
+          id: 'request-supported',
+          targetNodeId: 'tool-files',
+          intent: 'Read src/index.ts.',
+          operation: 'read_file',
+          arguments: { path: 'src/index.ts' },
+        },
+      ],
+    };
+    const unsupported = {
+      ...candidate('Inspect the assumed library file.'),
+      candidateId: 'candidate-unsupported',
+      actionRequests: [
+        {
+          id: 'request-unsupported',
+          targetNodeId: 'tool-files',
+          intent: 'Read lib/index.ts.',
+          operation: 'read_file',
+          arguments: { path: 'lib/index.ts' },
+        },
+      ],
+    };
+    const toolEvidence = {
+      role: 'afferent' as const,
+      originatingNodeId: 'tool-files',
+      content: JSON.stringify([
+        {
+          requestId: 'request-list',
+          stage: 'mcp',
+          success: true,
+          result: { entries: ['src'] },
+        },
+      ]),
+    };
+    vi.mocked(mockProvider.selectBest).mockResolvedValue(0);
+
+    const result = await distill(distiller, {
+      workingMemory: { messages: [] },
+      broadcasts: [supported, unsupported],
+      afferentContext: [toolEvidence],
+    });
+
+    expect(result?.broadcast).toBe(supported);
+    expect(mockProvider.selectBest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [toolEvidence],
+        candidates: [
+          expect.stringContaining('src/index.ts'),
+          expect.stringContaining('lib/index.ts'),
+        ],
+      }),
+      expect.objectContaining({ stage: 'configured-selection' }),
+    );
+  });
+
   it('uses the active goal during selection and preserves a selected goal decision', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const selected = {
       ...candidate('Continue the active investigation.'),
       goalDecision: {

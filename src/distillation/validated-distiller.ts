@@ -8,10 +8,12 @@ import type { DistillationTelemetryContext } from '../types/distiller.js';
 import { TelemetryRecorder } from '../telemetry/telemetry-recorder.js';
 import {
   type DistillationFailureCategory,
+  distillationFailureReason,
   failedDistillationData,
   strategyFailureCategory,
   successfulDistillationData,
 } from './distillation-telemetry.js';
+import type { DistillationFailureReason } from '../types/distillation-failure.js';
 
 export interface ValidatedDistillerProps {
   readonly primary: Distiller;
@@ -29,6 +31,7 @@ type ObservedAttempt =
       readonly outcome: 'failure';
       readonly error: unknown;
       readonly errorCategory: DistillationFailureCategory;
+      readonly failureReason: DistillationFailureReason;
     };
 
 /** Validates a primary strategy and uses a structure-preserving fallback. */
@@ -57,6 +60,7 @@ export class ValidatedDistiller implements Distiller {
       {
         failedAttemptId: primaryAttemptId,
         errorCategory: primaryAttempt.errorCategory,
+        failureReason: primaryAttempt.failureReason,
       },
       context,
     );
@@ -127,6 +131,7 @@ export class ValidatedDistiller implements Distiller {
       );
       return { outcome: 'completed', result };
     } catch (error) {
+      const failureReason = distillationFailureReason(error, errorCategory);
       telemetry.record(
         'distillation.attempt-completed',
         failedDistillationData(
@@ -136,11 +141,12 @@ export class ValidatedDistiller implements Distiller {
           telemetry.durationSince(startedAtMs),
           input,
           errorCategory,
+          failureReason,
         ),
         context,
         attemptId,
       );
-      return { outcome: 'failure', error, errorCategory };
+      return { outcome: 'failure', error, errorCategory, failureReason };
     }
   };
 }
