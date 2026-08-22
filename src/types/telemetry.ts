@@ -133,6 +133,8 @@ export interface TelemetryEventDataMap {
     readonly durationMs: number;
     readonly outcome: Extract<TelemetryOutcome, 'success' | 'failure'>;
     readonly callIds: readonly string[];
+    readonly resolvedCandidateIndex?: number;
+    readonly resolvedOperation?: string;
     readonly errorCategory?: string;
   };
   readonly 'tool.invocation-completed': {

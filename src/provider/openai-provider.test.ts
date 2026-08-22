@@ -414,7 +414,7 @@ describe('OpenaiProvider', () => {
             {
               role: 'user',
               content:
-                '[CANDIDATE SET — NOT HUMAN INPUT]\nCandidates:\n[CANDIDATE 0]: Generic response\n[CANDIDATE 1]: Ask tool-search for fresh sources',
+                '[CANDIDATE SET — NOT HUMAN INPUT]\nCandidates:\n[CANDIDATE 0]: Generic response\n[CANDIDATE 1]: Ask tool-search for fresh sources\n\nWhich candidate best satisfies the selection criteria and context above? Select it by index.',
             },
           ],
           response_format: {
