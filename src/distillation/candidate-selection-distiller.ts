@@ -16,7 +16,7 @@ export interface BestBroadcastDistillerProps {
  * Chooses one surviving cognitive response without rewriting it. This keeps
  * concrete details and exact afferent node IDs intact for the next epoch.
  */
-export class BestBroadcastDistiller implements Distiller {
+export class CandidateSelectionDistiller implements Distiller {
   constructor(private readonly props: BestBroadcastDistillerProps) {}
 
   public readonly distill = async (

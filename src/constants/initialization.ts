@@ -12,7 +12,7 @@ import { SensoryNode } from '../node/sensory-node.js';
 import { ConcreteToolNodeFactory } from '../factory/concrete-tool-node-factory.js';
 import { LlmRelevanceFilter } from '../relevance/message/llm-relevance-filter.js';
 import { StaticAttentionGate } from '../attention/static-attention-gate.js';
-import { BestBroadcastDistiller } from '../distillation/best-broadcast-distiller.js';
+import { CandidateSelectionDistiller } from '../distillation/candidate-selection-distiller.js';
 import { LlmDistiller } from '../distillation/llm-distiller.js';
 import { MemoryNodeSplitter } from '../node/support/memory-node-splitter.js';
 import { StaticNodePruner } from '../node/support/static-node-pruner.js';
@@ -356,7 +356,7 @@ export const init = async (options: InitOptions) => {
     telemetry,
   });
 
-  const bestBroadcastDistiller = new BestBroadcastDistiller({ provider });
+  const bestBroadcastDistiller = new CandidateSelectionDistiller({ provider });
   const validator = new DistillationValidator();
   const distiller =
     settings.distillerStrategy === 'select-best'

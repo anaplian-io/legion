@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BestBroadcastDistiller } from './best-broadcast-distiller.js';
+import { CandidateSelectionDistiller } from './candidate-selection-distiller.js';
 import type { DistillationProps, Distiller } from '../types/distiller.js';
 import type { Provider } from '../types/provider.js';
 import type { CandidateMessage } from '../types/message.js';
@@ -30,7 +30,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('returns undefined without selecting when there are no broadcasts', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
 
     await expect(
       distill(distiller, { workingMemory: { messages: [] }, broadcasts: [] }),
@@ -39,7 +41,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('returns a sole broadcast unchanged without selecting', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const broadcast = candidate('Ask tool-search to find the current source.');
 
     await expect(
@@ -59,7 +63,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('selects and returns one original broadcast with its context', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const selected = candidate('Ask tool-search to find the current source.');
     vi.mocked(mockProvider.selectBest).mockResolvedValue(1);
 
@@ -114,7 +120,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('rejects an invalid selected index instead of returning a different broadcast', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     vi.mocked(mockProvider.selectBest).mockResolvedValue(2);
 
     await expect(
@@ -129,7 +137,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('preserves structured action requests and exposes them during selection', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const selected = {
       ...candidate('Inspect the workspace.'),
       actionRequests: [
@@ -171,7 +181,9 @@ describe('BestBroadcastDistiller', () => {
   });
 
   it('uses the active goal during selection and preserves a selected goal decision', async () => {
-    const distiller = new BestBroadcastDistiller({ provider: mockProvider });
+    const distiller = new CandidateSelectionDistiller({
+      provider: mockProvider,
+    });
     const selected = {
       ...candidate('Continue the active investigation.'),
       goalDecision: {
