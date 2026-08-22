@@ -174,6 +174,9 @@ export class OpenaiProvider implements Provider {
         '[OpenaiProvider.selectBest] requires at least one candidate',
       );
     }
+    const candidateSet = props.candidates
+      .map((candidate, index) => `[CANDIDATE ${index}]: ${candidate}`)
+      .join('\n');
 
     const response = await this.props.client.chat.completions.create({
       model: this.props.model,
@@ -182,9 +185,7 @@ export class OpenaiProvider implements Provider {
         ...this.buildMessages(props.systemPrompt, props.messages),
         {
           role: 'user',
-          content: `[CANDIDATE SET — NOT HUMAN INPUT]\nCandidates:\n${props.candidates
-            .map((candidate, index) => `[CANDIDATE ${index}]: ${candidate}`)
-            .join('\n')}`,
+          content: `[CANDIDATE SET — NOT HUMAN INPUT]\nCandidates:\n${candidateSet}\n\nWhich candidate best satisfies the selection criteria and context above? Select it by index.`,
         },
       ],
       response_format: {

@@ -25,7 +25,7 @@ describe('ConcreteToolNodeFactory', () => {
       askYesNoQuestion: vi.fn(),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
-      selectBest: vi.fn(),
+      selectBest: vi.fn().mockResolvedValue(0),
       splitString: vi.fn(),
       generateWithTools: vi.fn(),
     };

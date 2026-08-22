@@ -9,6 +9,7 @@ import {
   createTestTelemetry,
   TEST_NODE_TELEMETRY,
 } from '../telemetry/test-context.fixture.js';
+import type { TelemetryEvent } from '../types/telemetry.js';
 
 interface MockMcpClient {
   readonly getAvailableTools: () => Promise<ToolDefinition[]>;
@@ -27,6 +28,29 @@ const tools: ToolDefinition[] = [
       type: 'object',
       properties: { path: { type: 'string' } },
       required: ['path'],
+      additionalProperties: false,
+    },
+  },
+];
+
+const webTools: ToolDefinition[] = [
+  {
+    name: 'search',
+    description: 'Search the web and return result listings.',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'fetch',
+    description: 'Retrieve the main content of a known webpage URL.',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
       additionalProperties: false,
     },
   },
@@ -77,6 +101,8 @@ describe('ToolNode', () => {
   let provider: Provider;
   let eventStream: EventStream;
   let mcpClient: MockMcpClient;
+  let telemetry: ReturnType<typeof createTestTelemetry>;
+  let telemetryEvents: TelemetryEvent[];
 
   const createNode = (initialTools?: readonly ToolDefinition[]): ToolNode =>
     new ToolNode({
@@ -85,16 +111,19 @@ describe('ToolNode', () => {
       provider,
       eventStream,
       mcpClient: mcpClient as unknown as MCPClient,
-      telemetry: createTestTelemetry(),
+      telemetry,
       ...(initialTools === undefined ? {} : { initialTools }),
     });
 
   beforeEach(() => {
+    telemetry = createTestTelemetry();
+    telemetryEvents = [];
+    telemetry.subscribe((event) => telemetryEvents.push(event));
     provider = {
       askYesNoQuestion: vi.fn(),
       generate: vi.fn(),
       rankByRelevance: vi.fn(),
-      selectBest: vi.fn(),
+      selectBest: vi.fn().mockResolvedValue(0),
       splitString: vi.fn(),
       generateWithTools: vi.fn().mockResolvedValue({
         content: 'No matching tool.',
@@ -127,6 +156,7 @@ describe('ToolNode', () => {
     expect(node.preamble).toContain(
       'operation and arguments are non-authoritative hints',
     );
+    expect(node.preamble).toContain('operation resolver');
     expect(node.preamble).not.toContain('"additionalProperties"');
   });
 
@@ -152,6 +182,7 @@ describe('ToolNode', () => {
     expect(outcomes(response)).toEqual([
       {
         requestId: 'request-empty',
+        intent: 'List the current directory.',
         stage: 'elaboration',
         success: false,
         error: 'ToolNode tool-files has no available MCP tools.',
@@ -175,6 +206,7 @@ describe('ToolNode', () => {
       node.sendMessage(message(actionRequests)),
     ).resolves.toBeUndefined();
     expect(mcpClient.getAvailableTools).not.toHaveBeenCalled();
+    expect(provider.selectBest).not.toHaveBeenCalled();
     expect(provider.generateWithTools).not.toHaveBeenCalled();
   });
 
@@ -189,12 +221,14 @@ describe('ToolNode', () => {
     expect(outcomes(response)).toEqual([
       {
         requestId: 'request-a',
+        intent: 'List the current directory.',
         stage: 'elaboration',
         success: false,
         error: 'ToolNode tool-files could not load its MCP tools: offline',
       },
       {
         requestId: 'request-b',
+        intent: 'List the current directory.',
         stage: 'elaboration',
         success: false,
         error: 'ToolNode tool-files could not load its MCP tools: offline',
@@ -319,7 +353,7 @@ describe('ToolNode', () => {
       generationCalls[1]?.[0].systemPrompt,
     );
     expect(generationCalls[0]?.[0].tools).toEqual(tools);
-    expect(generationCalls[0]?.[0].tools).toBe(generationCalls[1]?.[0].tools);
+    expect(generationCalls[1]?.[0].tools).toEqual(tools);
     expect(generationCalls[0]?.[0].messages.at(-1)?.actionRequests).toEqual([
       first,
     ]);
@@ -349,6 +383,7 @@ describe('ToolNode', () => {
     expect(outcomes(response)).toEqual([
       {
         requestId: 'request-1',
+        intent: 'List the current directory.',
         stage: 'elaboration',
         success: false,
         error:
@@ -359,6 +394,39 @@ describe('ToolNode', () => {
       expect.objectContaining({ metadata: { requestId: 'request-1' } }),
     );
     expect(node.status).toBe('idle');
+  });
+
+  it('fails closed when comparative operation resolution is unavailable', async () => {
+    vi.mocked(provider.selectBest).mockRejectedValue('resolver unavailable');
+    const node = createNode(tools);
+
+    const response = await node.sendMessage(message([request('request-1')]));
+
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-1',
+        intent: 'List the current directory.',
+        stage: 'elaboration',
+        success: false,
+        error:
+          'ToolNode tool-files could not resolve an operation for the intent: resolver unavailable',
+      },
+    ]);
+    expect(provider.generateWithTools).not.toHaveBeenCalled();
+    expect(eventStream.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to resolve an operation for action request request-1.',
+        metadata: { requestId: 'request-1' },
+      }),
+    );
+    expect(telemetryEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'tool.elaboration-completed',
+        data: expect.objectContaining({
+          errorCategory: 'semantic-resolution-failure',
+        }),
+      }),
+    );
   });
 
   it.each([
@@ -390,6 +458,7 @@ describe('ToolNode', () => {
       expect(outcomes(response)).toEqual([
         {
           requestId: 'request-1',
+          intent: 'List the current directory.',
           stage: 'elaboration',
           success: false,
           error,
@@ -436,7 +505,7 @@ describe('ToolNode', () => {
     {
       description: 'an unadvertised tool',
       generatedCall: call('call-unknown', 'delete_everything', '{}'),
-      expectedError: 'Unknown MCP tool delete_everything.',
+      expectedError: 'Tool delete_everything was not advertised',
     },
     {
       description: 'schema-invalid arguments',
@@ -445,45 +514,245 @@ describe('ToolNode', () => {
         'list_directory',
         '{"path":".","recursive":false}',
       ),
-      expectedError: 'Input validation error: recursive is not allowed.',
+      expectedError: 'arguments do not match its advertised schema',
     },
     {
       description: 'malformed JSON arguments',
       generatedCall: call('call-json', 'list_directory', '{bad'),
-      expectedError: 'Invalid arguments JSON: {bad',
+      expectedError: 'arguments are not valid JSON',
     },
   ])(
-    'delegates $description to MCP and returns its failure',
+    'rejects $description before invoking MCP',
     async ({ generatedCall, expectedError }) => {
       vi.mocked(provider.generateWithTools).mockResolvedValue({
         content: '',
         toolCalls: [generatedCall],
       });
-      vi.mocked(mcpClient.invokeTool).mockResolvedValue({
-        callId: generatedCall.id,
-        name: generatedCall.function.name,
-        success: false,
-        error: expectedError,
-      });
       const node = createNode(tools);
 
       const response = await node.sendMessage(message([request('request-1')]));
 
-      expect(mcpClient.invokeTool).toHaveBeenCalledWith(
-        generatedCall.id,
-        generatedCall.function.name,
-        generatedCall.function.arguments,
-      );
-      expect(outcomes(response)).toEqual([
-        {
+      expect(mcpClient.invokeTool).not.toHaveBeenCalled();
+      expect(outcomes(response)[0]).toEqual(
+        expect.objectContaining({
           requestId: 'request-1',
-          stage: 'mcp',
-          callId: generatedCall.id,
-          name: generatedCall.function.name,
+          intent: 'List the current directory.',
+          selectedOperations: [generatedCall.function.name],
+          stage: 'elaboration',
           success: false,
-          error: expectedError,
-        },
-      ]);
+          error: expect.stringContaining(expectedError),
+        }),
+      );
+      expect(telemetryEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'tool.elaboration-completed',
+          data: expect.objectContaining({
+            errorCategory: 'structural-validation-failure',
+          }),
+        }),
+      );
+    },
+  );
+
+  it('returns an MCP failure after valid elaboration', async () => {
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [call('call-failed')],
+    });
+    vi.mocked(mcpClient.invokeTool).mockResolvedValue({
+      callId: 'call-failed',
+      name: 'list_directory',
+      success: false,
+      error: 'permission denied',
+    });
+    const node = createNode(tools);
+
+    const response = await node.sendMessage(message([request('request-1')]));
+
+    expect(outcomes(response)).toEqual([
+      {
+        requestId: 'request-1',
+        stage: 'mcp',
+        callId: 'call-failed',
+        name: 'list_directory',
+        success: false,
+        error: 'permission denied',
+      },
+    ]);
+  });
+
+  it('resolves a direct-page intent to fetch despite a conflicting search hint', async () => {
+    const url = 'https://example.com/cafes';
+    const fetchRequest = request('request-fetch', {
+      intent: `Fetch the content of ${url} and extract the cafe list.`,
+      operation: 'search',
+      arguments: { query: url },
+    });
+    vi.mocked(provider.selectBest).mockResolvedValue(1);
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [call('call-fetch', 'fetch', JSON.stringify({ url }))],
+    });
+    vi.mocked(mcpClient.invokeTool).mockResolvedValue({
+      callId: 'call-fetch',
+      name: 'fetch',
+      success: true,
+      result: { content: 'Cafe One' },
+    });
+    const node = createNode(webTools);
+
+    const response = await node.sendMessage(message([fetchRequest]));
+
+    expect(provider.selectBest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            role: 'tool-intent',
+            content: '',
+            actionRequests: [fetchRequest],
+          },
+        ],
+        candidates: expect.arrayContaining([
+          expect.stringContaining('"operation":"search"'),
+          expect.stringContaining('"operation":"fetch"'),
+          expect.stringContaining('legion_no_applicable_tool'),
+        ]),
+      }),
+      expect.objectContaining({ parentSpanId: 'request-fetch' }),
+    );
+    expect(provider.generateWithTools).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: [webTools[1]] }),
+      expect.objectContaining({ parentSpanId: 'request-fetch' }),
+    );
+    expect(mcpClient.invokeTool).toHaveBeenCalledWith(
+      'call-fetch',
+      'fetch',
+      JSON.stringify({ url }),
+    );
+    expect(outcomes(response)[0]).toEqual(
+      expect.objectContaining({ success: true, name: 'fetch' }),
+    );
+    expect(telemetryEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'tool.elaboration-completed',
+        data: expect.objectContaining({
+          resolvedCandidateIndex: 1,
+          resolvedOperation: 'fetch',
+        }),
+      }),
+    );
+    expect(provider.askYesNoQuestion).not.toHaveBeenCalled();
+  });
+
+  it('invokes search when search results are the authoritative outcome', async () => {
+    const searchRequest = request('request-search', {
+      intent: "Search the web for today's weather forecast in Brooklyn.",
+      operation: 'ddg_search',
+      arguments: { query: 'weather forecast Brooklyn' },
+    });
+    vi.mocked(provider.selectBest).mockResolvedValue(0);
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        call(
+          'call-search',
+          'search',
+          JSON.stringify({ query: 'weather forecast Brooklyn' }),
+        ),
+      ],
+    });
+    vi.mocked(mcpClient.invokeTool).mockResolvedValue({
+      callId: 'call-search',
+      name: 'search',
+      success: true,
+      result: { results: ['Forecast'] },
+    });
+    const node = createNode(webTools);
+
+    const response = await node.sendMessage(message([searchRequest]));
+
+    expect(provider.generateWithTools).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: [webTools[0]] }),
+      expect.objectContaining({ parentSpanId: 'request-search' }),
+    );
+    expect(mcpClient.invokeTool).toHaveBeenCalledOnce();
+    expect(outcomes(response)[0]).toEqual(
+      expect.objectContaining({ success: true, name: 'search' }),
+    );
+  });
+
+  it('rejects a structurally valid operation that contradicts resolution', async () => {
+    const url = 'https://example.com/cafes';
+    const fetchRequest = request('request-mismatch', {
+      intent: `Fetch the content of ${url}.`,
+    });
+    vi.mocked(provider.selectBest).mockResolvedValue(1);
+    vi.mocked(provider.generateWithTools).mockResolvedValue({
+      content: '',
+      toolCalls: [
+        call('call-search', 'search', JSON.stringify({ query: url })),
+      ],
+    });
+    const node = createNode(webTools);
+
+    const response = await node.sendMessage(message([fetchRequest]));
+
+    expect(mcpClient.invokeTool).not.toHaveBeenCalled();
+    expect(outcomes(response)[0]).toEqual(
+      expect.objectContaining({
+        requestId: 'request-mismatch',
+        intent: fetchRequest.intent,
+        selectedOperations: ['search'],
+        stage: 'elaboration',
+        success: false,
+        error: expect.stringContaining('Resolved operation fetch'),
+      }),
+    );
+    expect(telemetryEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'tool.elaboration-completed',
+        data: expect.objectContaining({
+          outcome: 'failure',
+          callIds: ['call-search'],
+          errorCategory: 'semantic-operation-mismatch',
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    'Delete the remote account permanently.',
+    'Do the thing with that page.',
+  ])(
+    'fails without generation when no operation can fulfill %s',
+    async (intent) => {
+      vi.mocked(provider.selectBest).mockResolvedValue(webTools.length);
+      const node = createNode(webTools);
+
+      const response = await node.sendMessage(
+        message([request('request-none', { intent })]),
+      );
+
+      expect(provider.generateWithTools).not.toHaveBeenCalled();
+      expect(mcpClient.invokeTool).not.toHaveBeenCalled();
+      expect(outcomes(response)[0]).toEqual(
+        expect.objectContaining({
+          requestId: 'request-none',
+          intent,
+          success: false,
+          error: expect.stringContaining('no advertised MCP operation'),
+        }),
+      );
+      expect(telemetryEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'tool.elaboration-completed',
+          data: expect.objectContaining({
+            errorCategory: 'no-applicable-tool',
+            resolvedCandidateIndex: webTools.length,
+            resolvedOperation: 'legion_no_applicable_tool',
+          }),
+        }),
+      );
     },
   );
 
