@@ -27,7 +27,7 @@
     "start": "npm run tui"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.0",
+    "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.2",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
